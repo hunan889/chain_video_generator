@@ -1,0 +1,180 @@
+import re
+import asyncio
+import logging
+import yaml
+from fastapi import APIRouter, Depends, HTTPException
+from api.models.schemas import (
+    CivitAISearchResponse, CivitAIModelResult, CivitAIDownloadRequest,
+)
+from api.services import civitai_client
+from api.config import LORAS_PATH, COMFYUI_PATH, CIVITAI_API_TOKEN
+from api.middleware.auth import verify_api_key
+
+logger = logging.getLogger(__name__)
+router = APIRouter()
+LORAS_DIR = COMFYUI_PATH / "models" / "loras"
+
+_download_tasks: dict[str, dict] = {}
+
+
+@router.get("/civitai/search", response_model=CivitAISearchResponse)
+async def search_civitai(
+    query: str = "wan 2.1", limit: int = 20, cursor: str = "",
+    nsfw: bool = True, sort: str = "Most Downloaded", base_model: str = "",
+    _=Depends(verify_api_key),
+):
+    try:
+        raw = await civitai_client.search_loras(query, limit, cursor, nsfw, sort, base_model)
+    except Exception as e:
+        raise HTTPException(502, f"CivitAI API error: {e}")
+    items = [civitai_client.extract_model_result(m) for m in raw.get("items", [])]
+    metadata = raw.get("metadata", {})
+    return CivitAISearchResponse(
+        items=items,
+        next_cursor=metadata.get("nextCursor", ""),
+    )
+
+
+@router.get("/civitai/models/{model_id}", response_model=CivitAIModelResult)
+async def get_civitai_model(model_id: int, _=Depends(verify_api_key)):
+    try:
+        raw = await civitai_client.get_model(model_id)
+    except Exception as e:
+        raise HTTPException(502, f"CivitAI API error: {e}")
+    return civitai_client.extract_model_result(raw)
+
+
+def _sanitize_name(name: str) -> str:
+    s = re.sub(r"[^a-zA-Z0-9\s]", "", name).strip().lower()
+    return re.sub(r"\s+", "_", s)
+
+
+def _register_lora(model_data: dict, version_data: dict, filename: str):
+    """Register downloaded LoRA into loras.yaml with CivitAI metadata."""
+    try:
+        with open(LORAS_PATH) as f:
+            data = yaml.safe_load(f) or {}
+    except FileNotFoundError:
+        data = {}
+    loras = data.get("loras", [])
+
+    version_id = version_data.get("id")
+    file_base = filename.replace(".safetensors", "")
+
+    # Dedup by civitai_version_id or file
+    for existing in loras:
+        if existing.get("civitai_version_id") == version_id:
+            return existing
+        if existing.get("file") == file_base:
+            return existing
+
+    trained_words = version_data.get("trainedWords", []) or []
+    model_tags = model_data.get("tags", []) or []
+    preview_url = None
+    images = version_data.get("images", [])
+    if images:
+        preview_url = images[0].get("url")
+
+    entry = {
+        "name": _sanitize_name(model_data.get("name", file_base)),
+        "file": file_base,
+        "description": civitai_client._strip_html(model_data.get("description", ""), 200),
+        "default_strength": 0.8,
+        "trigger_words": trained_words,
+        "tags": model_tags,
+        "civitai_id": model_data.get("id"),
+        "civitai_version_id": version_id,
+        "preview_url": preview_url,
+    }
+    loras.append(entry)
+    data["loras"] = loras
+    with open(LORAS_PATH, "w") as f:
+        yaml.dump(data, f, allow_unicode=True, default_flow_style=False)
+    return entry
+
+
+@router.post("/civitai/download")
+async def download_from_civitai(req: CivitAIDownloadRequest, _=Depends(verify_api_key)):
+    import uuid
+
+    try:
+        model_data = await civitai_client.get_model(req.model_id)
+    except Exception as e:
+        raise HTTPException(502, f"CivitAI API error: {e}")
+
+    # If direct download_url provided, use it; otherwise resolve from version
+    if req.download_url:
+        dl_url = req.download_url
+        # Extract filename from URL if not provided
+        filename = req.filename.strip()
+        if not filename:
+            fname_part = dl_url.split("/")[-1].split("?")[0]
+            filename = fname_part if fname_part and "." in fname_part else ""
+        version_data = {}
+        # Try to find version data from model for metadata
+        for mv in model_data.get("modelVersions", []):
+            for fi in mv.get("files", []):
+                if fi.get("downloadUrl") == dl_url or fi.get("name") == filename:
+                    version_data = mv
+                    if not filename:
+                        filename = fi.get("name", "")
+                    break
+            if version_data:
+                break
+    else:
+        if not req.version_id:
+            raise HTTPException(400, "version_id or download_url required")
+        try:
+            version_data = await civitai_client.get_version(req.version_id)
+        except Exception as e:
+            raise HTTPException(502, f"CivitAI API error: {e}")
+        dl_url = civitai_client.download_url(req.version_id)
+        filename = req.filename.strip()
+        if not filename:
+            files = version_data.get("files", [])
+            if files:
+                filename = files[0].get("name", "")
+
+    if not filename:
+        filename = f"civitai_{req.model_id}.safetensors"
+    if not filename.endswith(".safetensors"):
+        filename += ".safetensors"
+
+    dl_id = uuid.uuid4().hex[:8]
+    _download_tasks[dl_id] = {"status": "downloading", "filename": filename, "error": ""}
+
+    async def _do_download():
+        try:
+            dest = str(LORAS_DIR / filename)
+            cmd = ["curl", "-sL", "-o", dest]
+            if CIVITAI_API_TOKEN:
+                cmd += ["-H", f"Authorization: Bearer {CIVITAI_API_TOKEN}"]
+            cmd.append(dl_url)
+            proc = await asyncio.create_subprocess_exec(*cmd)
+            await proc.wait()
+            if proc.returncode == 0:
+                import os
+                size = os.path.getsize(dest)
+                if size > 1_000_000:
+                    entry = _register_lora(model_data, version_data, filename)
+                    _download_tasks[dl_id]["status"] = "completed"
+                    _download_tasks[dl_id]["lora_entry"] = entry
+                else:
+                    _download_tasks[dl_id]["status"] = "failed"
+                    _download_tasks[dl_id]["error"] = f"File too small ({size} bytes)"
+            else:
+                _download_tasks[dl_id]["status"] = "failed"
+                _download_tasks[dl_id]["error"] = f"curl exit code {proc.returncode}"
+        except Exception as e:
+            _download_tasks[dl_id]["status"] = "failed"
+            _download_tasks[dl_id]["error"] = str(e)
+
+    asyncio.create_task(_do_download())
+    return {"download_id": dl_id, "status": "downloading", "filename": filename}
+
+
+@router.get("/civitai/download/{dl_id}")
+async def get_civitai_download_status(dl_id: str, _=Depends(verify_api_key)):
+    if dl_id not in _download_tasks:
+        raise HTTPException(404, "Download not found")
+    return _download_tasks[dl_id]

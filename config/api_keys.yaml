@@ -1,0 +1,4 @@
+keys:
+  - key: "wan22-default-key-change-me"
+    name: "default"
+    enabled: true

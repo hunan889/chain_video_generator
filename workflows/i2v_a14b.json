@@ -1,0 +1,134 @@
+{
+  "1": {
+    "class_type": "WanVideoModelLoader",
+    "inputs": {
+      "model": "Wan2_2-I2V-A14B-HIGH_bf16.safetensors",
+      "base_precision": "bf16",
+      "quantization": "fp8_e4m3fn",
+      "load_device": "offload_device"
+    }
+  },
+  "2": {
+    "class_type": "WanVideoModelLoader",
+    "inputs": {
+      "model": "Wan2_2-I2V-A14B-LOW_bf16.safetensors",
+      "base_precision": "bf16",
+      "quantization": "fp8_e4m3fn",
+      "load_device": "offload_device"
+    }
+  },
+  "3": {
+    "class_type": "LoadWanVideoT5TextEncoder",
+    "inputs": {
+      "model_name": "umt5-xxl-enc-fp8_e4m3fn.safetensors",
+      "precision": "bf16",
+      "load_device": "offload_device",
+      "quantization": "disabled"
+    }
+  },
+  "4": {
+    "class_type": "WanVideoTextEncode",
+    "inputs": {
+      "positive_prompt": "",
+      "negative_prompt": "",
+      "t5": ["3", 0],
+      "force_offload": true
+    }
+  },
+  "5": {
+    "class_type": "LoadImage",
+    "inputs": {
+      "image": "upload.png"
+    }
+  },
+  "6": {
+    "class_type": "WanVideoVAELoader",
+    "inputs": {
+      "model_name": "Wan2_1_VAE_bf16.safetensors",
+      "precision": "bf16"
+    }
+  },
+  "13": {
+    "class_type": "WanVideoImageResizeToClosest",
+    "inputs": {
+      "image": ["5", 0],
+      "generation_width": 848,
+      "generation_height": 480,
+      "aspect_ratio_preservation": "crop_to_new"
+    }
+  },
+  "7": {
+    "class_type": "WanVideoImageToVideoEncode",
+    "inputs": {
+      "width": 848,
+      "height": 480,
+      "num_frames": 81,
+      "noise_aug_strength": 0.0,
+      "start_latent_strength": 1.0,
+      "end_latent_strength": 1.0,
+      "force_offload": true,
+      "vae": ["6", 0],
+      "start_image": ["13", 0]
+    }
+  },
+  "8": {
+    "class_type": "WanVideoSampler",
+    "inputs": {
+      "model": ["1", 0],
+      "image_embeds": ["7", 0],
+      "text_embeds": ["4", 0],
+      "steps": 30,
+      "cfg": 6.0,
+      "shift": 5.0,
+      "seed": 0,
+      "force_offload": true,
+      "scheduler": "unipc",
+      "riflex_freq_index": 0,
+      "start_step": 0,
+      "end_step": 15
+    }
+  },
+  "9": {
+    "class_type": "WanVideoSampler",
+    "inputs": {
+      "model": ["2", 0],
+      "image_embeds": ["7", 0],
+      "text_embeds": ["4", 0],
+      "samples": ["8", 0],
+      "steps": 30,
+      "cfg": 6.0,
+      "shift": 5.0,
+      "seed": 0,
+      "force_offload": true,
+      "scheduler": "unipc",
+      "riflex_freq_index": 0,
+      "start_step": 15,
+      "end_step": -1,
+      "denoise_strength": 1.0
+    }
+  },
+  "10": {
+    "class_type": "WanVideoDecode",
+    "inputs": {
+      "vae": ["6", 0],
+      "samples": ["9", 0],
+      "enable_vae_tiling": false,
+      "tile_x": 272,
+      "tile_y": 272,
+      "tile_stride_x": 144,
+      "tile_stride_y": 128
+    }
+  },
+  "11": {
+    "class_type": "VHS_VideoCombine",
+    "inputs": {
+      "images": ["10", 0],
+      "frame_rate": 24,
+      "loop_count": 0,
+      "filename_prefix": "wan22_i2v",
+      "format": "video/h264-mp4",
+      "pingpong": false,
+      "save_output": true
+    }
+  }
+}

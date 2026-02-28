@@ -1,0 +1,188 @@
+from typing import Optional, Literal
+from pydantic import BaseModel, Field, field_validator
+from .enums import ModelType, TaskStatus
+
+VALID_SCHEDULERS = [
+    "unipc", "unipc/beta",
+    "dpm++", "dpm++/beta",
+    "dpm++_sde", "dpm++_sde/beta",
+    "euler", "euler/beta",
+    "longcat_distill_euler",
+    "deis",
+    "lcm", "lcm/beta",
+    "res_multistep",
+    "er_sde",
+    "flowmatch_causvid",
+    "flowmatch_distill",
+    "flowmatch_pusa",
+    "multitalk",
+    "sa_ode_stable",
+    "rcm",
+    "vibt_unipc",
+]
+
+
+class LoraInput(BaseModel):
+    name: str
+    strength: float = Field(default=0.8, ge=-2.0, le=2.0)
+
+
+class GenerateRequest(BaseModel):
+    prompt: str = Field(..., min_length=1, max_length=2000)
+    negative_prompt: str = Field(default="", max_length=2000)
+    model: ModelType = ModelType.A14B
+    model_preset: str = Field(default="", description="Model preset name, e.g. 'default', 'nsfw_v2'")
+    width: int = Field(default=848, ge=64, le=1920, multiple_of=8)
+    height: int = Field(default=480, ge=64, le=1920, multiple_of=8)
+    num_frames: int = Field(default=81, ge=1, le=241)
+    fps: int = Field(default=24, ge=1, le=60)
+    steps: int = Field(default=20, ge=1, le=100)
+    cfg: float = Field(default=6.0, ge=0.0, le=30.0)
+    shift: float = Field(default=5.0, ge=0.0, le=20.0)
+    seed: Optional[int] = Field(default=None, ge=0)
+    loras: list[LoraInput] = Field(default_factory=list)
+    scheduler: str = Field(default="unipc")
+    upscale: bool = Field(default=False, description="Enable 2x upscaling after generation")
+
+    @field_validator("scheduler")
+    @classmethod
+    def validate_scheduler(cls, v):
+        if v not in VALID_SCHEDULERS:
+            raise ValueError(f"Invalid scheduler '{v}'. Valid: {VALID_SCHEDULERS}")
+        return v
+
+
+class GenerateI2VRequest(BaseModel):
+    prompt: str = Field(..., min_length=1, max_length=2000)
+    negative_prompt: str = Field(default="", max_length=2000)
+    model: ModelType = ModelType.A14B
+    model_preset: str = Field(default="", description="Model preset name")
+    width: int = Field(default=832, ge=64, le=1920, multiple_of=8)
+    height: int = Field(default=480, ge=64, le=1920, multiple_of=8)
+    num_frames: int = Field(default=81, ge=1, le=241)
+    fps: int = Field(default=24, ge=1, le=60)
+    steps: int = Field(default=20, ge=1, le=100)
+    cfg: float = Field(default=6.0, ge=0.0, le=30.0)
+    shift: float = Field(default=5.0, ge=0.0, le=20.0)
+    seed: Optional[int] = Field(default=None, ge=0)
+    loras: list[LoraInput] = Field(default_factory=list)
+    scheduler: str = Field(default="unipc")
+    noise_aug_strength: float = Field(default=0.0, ge=0.0, le=1.0)
+    motion_amplitude: float = Field(default=0.0, ge=0.0, le=1.0, description="Augment empty frames strength (0=disabled, 0.15=recommended)")
+    color_match: bool = Field(default=True, description="Enable ColorMatch post-processing")
+    color_match_method: str = Field(default="mkl", description="ColorMatch method: mkl/hm/reinhard")
+    resize_mode: str = Field(default="crop_to_new", description="Image resize mode: crop_to_new/stretch_to_new/keep_input")
+    upscale: bool = Field(default=False, description="Enable 2x upscaling after generation")
+
+    @field_validator("scheduler")
+    @classmethod
+    def validate_scheduler(cls, v):
+        if v not in VALID_SCHEDULERS:
+            raise ValueError(f"Invalid scheduler '{v}'. Valid: {VALID_SCHEDULERS}")
+        return v
+
+    @field_validator("color_match_method")
+    @classmethod
+    def validate_color_match_method(cls, v):
+        valid = ["mkl", "hm", "reinhard"]
+        if v not in valid:
+            raise ValueError(f"Invalid color_match_method '{v}'. Valid: {valid}")
+        return v
+
+    @field_validator("resize_mode")
+    @classmethod
+    def validate_resize_mode(cls, v):
+        valid = ["crop_to_new", "stretch_to_new", "keep_input"]
+        if v not in valid:
+            raise ValueError(f"Invalid resize_mode '{v}'. Valid: {valid}")
+        return v
+
+
+class TaskResponse(BaseModel):
+    task_id: str
+    status: TaskStatus
+    mode: Optional[str] = None
+    model: Optional[str] = None
+    progress: Optional[float] = None
+    video_url: Optional[str] = None
+    error: Optional[str] = None
+    params: Optional[dict] = None
+    created_at: Optional[int] = None
+    completed_at: Optional[int] = None
+
+
+class GenerateResponse(BaseModel):
+    task_id: str
+    status: TaskStatus = TaskStatus.QUEUED
+
+
+class LoraInfo(BaseModel):
+    name: str
+    file: str
+    description: str = ""
+    default_strength: float = 0.8
+    trigger_words: list[str] = Field(default_factory=list)
+    tags: list[str] = Field(default_factory=list)
+    civitai_id: Optional[int] = None
+    civitai_version_id: Optional[int] = None
+    preview_url: Optional[str] = None
+
+
+class CivitAIFile(BaseModel):
+    name: str
+    size_mb: float = 0
+    download_url: str = ""
+
+
+class CivitAIModelVersion(BaseModel):
+    id: int
+    name: str
+    trained_words: list[str] = Field(default_factory=list)
+    download_url: str = ""
+    base_model: str = ""
+    file_size_mb: float = 0
+    files: list[CivitAIFile] = Field(default_factory=list)
+
+
+class CivitAIModelResult(BaseModel):
+    id: int
+    name: str
+    description: str = ""
+    tags: list[str] = Field(default_factory=list)
+    preview_url: Optional[str] = None
+    versions: list[CivitAIModelVersion] = Field(default_factory=list)
+    stats: dict = Field(default_factory=dict)
+
+
+class CivitAISearchResponse(BaseModel):
+    items: list[CivitAIModelResult]
+    next_cursor: str = ""
+
+
+class CivitAIDownloadRequest(BaseModel):
+    model_id: int
+    version_id: int = 0
+    filename: str = ""
+    download_url: str = ""  # direct file URL, overrides version_id
+
+
+class PromptOptimizeRequest(BaseModel):
+    prompt: str = Field(..., min_length=1, max_length=2000)
+    lora_names: list[str] = Field(default_factory=list)
+    mode: str = Field(default="i2v", pattern="^(t2v|i2v)$")
+    image_base64: Optional[str] = Field(default=None, description="Base64 encoded image for I2V mode")
+    duration: float = Field(default=3.3, ge=0.5, le=10, description="Video duration in seconds")
+
+
+class PromptOptimizeResponse(BaseModel):
+    original_prompt: str
+    optimized_prompt: str
+    trigger_words_used: list[str] = Field(default_factory=list)
+    explanation: str = ""
+
+
+class HealthResponse(BaseModel):
+    status: str = "ok"
+    comfyui_a14b: bool = False
+    comfyui_5b: bool = False
+    redis: bool = False
