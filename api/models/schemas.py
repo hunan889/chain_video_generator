@@ -41,6 +41,8 @@ class GenerateRequest(BaseModel):
     shift: float = Field(default=5.0, ge=0.0, le=20.0)
     seed: Optional[int] = Field(default=None, ge=0)
     loras: list[LoraInput] = Field(default_factory=list)
+    auto_lora: bool = Field(default=False, description="Auto-select LoRAs based on prompt")
+    auto_prompt: bool = Field(default=False, description="Auto-optimize prompt before generation")
     scheduler: str = Field(default="unipc")
     upscale: bool = Field(default=False, description="Enable 2x upscaling after generation")
 
@@ -66,6 +68,8 @@ class GenerateI2VRequest(BaseModel):
     shift: float = Field(default=5.0, ge=0.0, le=20.0)
     seed: Optional[int] = Field(default=None, ge=0)
     loras: list[LoraInput] = Field(default_factory=list)
+    auto_lora: bool = Field(default=False, description="Auto-select LoRAs based on prompt")
+    auto_prompt: bool = Field(default=False, description="Auto-optimize prompt before generation")
     scheduler: str = Field(default="unipc")
     noise_aug_strength: float = Field(default=0.0, ge=0.0, le=1.0)
     motion_amplitude: float = Field(default=0.0, ge=0.0, le=1.0, description="Augment empty frames strength (0=disabled, 0.15=recommended)")
@@ -186,3 +190,11 @@ class HealthResponse(BaseModel):
     comfyui_a14b: bool = False
     comfyui_5b: bool = False
     redis: bool = False
+
+
+class LoraRecommendRequest(BaseModel):
+    prompt: str = Field(..., min_length=1, max_length=2000)
+
+
+class LoraRecommendResponse(BaseModel):
+    loras: list[LoraInput] = Field(default_factory=list)

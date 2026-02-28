@@ -5,7 +5,7 @@ import logging
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from api.models.schemas import LoraInfo
-from api.config import LORAS_PATH, COMFYUI_PATH
+from api.config import LORAS_PATH, COMFYUI_PATH, CIVITAI_API_TOKEN
 from api.middleware.auth import verify_api_key
 
 logger = logging.getLogger(__name__)
@@ -69,7 +69,8 @@ async def download_lora(req: LoraDownloadRequest, _=Depends(verify_api_key)):
     # Resolve filename if not provided
     filename = req.filename.strip()
     if not filename:
-        filename = await _resolve_filename(req.url, req.token)
+        token = req.token or CIVITAI_API_TOKEN or ""
+        filename = await _resolve_filename(req.url, token)
     if not filename:
         raise HTTPException(400, "无法自动获取文件名，请手动输入")
     if not filename.endswith(".safetensors"):
@@ -80,9 +81,10 @@ async def download_lora(req: LoraDownloadRequest, _=Depends(verify_api_key)):
     async def _do_download():
         try:
             dest = str(LORAS_DIR / filename)
+            token = req.token or CIVITAI_API_TOKEN or ""
             cmd = ["curl", "-sL", "-o", dest]
-            if req.token:
-                cmd += ["-H", f"Authorization: Bearer {req.token}"]
+            if token:
+                cmd += ["-H", f"Authorization: Bearer {token}"]
             cmd.append(req.url)
             proc = await asyncio.create_subprocess_exec(*cmd)
             await proc.wait()

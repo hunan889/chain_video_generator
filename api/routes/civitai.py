@@ -59,13 +59,17 @@ def _register_lora(model_data: dict, version_data: dict, filename: str):
     loras = data.get("loras", [])
 
     version_id = version_data.get("id")
+    # Strip HIGH/LOW variant suffixes to get base name for loras.yaml
     file_base = filename.replace(".safetensors", "")
+    file_base = re.sub(r"[-_](HIGH|LOW|H|L)([-_]v?\d+)?$", "", file_base, flags=re.IGNORECASE)
 
-    # Dedup by civitai_version_id or file
+    # Dedup by civitai_version_id or file base name — update existing if found
     for existing in loras:
-        if existing.get("civitai_version_id") == version_id:
-            return existing
-        if existing.get("file") == file_base:
+        if existing.get("civitai_version_id") == version_id or existing.get("file") == file_base:
+            # Update file to base name in case it was stored with variant suffix
+            existing["file"] = file_base
+            with open(LORAS_PATH, "w") as f:
+                yaml.dump(data, f, allow_unicode=True, default_flow_style=False)
             return existing
 
     trained_words = version_data.get("trainedWords", []) or []

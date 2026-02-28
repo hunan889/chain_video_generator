@@ -7,7 +7,7 @@ from fastapi.responses import FileResponse
 from pathlib import Path
 from api.config import API_HOST, API_PORT, VIDEOS_DIR, UPLOADS_DIR
 from api.services.task_manager import TaskManager
-from api.routes import generate, generate_i2v, tasks, loras, civitai, prompt
+from api.routes import generate, generate_i2v, tasks, loras, civitai, prompt, lora_recommend
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
 logger = logging.getLogger(__name__)
@@ -41,6 +41,7 @@ app.include_router(tasks.router, prefix="/api/v1", tags=["tasks"])
 app.include_router(loras.router, prefix="/api/v1", tags=["loras"])
 app.include_router(civitai.router, prefix="/api/v1", tags=["civitai"])
 app.include_router(prompt.router, prefix="/api/v1", tags=["prompt"])
+app.include_router(lora_recommend.router, prefix="/api/v1", tags=["loras"])
 
 STATIC_DIR = Path(__file__).parent / "static"
 

@@ -254,13 +254,14 @@ def _inject_upscale(workflow: dict) -> dict:
         "inputs": {"model_name": UPSCALE_MODEL},
     }
 
-    # Add ImageUpscaleWithModel — takes decoded frames as input
+    # Add ImageUpscaleWithModelBatched — processes video frames in sub-batches for VRAM efficiency
     upscale_id = str(max_id + 2)
     workflow[upscale_id] = {
-        "class_type": "ImageUpscaleWithModel",
+        "class_type": "ImageUpscaleWithModelBatched",
         "inputs": {
             "upscale_model": [loader_id, 0],
-            "image": images_input,  # was pointing to decode output
+            "images": images_input,  # was pointing to decode output
+            "per_batch": 4,
         },
     }
 
