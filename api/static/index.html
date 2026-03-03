@@ -2431,6 +2431,7 @@ async function generateSingleSegment(segId) {
       const prevLastFrameUrl = window[`seg_${prevSegId}_last_frame_url`];
 
       console.log(`[generateSingleSegment] Story Mode segment 2+: prevSegId=${prevSegId}, prevLastFrameUrl=${prevLastFrameUrl}`);
+      console.log(`[generateSingleSegment] All window seg variables:`, Object.keys(window).filter(k => k.startsWith('seg_')));
 
       if (!prevLastFrameUrl) {
         statusBox.innerHTML = `<div style="color:#f87171;font-size:13px">错误：上一段（分段 ${prevSegId}）尚未生成或最后一帧未提取，请先生成上一段</div>`;
@@ -2669,10 +2670,15 @@ async function pollSegmentTask(segId, taskId) {
 
         // Store video URL and last frame URL for this segment
         window[`seg_${segId}_video_url`] = task.video_url;
+        console.log(`[pollSegmentTask] Segment ${segId} completed, video_url=${task.video_url}`);
         if (task.last_frame_url) {
           window[`seg_${segId}_last_frame_url`] = toLocalUrl(task.last_frame_url);
+          console.log(`[pollSegmentTask] Segment ${segId} last_frame_url stored: ${toLocalUrl(task.last_frame_url)}`);
+        } else {
+          console.warn(`[pollSegmentTask] Segment ${segId} has NO last_frame_url in task response!`);
         }
         saveSegmentsToStorage();
+        console.log(`[pollSegmentTask] Segment ${segId} data saved to storage`);
       }
 
       statusBox.innerHTML = html;
