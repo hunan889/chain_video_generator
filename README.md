@@ -31,12 +31,28 @@
 
 ```bash
 # 克隆项目
-git clone <your-repo-url>
-cd wan22-service
+git clone https://github.com/hunan889/chain_video_generator.git
+cd chain_video_generator
 
 # 运行一键安装脚本
 sudo bash install.sh
 ```
+
+### 启动 Claude Code（可选）
+
+如果您想使用 Claude Code 进行开发或调试：
+
+```bash
+bash launch_claude.sh
+```
+
+该脚本会自动：
+- 检查并安装 Claude Code（如果未安装）
+- 验证 Anthropic API Key
+- 加载项目配置和记忆
+- 在项目目录中启动 Claude Code
+
+详细使用说明请参考 [CLAUDE_USAGE.md](CLAUDE_USAGE.md)。
 
 安装脚本会自动完成：
 1. 安装系统依赖（Python, Git, ffmpeg, Redis）
