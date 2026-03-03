@@ -26,39 +26,99 @@ def _load_lora_name_map() -> dict[str, str]:
         return {}
 
 
-def _load_lora_trigger_words() -> dict[str, list[str]]:
-    """Load name -> trigger_words mapping from loras.yaml."""
+def _load_lora_keywords() -> dict[str, list[str]]:
+    """Load name -> all keywords (trigger_words + example prompt tags) from loras.yaml."""
     try:
         with open(LORAS_PATH) as f:
             data = yaml.safe_load(f)
-        return {
-            item["name"]: item.get("trigger_words", [])
-            for item in data.get("loras", [])
-            if "name" in item
-        }
     except Exception as e:
-        logger.warning(f"Failed to load trigger words: {e}")
+        logger.warning(f"Failed to load loras config: {e}")
         return {}
+    result = {}
+    for item in data.get("loras", []):
+        name = item.get("name")
+        if not name:
+            continue
+        keywords = list(item.get("trigger_words", []))
+        # Extract tag-style keywords from example prompts (short lines before first blank line)
+        for ep in item.get("example_prompts", []):
+            for line in ep.split("\n"):
+                line = line.strip()
+                if not line:
+                    break  # stop at first blank line
+                # Tag lines are short (< 30 chars) and contain no periods
+                if len(line) < 30 and "." not in line and line not in keywords:
+                    keywords.append(line)
+        result[name] = keywords
+    return result
+
+
+_ANTONYM_GROUPS = [
+    {"big", "huge", "large", "giant", "massive"},
+    {"small", "tiny", "little", "petite", "mini"},
+    {"tall", "long"},
+    {"short"},
+    {"fast", "rapid", "quick"},
+    {"slow", "gentle", "soft"},
+]
+
+
+def _has_conflict(word: str, prompt_lower: str) -> bool:
+    """Check if a trigger word semantically conflicts with the prompt."""
+    word_tokens = set(word.lower().replace(",", " ").split())
+    prompt_tokens = set(prompt_lower.replace(",", " ").split())
+    for group in _ANTONYM_GROUPS:
+        word_in_group = word_tokens & group
+        if not word_in_group:
+            continue
+        # Find the opposing groups
+        for other_group in _ANTONYM_GROUPS:
+            if other_group is group:
+                continue
+            if prompt_tokens & other_group:
+                return True
+    return False
 
 
 def _inject_trigger_words(prompt: str, loras: list[LoraInput]) -> str:
-    """Collect trigger words from selected LoRAs and prepend to prompt."""
-    tw_map = _load_lora_trigger_words()
+    """Collect trigger words and example tags from selected LoRAs and prepend to prompt."""
+    kw_map = _load_lora_keywords()
     all_words = []
     prompt_lower = prompt.lower()
     for lora in loras:
-        for word in tw_map.get(lora.name, []):
-            if word.lower() not in prompt_lower and word not in all_words:
-                all_words.append(word)
+        for word in kw_map.get(lora.name, []):
+            # Skip extremely long text blocks
+            if len(word) > 200:
+                continue
+            if word.lower() in prompt_lower or word in all_words:
+                continue
+            # Skip words that conflict with the prompt
+            if _has_conflict(word, prompt_lower):
+                logger.debug("Skipping conflicting trigger '%s' for prompt", word)
+                continue
+            all_words.append(word)
     if not all_words:
         return prompt
-    return ", ".join(all_words) + ", " + prompt
+    return "\n".join(all_words) + "\n\n" + prompt
 
 
 _lora_name_map: dict[str, str] = _load_lora_name_map()
 DIFFUSION_DIR = COMFYUI_PATH / "models" / "diffusion_models"
+TEXT_ENCODERS_DIR = COMFYUI_PATH / "models" / "text_encoders"
 
-# Model presets: name -> {high: filename, low: filename, quantization: str}
+# T5 text encoder presets: name -> {file, quantization}
+T5_PRESETS = {
+    "default": {
+        "file": "umt5-xxl-enc-fp8_e4m3fn.safetensors",
+        "quantization": "disabled",  # auto-detected as fp8 from tensor dtype
+    },
+    "nsfw": {
+        "file": "nsfw_wan_umt5-xxl_bf16.safetensors",
+        "quantization": "fp8_e4m3fn",  # runtime quantization for VRAM efficiency
+    },
+}
+
+# Model presets: name -> {high: filename, low: filename, quantization: str, recommended_params: dict}
 MODEL_PRESETS = {
     "default": {
         "high": "Wan2_2-I2V-A14B-HIGH_bf16.safetensors",
@@ -69,8 +129,18 @@ MODEL_PRESETS = {
         "high": "wan22EnhancedNSFWSVICamera_nsfwV2FP8H.safetensors",
         "low": "wan22EnhancedNSFWSVICamera_nsfwV2FP8L.safetensors",
         "quantization": "disabled",
+        "recommended_params": {"steps": 4, "cfg": 1.0, "scheduler": "euler"},
     },
 }
+
+
+def get_t5_presets() -> list[dict]:
+    """Return available T5 text encoder presets for the API."""
+    result = []
+    for name, info in T5_PRESETS.items():
+        exists = (TEXT_ENCODERS_DIR / info["file"]).exists()
+        result.append({"name": name, "file": info["file"], "quantization": info["quantization"], "available": exists})
+    return result
 
 
 def get_model_presets() -> list[dict]:
@@ -80,13 +150,16 @@ def get_model_presets() -> list[dict]:
         # Check if files exist
         h_exists = (DIFFUSION_DIR / info["high"]).exists()
         l_exists = (DIFFUSION_DIR / info["low"]).exists()
-        result.append({
+        entry = {
             "name": name,
             "high": info["high"],
             "low": info["low"],
             "quantization": info["quantization"],
             "available": h_exists and l_exists,
-        })
+        }
+        if "recommended_params" in info:
+            entry["recommended_params"] = info["recommended_params"]
+        result.append(entry)
     return result
 
 WORKFLOW_MAP = {
@@ -294,7 +367,11 @@ def build_workflow(
     color_match_method: str = "mkl",
     resize_mode: str = "crop_to_new",
     upscale: bool = False,
+    t5_preset: str = "",
 ) -> dict:
+    # Normalize loras: accept both LoraInput objects and dicts
+    if loras:
+        loras = [l if isinstance(l, LoraInput) else LoraInput(**l) for l in loras]
     # Use enhanced template when I2V features are enabled
     if mode == GenerateMode.I2V and model == ModelType.A14B and (motion_amplitude > 0 or color_match):
         template_name = "i2v_a14b_enhanced.json"
@@ -303,7 +380,7 @@ def build_workflow(
     workflow = _load_template(template_name)
 
     if seed is None:
-        seed = random.randint(0, 2**63)
+        seed = random.randint(0, 1125899906842624)
 
     # Align num_frames to 4n+1 (required by Wan2.2 VAE)
     if (num_frames - 1) % 4 != 0:
@@ -330,6 +407,21 @@ def build_workflow(
                 elif "LOW" in cur_model:
                     inputs["model"] = preset["low"]
                 inputs["quantization"] = preset["quantization"]
+        # Apply recommended sampling params from preset
+        rec = preset.get("recommended_params")
+        if rec:
+            steps = rec.get("steps", steps)
+            cfg = rec.get("cfg", cfg)
+            scheduler = rec.get("scheduler", scheduler)
+
+    # Apply T5 text encoder preset
+    t5_info = T5_PRESETS.get(t5_preset) if t5_preset else None
+    if t5_info:
+        for node_id, node in workflow.items():
+            if node.get("class_type") == "LoadWanVideoT5TextEncoder":
+                inputs = node.get("inputs", {})
+                inputs["model_name"] = t5_info["file"]
+                inputs["quantization"] = t5_info["quantization"]
 
     # Walk through nodes and set parameters
     final_prompt = _inject_trigger_words(prompt, loras) if loras else prompt
@@ -398,4 +490,559 @@ def build_workflow(
     if upscale:
         workflow = _inject_upscale(workflow)
 
+    return workflow
+
+
+# ── Story mode (PainterI2V / PainterLongVideo) ──────────────────────
+
+# UNETLoader model presets (same files, different loader class)
+STORY_MODEL_PRESETS = {
+    "nsfw_v2": {
+        "high": "wan22EnhancedNSFWSVICamera_nsfwV2FP8H.safetensors",
+        "low": "wan22EnhancedNSFWSVICamera_nsfwV2FP8L.safetensors",
+    },
+    "default": {
+        "high": "Wan2_2-I2V-A14B-HIGH_bf16.safetensors",
+        "low": "Wan2_2-I2V-A14B-LOW_bf16.safetensors",
+    },
+}
+
+# CLIPLoader presets for story mode
+STORY_CLIP_PRESETS = {
+    "nsfw": "nsfw_wan_umt5-xxl_fp8_scaled.safetensors",
+    "default": "umt5-xxl-enc-bf16.safetensors",
+}
+
+
+def get_story_model_presets() -> list[dict]:
+    """Return available story model presets for the API."""
+    result = []
+    for name, info in STORY_MODEL_PRESETS.items():
+        h_exists = (DIFFUSION_DIR / info["high"]).exists()
+        l_exists = (DIFFUSION_DIR / info["low"]).exists()
+        result.append({"name": name, "high": info["high"], "low": info["low"], "available": h_exists and l_exists})
+    return result
+
+
+def get_story_clip_presets() -> list[dict]:
+    """Return available CLIP presets for story mode."""
+    result = []
+    for name, filename in STORY_CLIP_PRESETS.items():
+        exists = (TEXT_ENCODERS_DIR / filename).exists()
+        result.append({"name": name, "file": filename, "available": exists})
+    return result
+
+
+def _inject_story_loras(workflow: dict, loras: list[LoraInput]) -> dict:
+    """Inject Power Lora Loader (rgthree) nodes between UNETLoader and WanMoeKSamplerAdvanced.
+
+    For each UNETLoader (HIGH/LOW), chain LoRA loaders and rewire
+    the sampler's model_high_noise / model_low_noise to the last loader.
+    """
+    if not loras:
+        return workflow
+
+    # Find UNETLoader nodes and determine HIGH/LOW
+    unet_nodes = {}  # "high" or "low" -> node_id
+    for nid, node in workflow.items():
+        if node.get("class_type") == "UNETLoader":
+            title = node.get("_meta", {}).get("title", "").upper()
+            unet_name = node.get("inputs", {}).get("unet_name", "").upper()
+            if "HIGH" in title or "HIGH" in unet_name:
+                unet_nodes["high"] = nid
+            elif "LOW" in title or "LOW" in unet_name:
+                unet_nodes["low"] = nid
+
+    if not unet_nodes:
+        logger.warning("No UNETLoader nodes found for story LoRA injection")
+        return workflow
+
+    max_id = max(int(k) for k in workflow.keys())
+
+    for variant, unet_nid in unet_nodes.items():
+        # Build a chain of Power Lora Loader nodes
+        prev_output = [unet_nid, 0]
+        last_lora_id = None
+
+        for lora in loras:
+            base_name = _lora_name_map.get(lora.name, lora.name)
+            lora_file = _find_lora_file(base_name, variant)
+            if not lora_file:
+                # Try single-file LoRA (no HIGH/LOW variant)
+                lora_file = _find_lora_file(base_name, "")
+            if not lora_file:
+                logger.warning("Story LoRA file not found for %s variant=%s, skipping", lora.name, variant)
+                continue
+
+            max_id += 1
+            new_id = str(max_id)
+            workflow[new_id] = {
+                "class_type": "Power Lora Loader (rgthree)",
+                "inputs": {
+                    "PowerLoraLoaderHeaderWidget": {"type": "PowerLoraLoaderHeaderWidget"},
+                    "➕ Add Lora": "",
+                    "lora_1": {
+                        "on": True,
+                        "lora": lora_file,
+                        "strength": lora.strength,
+                        "strengthTwo": lora.strength,
+                    },
+                    "model": prev_output,
+                },
+                "_meta": {
+                    "title": f"LoRA {variant.upper()}"
+                },
+            }
+            prev_output = [new_id, 0]
+            last_lora_id = new_id
+
+        if last_lora_id is None:
+            continue  # no loras added for this variant
+
+        # Rewire: find WanMoeKSamplerAdvanced and update model_high_noise / model_low_noise
+        target_key = "model_high_noise" if variant == "high" else "model_low_noise"
+        for nid, node in workflow.items():
+            if node.get("class_type") == "WanMoeKSamplerAdvanced":
+                inputs = node.get("inputs", {})
+                old_ref = inputs.get(target_key)
+                if isinstance(old_ref, list) and old_ref[0] == unet_nid:
+                    inputs[target_key] = [last_lora_id, 0]
+
+    return workflow
+
+
+def build_story_workflow(
+    is_first_segment: bool,
+    prompt: str,
+    negative_prompt: str,
+    width: int,
+    height: int,
+    num_frames: int,
+    seed: Optional[int],
+    shift: float,
+    cfg: float,
+    steps: int = 20,
+    motion_amplitude: float = 1.15,
+    motion_frames: int = 5,
+    boundary: float = 0.9,
+    image_filename: str = "",
+    initial_ref_filename: str = "",
+    model_preset: str = "nsfw_v2",
+    clip_preset: str = "nsfw",
+    fps: int = 16,
+    upscale: bool = False,
+    loras: Optional[list[LoraInput]] = None,
+) -> dict:
+    """Build a Story workflow using PainterI2V (first segment) or PainterLongVideo (continuation).
+
+    Args:
+        is_first_segment: True for first segment (PainterI2V), False for continuation (PainterLongVideo).
+        image_filename: For seg1, the start image. For seg2+, the previous segment's last frame.
+        initial_ref_filename: For seg2+, the original first-frame image (identity anchor).
+    """
+    if is_first_segment:
+        template_name = "i2v_a14b_story_first.json"
+    else:
+        template_name = "i2v_a14b_story_continue.json"
+
+    workflow = _load_template(template_name)
+
+    if seed is None:
+        seed = random.randint(0, 1125899906842624)
+
+    # Align num_frames to 4n+1
+    if (num_frames - 1) % 4 != 0:
+        num_frames = ((num_frames - 1) // 4 + 1) * 4 + 1
+        logger.info("Story: aligned num_frames to %d", num_frames)
+
+    # Align width/height to 16
+    if width % 16 != 0:
+        width = (width // 16) * 16
+    if height % 16 != 0:
+        height = (height // 16) * 16
+
+    # Resolve model preset
+    model_info = STORY_MODEL_PRESETS.get(model_preset, STORY_MODEL_PRESETS["nsfw_v2"])
+    clip_file = STORY_CLIP_PRESETS.get(clip_preset, STORY_CLIP_PRESETS["nsfw"])
+
+    # Inject trigger words from LoRAs into prompt
+    if loras:
+        normalized_for_tw = [l if isinstance(l, LoraInput) else LoraInput(**l) for l in loras]
+        final_prompt = _inject_trigger_words(prompt, normalized_for_tw)
+    else:
+        final_prompt = prompt
+
+    for node_id, node in workflow.items():
+        ct = node.get("class_type", "")
+        inputs = node.get("inputs", {})
+
+        # UNETLoader — set model filenames
+        if ct == "UNETLoader":
+            cur = inputs.get("unet_name", "").upper()
+            if "HIGH" in cur or "HIGH" in node.get("_meta", {}).get("title", "").upper():
+                inputs["unet_name"] = model_info["high"]
+            elif "LOW" in cur or "LOW" in node.get("_meta", {}).get("title", "").upper():
+                inputs["unet_name"] = model_info["low"]
+
+        # CLIPLoader — set clip model
+        elif ct == "CLIPLoader":
+            inputs["clip_name"] = clip_file
+
+        # CLIPTextEncode — set prompts
+        elif ct == "CLIPTextEncode":
+            title = node.get("_meta", {}).get("title", "").lower()
+            if "negative" in title:
+                inputs["text"] = negative_prompt
+            elif "positive" in title:
+                inputs["text"] = final_prompt
+
+        # PainterI2V — first segment
+        elif ct == "PainterI2V":
+            inputs["width"] = width
+            inputs["height"] = height
+            if num_frames > 0:
+                inputs["length"] = num_frames
+            inputs["motion_amplitude"] = motion_amplitude
+
+        # PainterLongVideo — continuation segment
+        elif ct == "PainterLongVideo":
+            inputs["width"] = width
+            inputs["height"] = height
+            if num_frames > 0:
+                inputs["length"] = num_frames
+            inputs["motion_frames"] = motion_frames
+            inputs["motion_amplitude"] = motion_amplitude
+
+        # WanMoeKSamplerAdvanced — sampling params
+        elif ct == "WanMoeKSamplerAdvanced":
+            inputs["steps"] = steps
+            inputs["boundary"] = boundary
+            inputs["cfg_high_noise"] = cfg
+            inputs["cfg_low_noise"] = cfg
+            inputs["sigma_shift"] = shift
+
+        # Seed
+        elif ct == "Seed (rgthree)":
+            inputs["seed"] = seed
+
+        # VHS_VideoCombine — frame rate
+        elif ct == "VHS_VideoCombine":
+            inputs["frame_rate"] = fps
+
+        # LoadImage — set image filenames
+        elif ct == "LoadImage":
+            title = node.get("_meta", {}).get("title", "").lower()
+            if is_first_segment:
+                # First segment: only one LoadImage for start_image
+                inputs["image"] = image_filename
+            else:
+                # Continuation: two LoadImages
+                if "previous" in title or "frame" in title:
+                    inputs["image"] = image_filename
+                elif "initial" in title or "reference" in title:
+                    inputs["image"] = initial_ref_filename
+                else:
+                    # Fallback: node "10" is previous, node "11" is reference
+                    if node_id == "10":
+                        inputs["image"] = image_filename
+                    elif node_id == "11":
+                        inputs["image"] = initial_ref_filename
+
+    # Inject LoRAs via Power Lora Loader (rgthree)
+    if loras:
+        normalized = [l if isinstance(l, LoraInput) else LoraInput(**l) for l in loras]
+        workflow = _inject_story_loras(workflow, normalized)
+
+    # Inject upscale if enabled
+    if upscale:
+        workflow = _inject_upscale(workflow)
+
+    return workflow
+
+
+def build_merged_story_workflow(
+    segments: list[dict],
+    width: int,
+    height: int,
+    shift: float,
+    cfg: float,
+    steps: int = 20,
+    motion_amplitude: float = 1.15,
+    motion_frames: int = 5,
+    boundary: float = 0.9,
+    image_filename: str = "",
+    model_preset: str = "nsfw_v2",
+    clip_preset: str = "nsfw",
+    fps: int = 16,
+    upscale: bool = False,
+    loras: Optional[list[LoraInput]] = None,
+) -> dict:
+    """Build a single merged ComfyUI workflow containing N story segments.
+
+    All segments share model loader nodes (UNETLoader HIGH/LOW, VAELoader, CLIPLoader).
+    Segment 0 uses PainterI2V; segments 1+ use PainterLongVideo with previous_video
+    connected to the prior segment's VAEDecode output (no LoadImage needed for continuation).
+    """
+    if loras:
+        loras = [l if isinstance(l, LoraInput) else LoraInput(**l) for l in loras]
+
+    # Align width/height to 16
+    if width % 16 != 0:
+        width = (width // 16) * 16
+    if height % 16 != 0:
+        height = (height // 16) * 16
+
+    # Resolve presets
+    model_info = STORY_MODEL_PRESETS.get(model_preset, STORY_MODEL_PRESETS["nsfw_v2"])
+    clip_file = STORY_CLIP_PRESETS.get(clip_preset, STORY_CLIP_PRESETS["nsfw"])
+
+    workflow: dict = {}
+
+    # ── Shared nodes (fixed IDs 1-4) ──
+    workflow["1"] = {
+        "class_type": "UNETLoader",
+        "inputs": {
+            "unet_name": model_info["high"],
+            "weight_dtype": "fp8_e4m3fn_fast",
+        },
+        "_meta": {"title": "Load Diffusion Model HIGH"},
+    }
+    workflow["2"] = {
+        "class_type": "UNETLoader",
+        "inputs": {
+            "unet_name": model_info["low"],
+            "weight_dtype": "fp8_e4m3fn_fast",
+        },
+        "_meta": {"title": "Load Diffusion Model LOW"},
+    }
+    workflow["3"] = {
+        "class_type": "VAELoader",
+        "inputs": {
+            "vae_name": "wan_2.1_vae.safetensors",
+        },
+        "_meta": {"title": "Load VAE"},
+    }
+    workflow["4"] = {
+        "class_type": "CLIPLoader",
+        "inputs": {
+            "clip_name": clip_file,
+            "type": "wan",
+            "device": "cpu",
+        },
+        "_meta": {"title": "Load CLIP/T5"},
+    }
+
+    # Model node IDs for sampler references (may be rewired by LoRA injection)
+    model_high_ref = ["1", 0]
+    model_low_ref = ["2", 0]
+
+    # ── Per-segment nodes ──
+    # Node ID scheme: segment_index * 100 + offset (seg0: 10-19, seg1: 110-119, ...)
+    for seg_idx, seg in enumerate(segments):
+        base = seg_idx * 100 + 10
+
+        prompt = seg.get("prompt", "")
+        negative_prompt = seg.get("negative_prompt", "")
+        num_frames = seg.get("num_frames", 81)
+        seed = seg.get("seed")
+        if seed is None:
+            seed = random.randint(0, 1125899906842624)
+
+        # Align num_frames to 4n+1
+        if (num_frames - 1) % 4 != 0:
+            num_frames = ((num_frames - 1) // 4 + 1) * 4 + 1
+
+        # Inject trigger words from LoRAs
+        if loras:
+            final_prompt = _inject_trigger_words(prompt, loras)
+        else:
+            final_prompt = prompt
+
+        # Node offsets within each segment block:
+        # +0: LoadImage (seg0 only)
+        # +1: CLIPTextEncode (positive)
+        # +2: CLIPTextEncode (negative)
+        # +3: PainterI2V or PainterLongVideo
+        # +4: (unused, was VRAMCleanup pre-sample)
+        # +5: Seed
+        # +6: WanMoeKSamplerAdvanced
+        # +7: (unused, was VRAMCleanup post-sample)
+        # +8: VAEDecode
+        # +9: VHS_VideoCombine
+
+        n_load_image = str(base + 0)
+        n_clip_pos = str(base + 1)
+        n_clip_neg = str(base + 2)
+        n_painter = str(base + 3)
+        n_vram_pre = str(base + 4)
+        n_seed = str(base + 5)
+        n_sampler = str(base + 6)
+        n_vram_post = str(base + 7)
+        n_vae_decode = str(base + 8)
+        n_video_combine = str(base + 9)
+
+        # CLIPTextEncode (positive)
+        workflow[n_clip_pos] = {
+            "class_type": "CLIPTextEncode",
+            "inputs": {
+                "text": final_prompt,
+                "clip": ["4", 0],
+            },
+            "_meta": {"title": f"CLIP Text Encode (Positive) seg{seg_idx}"},
+        }
+
+        # CLIPTextEncode (negative)
+        workflow[n_clip_neg] = {
+            "class_type": "CLIPTextEncode",
+            "inputs": {
+                "text": negative_prompt,
+                "clip": ["4", 0],
+            },
+            "_meta": {"title": f"CLIP Text Encode (Negative) seg{seg_idx}"},
+        }
+
+        if seg_idx == 0:
+            # ── Segment 0: PainterI2V ──
+            workflow[n_load_image] = {
+                "class_type": "LoadImage",
+                "inputs": {"image": image_filename},
+                "_meta": {"title": "Load Start Image"},
+            }
+
+            workflow[n_painter] = {
+                "class_type": "PainterI2V",
+                "inputs": {
+                    "width": width,
+                    "height": height,
+                    "length": num_frames,
+                    "batch_size": 1,
+                    "motion_amplitude": motion_amplitude,
+                    "positive": [n_clip_pos, 0],
+                    "negative": [n_clip_neg, 0],
+                    "vae": ["3", 0],
+                    "start_image": [n_load_image, 0],
+                },
+                "_meta": {"title": "PainterI2V seg0"},
+            }
+        else:
+            # ── Segment 1+: PainterLongVideo ──
+            # previous_video = prior segment's VAEDecode output (IMAGE tensor)
+            prev_vae_decode = str((seg_idx - 1) * 100 + 10 + 8)
+
+            workflow[n_painter] = {
+                "class_type": "PainterLongVideo",
+                "inputs": {
+                    "width": width,
+                    "height": height,
+                    "length": num_frames,
+                    "batch_size": 1,
+                    "motion_frames": motion_frames,
+                    "motion_amplitude": motion_amplitude,
+                    "positive": [n_clip_pos, 0],
+                    "negative": [n_clip_neg, 0],
+                    "vae": ["3", 0],
+                    "previous_video": [prev_vae_decode, 0],
+                    "initial_reference_image": ["10", 0],  # seg0 LoadImage = identity anchor
+                },
+                "_meta": {"title": f"PainterLongVideo seg{seg_idx}"},
+            }
+
+        # No VRAMCleanup - keep models loaded for all segments to maximize speed
+        painter_latent_ref = [n_painter, 2]
+
+        # Seed
+        workflow[n_seed] = {
+            "class_type": "Seed (rgthree)",
+            "inputs": {"seed": seed},
+            "_meta": {"title": f"Seed seg{seg_idx}"},
+        }
+
+        # WanMoeKSamplerAdvanced
+        workflow[n_sampler] = {
+            "class_type": "WanMoeKSamplerAdvanced",
+            "inputs": {
+                "boundary": boundary,
+                "add_noise": "enable",
+                "noise_seed": [n_seed, 0],
+                "steps": steps,
+                "cfg_high_noise": cfg,
+                "cfg_low_noise": cfg,
+                "sampler_name": "euler",
+                "scheduler": "simple",
+                "sigma_shift": shift,
+                "start_at_step": 0,
+                "end_at_step": 10000,
+                "return_with_leftover_noise": "disable",
+                "model_high_noise": list(model_high_ref),
+                "model_low_noise": list(model_low_ref),
+                "positive": [n_painter, 0],
+                "negative": [n_painter, 1],
+                "latent_image": list(painter_latent_ref),
+            },
+            "_meta": {"title": f"WanMoeKSampler seg{seg_idx}"},
+        }
+
+        # VAEDecode — directly from sampler
+        workflow[n_vae_decode] = {
+            "class_type": "VAEDecode",
+            "inputs": {
+                "samples": [n_sampler, 0],
+                "vae": ["3", 0],
+            },
+            "_meta": {"title": f"VAE Decode seg{seg_idx}"},
+        }
+
+        # VHS_VideoCombine — each segment produces a video file with unique prefix
+        workflow[n_video_combine] = {
+            "class_type": "VHS_VideoCombine",
+            "inputs": {
+                "frame_rate": fps,
+                "loop_count": 0,
+                "filename_prefix": f"story_seg_{seg_idx}",
+                "format": "video/h264-mp4",
+                "pix_fmt": "yuv420p",
+                "crf": 19,
+                "save_metadata": True,
+                "trim_to_audio": False,
+                "pingpong": False,
+                "save_output": True,
+                "images": [n_vae_decode, 0],
+            },
+            "_meta": {"title": f"Video Combine seg{seg_idx}"},
+        }
+
+    # Inject LoRAs via Power Lora Loader on shared UNET nodes
+    if loras:
+        workflow = _inject_story_loras(workflow, loras)
+
+    # Inject upscale on each segment if enabled
+    if upscale:
+        max_id = max(int(k) for k in workflow.keys())
+        upscale_loader_id = None
+        for seg_idx in range(len(segments)):
+            base = seg_idx * 100 + 10
+            n_vae_decode = str(base + 8)
+            n_video_combine = str(base + 9)
+
+            if upscale_loader_id is None:
+                max_id += 1
+                upscale_loader_id = str(max_id)
+                workflow[upscale_loader_id] = {
+                    "class_type": "UpscaleModelLoader",
+                    "inputs": {"model_name": UPSCALE_MODEL},
+                }
+
+            max_id += 1
+            upscale_id = str(max_id)
+            workflow[upscale_id] = {
+                "class_type": "ImageUpscaleWithModelBatched",
+                "inputs": {
+                    "upscale_model": [upscale_loader_id, 0],
+                    "images": [n_vae_decode, 0],
+                    "per_batch": 4,
+                },
+            }
+            workflow[n_video_combine]["inputs"]["images"] = [upscale_id, 0]
+
+    logger.info("Built merged story workflow with %d segments, %d nodes", len(segments), len(workflow))
     return workflow

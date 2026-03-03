@@ -1,6 +1,6 @@
 from typing import Optional, Literal
 from pydantic import BaseModel, Field, field_validator
-from .enums import ModelType, TaskStatus
+from .enums import ModelType, TaskStatus, GenerateMode
 
 VALID_SCHEDULERS = [
     "unipc", "unipc/beta",
@@ -45,6 +45,7 @@ class GenerateRequest(BaseModel):
     auto_prompt: bool = Field(default=False, description="Auto-optimize prompt before generation")
     scheduler: str = Field(default="unipc")
     upscale: bool = Field(default=False, description="Enable 2x upscaling after generation")
+    t5_preset: str = Field(default="", description="T5 text encoder preset, e.g. 'default', 'nsfw'")
 
     @field_validator("scheduler")
     @classmethod
@@ -72,11 +73,12 @@ class GenerateI2VRequest(BaseModel):
     auto_prompt: bool = Field(default=False, description="Auto-optimize prompt before generation")
     scheduler: str = Field(default="unipc")
     noise_aug_strength: float = Field(default=0.0, ge=0.0, le=1.0)
-    motion_amplitude: float = Field(default=0.0, ge=0.0, le=1.0, description="Augment empty frames strength (0=disabled, 0.15=recommended)")
+    motion_amplitude: float = Field(default=0.0, ge=0.0, le=2.0, description="Augment empty frames strength (0=disabled, 0.15=recommended for I2V, 1.15=recommended for Story)")
     color_match: bool = Field(default=True, description="Enable ColorMatch post-processing")
     color_match_method: str = Field(default="mkl", description="ColorMatch method: mkl/hm/reinhard")
     resize_mode: str = Field(default="crop_to_new", description="Image resize mode: crop_to_new/stretch_to_new/keep_input")
     upscale: bool = Field(default=False, description="Enable 2x upscaling after generation")
+    t5_preset: str = Field(default="", description="T5 text encoder preset, e.g. 'default', 'nsfw'")
 
     @field_validator("scheduler")
     @classmethod
@@ -109,6 +111,7 @@ class TaskResponse(BaseModel):
     model: Optional[str] = None
     progress: Optional[float] = None
     video_url: Optional[str] = None
+    last_frame_url: Optional[str] = None
     error: Optional[str] = None
     params: Optional[dict] = None
     created_at: Optional[int] = None
@@ -198,3 +201,103 @@ class LoraRecommendRequest(BaseModel):
 
 class LoraRecommendResponse(BaseModel):
     loras: list[LoraInput] = Field(default_factory=list)
+
+
+class ExtendRequest(BaseModel):
+    parent_task_id: str
+    prompt: str = Field(..., min_length=1, max_length=2000)
+    negative_prompt: str = Field(default="", max_length=2000)
+    num_frames: Optional[int] = Field(default=None, ge=1, le=241)
+    steps: Optional[int] = Field(default=None, ge=1, le=100)
+    cfg: Optional[float] = Field(default=None, ge=0.0, le=30.0)
+    shift: Optional[float] = Field(default=None, ge=0.0, le=20.0)
+    seed: Optional[int] = Field(default=None, ge=0)
+    scheduler: Optional[str] = None
+    noise_aug_strength: float = Field(default=0.05, ge=0.0, le=1.0)
+    loras: Optional[list[LoraInput]] = None
+    auto_prompt: bool = False
+    concat_with_parent: bool = True
+
+    @field_validator("scheduler")
+    @classmethod
+    def validate_scheduler(cls, v):
+        if v is not None and v not in VALID_SCHEDULERS:
+            raise ValueError(f"Invalid scheduler '{v}'. Valid: {VALID_SCHEDULERS}")
+        return v
+
+
+class ChainSegment(BaseModel):
+    """Single segment in a chain generation."""
+    prompt: str = Field(..., min_length=1, max_length=2000)
+    duration: float = Field(default=3.3, ge=0.5, le=10.0)
+    loras: list[LoraInput] = Field(default_factory=list)
+
+
+class AutoChainRequest(BaseModel):
+    # New format: segments array (takes priority if provided)
+    segments: Optional[list[ChainSegment]] = None
+
+    # Legacy format: single prompt + total_duration/segment_duration
+    prompt: Optional[str] = Field(default=None, max_length=2000)
+    total_duration: Optional[float] = Field(default=None, ge=4.0, le=120.0)
+    segment_duration: Optional[float] = Field(default=3.3, ge=1.0, le=10.0)
+
+    # Shared parameters
+    negative_prompt: str = Field(default="", max_length=2000)
+    model: ModelType = ModelType.A14B
+    model_preset: str = ""
+    width: int = Field(default=832, ge=64, le=1920, multiple_of=8)
+    height: int = Field(default=480, ge=64, le=1920, multiple_of=8)
+    fps: int = Field(default=24, ge=1, le=60)
+    steps: int = Field(default=20, ge=1, le=100)
+    cfg: float = Field(default=6.0, ge=0.0, le=30.0)
+    shift: float = Field(default=5.0, ge=0.0, le=20.0)
+    seed: Optional[int] = Field(default=None, ge=0)
+    loras: list[LoraInput] = Field(default_factory=list)
+    auto_lora: bool = False
+    auto_prompt: bool = False
+    scheduler: str = Field(default="unipc")
+    noise_aug_strength: float = Field(default=0.05, ge=0.0, le=1.0)
+    motion_amplitude: float = Field(default=1.15, ge=1.0, le=2.0)
+    color_match: bool = True
+    color_match_method: str = Field(default="mkl")
+    resize_mode: str = Field(default="crop_to_new")
+    upscale: bool = False
+    transition: str = Field(default="none", description="Transition between segments: none/crossfade")
+    auto_continue: bool = Field(default=True, description="Use VLM to auto-generate continuation prompts")
+    t5_preset: str = Field(default="", description="T5 text encoder preset, e.g. 'default', 'nsfw'")
+    story_mode: bool = Field(default=False, description="Use PainterLongVideo for identity consistency")
+    motion_frames: int = Field(default=5, ge=1, le=73, description="Motion reference frames for story mode")
+    boundary: float = Field(default=0.9, ge=0.0, le=1.0, description="Boundary for WanMoeKSampler in story mode")
+    clip_preset: str = Field(default="", description="CLIP preset for story mode (e.g. 'nsfw', 'default')")
+
+    @field_validator("transition")
+    @classmethod
+    def validate_transition(cls, v):
+        valid = ["none", "crossfade"]
+        if v not in valid:
+            raise ValueError(f"Invalid transition '{v}'. Valid: {valid}")
+        return v
+
+    @field_validator("scheduler")
+    @classmethod
+    def validate_scheduler(cls, v):
+        if v not in VALID_SCHEDULERS:
+            raise ValueError(f"Invalid scheduler '{v}'. Valid: {VALID_SCHEDULERS}")
+        return v
+
+
+class ChainResponse(BaseModel):
+    chain_id: str
+    total_segments: int
+    completed_segments: int = 0
+    current_segment: int = 0
+    current_task_id: Optional[str] = None
+    current_task_progress: float = 0.0
+    segment_task_ids: list[str] = Field(default_factory=list)
+    status: str = "queued"
+    final_video_url: Optional[str] = None
+    error: Optional[str] = None
+    params: Optional[dict] = None
+    created_at: Optional[int] = None
+    completed_at: Optional[int] = None

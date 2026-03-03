@@ -34,6 +34,17 @@ h1{text-align:center;color:#7c83ff;margin-bottom:24px;font-size:1.6em}
 .lora-item .lora-name{font-size:13px}
 .lora-item .lora-name a{color:#7c83ff;text-decoration:none}
 .lora-item .lora-name a:hover{text-decoration:underline}
+.collapsible{cursor:pointer;padding:10px 16px;background:#0f3460;border:1px solid #444;border-radius:6px;margin-bottom:12px;display:flex;justify-content:space-between;align-items:center;user-select:none}
+.collapsible:hover{background:#16213e}
+.collapsible-content{max-height:0;overflow:hidden;transition:max-height 0.3s ease-out}
+.collapsible-content.active{max-height:2000px}
+.segment-card{background:#0a0a23;border:1px solid #444;border-radius:8px;padding:16px;margin-bottom:12px;position:relative}
+.segment-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px}
+.segment-title{color:#7c83ff;font-weight:600;font-size:14px}
+.segment-remove{background:#4a1a1a;color:#f87171;border:none;padding:4px 12px;border-radius:4px;cursor:pointer;font-size:12px}
+.segment-remove:hover{background:#5a2a2a}
+.add-segment-btn{width:100%;padding:12px;background:#16213e;border:2px dashed #444;border-radius:8px;color:#7c83ff;font-size:14px;cursor:pointer;margin-bottom:16px;transition:all 0.2s}
+.add-segment-btn:hover{border-color:#7c83ff;background:#0f3460}
 .btn{padding:12px 32px;background:#7c83ff;color:#fff;border:none;border-radius:8px;font-size:15px;cursor:pointer;font-weight:600;transition:background .2s}
 .btn:hover{background:#5a62e0}
 .btn:disabled{background:#444;cursor:not-allowed}
@@ -80,6 +91,9 @@ h1{text-align:center;color:#7c83ff;margin-bottom:24px;font-size:1.6em}
 .lora-item .lora-placeholder{width:64px;height:64px;border-radius:6px;background:#1a1a2e;display:flex;align-items:center;justify-content:center;color:#444;font-size:10px;flex-shrink:0}
 .prompt-preview{background:#0a0a23;border:1px solid #333;border-radius:6px;padding:10px;margin-top:8px;font-size:13px;color:#ccc;white-space:pre-wrap;display:none;position:relative}
 .prompt-preview .preview-actions{display:flex;gap:8px;margin-top:8px;justify-content:flex-end}
+.query-subtab{background:#16213e;border:1px solid #444;padding:6px 16px;font-size:12px}
+.query-subtab.active{background:#0f3460;border-color:#7c83ff;color:#7c83ff}
+.query-subtab:hover{background:#1a3a4a}
 </style>
 </head>
 <body>
@@ -92,8 +106,10 @@ h1{text-align:center;color:#7c83ff;margin-bottom:24px;font-size:1.6em}
 <div class="tabs">
 <div class="tab active" data-tab="t2v">T2V 文字生成视频</div>
 <div class="tab" data-tab="i2v">I2V 图片生成视频</div>
+<div class="tab" data-tab="chain">长视频生成</div>
 <div class="tab" data-tab="query">查询任务</div>
 <div class="tab" data-tab="dlora">下载 LoRA</div>
+<div class="tab" data-tab="story">Story 视频</div>
 <div class="tab" data-tab="civitai">CivitAI</div>
 </div>
 <!-- T2V Panel -->
@@ -115,7 +131,8 @@ h1{text-align:center;color:#7c83ff;margin-bottom:24px;font-size:1.6em}
 <input id="t2v-neg" placeholder="(optional)" value=""></div></div>
 <div class="row">
 <div class="field"><label>模型</label><select id="t2v-model"><option value="a14b">A14B (高质量)</option><option value="5b">5B (快速)</option></select></div>
-<div class="field"><label>大模型预设</label><select id="t2v-preset"></select></div>
+<div class="field"><label>大模型预设</label><select id="t2v-preset" onchange="onPresetChange('t2v')"></select></div>
+<div class="field"><label>T5 编码器</label><select id="t2v-t5preset"></select></div>
 <div class="field"><label>宽度</label><input type="number" id="t2v-w" value="832" step="16" onchange="align16(this)"></div>
 <div class="field"><label>高度</label><input type="number" id="t2v-h" value="480" step="16" onchange="align16(this)"></div>
 <div class="field"><label>时长(秒)</label><input type="number" id="t2v-duration" value="3.3" step="0.1" min="0.5" max="10"></div>
@@ -165,7 +182,8 @@ h1{text-align:center;color:#7c83ff;margin-bottom:24px;font-size:1.6em}
 </div>
 <div class="row">
 <div class="field"><label>模型</label><select id="i2v-model"><option value="a14b">A14B (高质量)</option><option value="5b">5B (快速)</option></select></div>
-<div class="field"><label>大模型预设</label><select id="i2v-preset"></select></div>
+<div class="field"><label>大模型预设</label><select id="i2v-preset" onchange="onPresetChange('i2v')"></select></div>
+<div class="field"><label>T5 编码器</label><select id="i2v-t5preset"></select></div>
 <div class="field"><label>宽度</label><input type="number" id="i2v-w" value="832" step="16" onchange="align16(this)"></div>
 <div class="field"><label>高度</label><input type="number" id="i2v-h" value="480" step="16" onchange="align16(this)"></div>
 <div class="field"><label>时长(秒)</label><input type="number" id="i2v-duration" value="3.3" step="0.1" min="0.5" max="10"></div>
@@ -196,6 +214,89 @@ h1{text-align:center;color:#7c83ff;margin-bottom:24px;font-size:1.6em}
 </div>
 </div>
 
+<!-- Chain (Long Video) Panel -->
+<div class="panel" id="panel-chain">
+<!-- Debug info -->
+<div style="margin-bottom:12px;padding:8px;background:#0a0a23;border:1px solid #444;border-radius:6px;font-size:12px">
+  <div style="color:#7c83ff;margin-bottom:4px">调试信息（刷新后查看恢复状态）</div>
+  <div id="debug-info" style="color:#888"></div>
+  <button class="btn btn-sm" style="margin-top:6px;padding:4px 12px" onclick="showDebugInfo()">查看 localStorage</button>
+  <button class="btn btn-sm" style="margin-top:6px;margin-left:8px;padding:4px 12px;background:#4a1a1a" onclick="clearSegmentsStorage()">清除保存的数据</button>
+</div>
+
+<!-- 首帧图片 -->
+<div class="row">
+<div class="field" style="flex:1;max-width:300px"><label>首帧图片 (可选)</label>
+<div class="upload-area" id="chain-upload-area">
+<img id="chain-img-preview" style="display:none">
+<span id="chain-upload-text">点击或拖拽上传首帧图片</span>
+<input type="file" id="chain-file" accept="image/*">
+</div></div>
+</div>
+
+<!-- 基本参数（可折叠） -->
+<div class="collapsible" onclick="toggleCollapsible(this)">
+<span style="color:#7c83ff;font-weight:600">基本参数（全局共享）</span>
+<span id="collapse-icon">▼</span>
+</div>
+<div class="collapsible-content">
+<div class="row">
+<div class="field"><label>模型</label><select id="chain-model"><option value="a14b">A14B (高质量)</option><option value="5b">5B (快速)</option></select></div>
+<div class="field"><label>大模型预设</label><select id="chain-preset" onchange="onPresetChange('chain')"></select></div>
+<div class="field"><label>T5 编码器</label><select id="chain-t5preset"></select></div>
+<div class="field"><label>宽度</label><input type="number" id="chain-w" value="832" step="16" onchange="align16(this)"></div>
+<div class="field"><label>高度</label><input type="number" id="chain-h" value="480" step="16" onchange="align16(this)"></div>
+</div>
+<div class="row">
+<div class="field"><label>FPS</label><input type="number" id="chain-fps" value="24"></div>
+<div class="field"><label>Steps</label><input type="number" id="chain-steps" value="20"></div>
+<div class="field"><label>CFG</label><input type="number" id="chain-cfg" value="6.0" step="0.5"></div>
+<div class="field"><label>Shift</label><input type="number" id="chain-shift" value="5.0" step="0.5"></div>
+</div>
+<div class="row">
+<div class="field"><label>Seed (-1=随机)</label><input type="number" id="chain-seed" value="-1"></div>
+<div class="field"><label>Scheduler</label><select id="chain-sched"><option value="unipc">UniPC</option><option value="unipc/beta">UniPC/Beta</option><option value="dpm++">DPM++</option><option value="dpm++/beta">DPM++/Beta</option><option value="euler">Euler</option><option value="euler/beta">Euler/Beta</option><option value="deis">DEIS</option><option value="lcm">LCM</option><option value="res_multistep">Res Multistep</option></select></div>
+<div class="field"><label>Noise Aug (续写)</label><input type="number" id="chain-noise" value="0.05" step="0.01" min="0" max="1"></div>
+<div class="field"><label>Motion Amplitude</label><input type="number" id="chain-motion" value="0.0" step="0.05" min="0" max="1"></div>
+</div>
+<!-- Story 模式 -->
+<div class="row" style="align-items:center;padding:8px 0;border-top:1px solid #333;margin-top:8px">
+<div class="field" style="min-width:auto;flex:none"><label><input type="checkbox" id="chain-story-mode" onchange="toggleStoryMode()" style="accent-color:#7c83ff;width:16px;height:16px;vertical-align:middle;margin-right:6px">Story 模式 (身份一致性)</label></div>
+<div class="field" id="chain-story-motion-frames-field" style="display:none"><label>Motion Frames</label><input type="number" id="chain-story-motion-frames" value="5" min="1" max="73" step="1"></div>
+<div class="field" id="chain-story-boundary-field" style="display:none"><label>Boundary</label><input type="number" id="chain-story-boundary" value="0.9" min="0" max="1" step="0.05"></div>
+<div class="field" id="chain-story-clip-field" style="display:none"><label>CLIP 预设</label><select id="chain-story-clip"><option value="nsfw">NSFW</option><option value="default">Default</option></select></div>
+</div>
+<div class="row">
+<div class="field"><label>过渡方式</label><select id="chain-transition"><option value="none">直接拼接</option><option value="crossfade">交叉淡入淡出</option></select></div>
+<div class="field"><label>颜色校正</label><select id="chain-colormatch"><option value="true">开启</option><option value="false">关闭</option></select></div>
+<div class="field"><label>校正方法</label><select id="chain-colormatch-method"><option value="mkl">MKL</option><option value="hm">HM</option><option value="reinhard">Reinhard</option></select></div>
+<div class="field"><label>图片适配</label><select id="chain-resize"><option value="crop_to_new">裁剪适配</option><option value="stretch_to_new">拉伸适配</option><option value="keep_input">保持原比例</option></select></div>
+</div>
+<div class="row">
+<div class="field" style="flex:3"><label>负向提示词（全局）</label>
+<input id="chain-neg" placeholder="(optional)" value=""></div>
+<div class="field" style="min-width:auto;flex:none"><label><input type="checkbox" id="chain-upscale" style="accent-color:#7c83ff;width:16px;height:16px;vertical-align:middle;margin-right:6px">超分辨率 (2x upscale)</label></div>
+</div>
+</div>
+
+<!-- 视频分段 -->
+<div style="margin-top:20px">
+<h3 style="color:#7c83ff;font-size:14px;margin-bottom:12px">视频分段</h3>
+<div id="segments-container"></div>
+<button class="add-segment-btn" onclick="addSegment()">+ 添加分段</button>
+<button class="btn btn-sm" style="margin-left:12px;background:#1a4a2e;padding:8px 16px" onclick="mergeSegments()">合并已生成的视频</button>
+</div>
+
+<div class="btn-row" style="display:flex;align-items:center;justify-content:center;gap:20px;flex-wrap:wrap">
+<label style="font-size:13px;color:#aaa;cursor:pointer"><input type="checkbox" id="chain-auto-lora" style="accent-color:#7c83ff;width:16px;height:16px;vertical-align:middle;margin-right:4px">AI 推荐 LoRA</label>
+<label style="font-size:13px;color:#aaa;cursor:pointer"><input type="checkbox" id="chain-auto-prompt" style="accent-color:#7c83ff;width:16px;height:16px;vertical-align:middle;margin-right:4px">AI 优化 Prompt</label>
+<label style="font-size:13px;color:#aaa;cursor:pointer"><input type="checkbox" id="chain-auto-continue" checked style="accent-color:#7c83ff;width:16px;height:16px;vertical-align:middle;margin-right:4px">VLM 自动续写</label>
+<button class="btn" onclick="submitChain()">生成长视频</button>
+</div>
+<div id="chain-status" style="margin-top:16px"></div>
+<div id="merged-video-container" style="margin-top:16px"></div>
+</div>
+
 <!-- Query Panel -->
 <div class="panel" id="panel-query">
 <div class="row query-row">
@@ -204,8 +305,20 @@ h1{text-align:center;color:#7c83ff;margin-bottom:24px;font-size:1.6em}
 <button class="btn btn-sm" style="margin-left:8px;background:#333" onclick="loadHistory()">刷新历史</button>
 </div>
 <div id="query-result" style="margin-top:16px"></div>
-<h3 style="color:#7c83ff;font-size:14px;margin:20px 0 10px">所有生成历史</h3>
+
+<!-- Sub-tabs for different task types -->
+<div style="margin-top:24px;border-top:1px solid #333;padding-top:16px">
+<h3 style="color:#7c83ff;font-size:14px;margin-bottom:12px">生成历史</h3>
+<div style="display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap">
+<button class="btn btn-sm query-subtab active" data-type="all" onclick="filterHistory('all', this)">全部</button>
+<button class="btn btn-sm query-subtab" data-type="t2v" onclick="filterHistory('t2v', this)">T2V</button>
+<button class="btn btn-sm query-subtab" data-type="i2v" onclick="filterHistory('i2v', this)">I2V</button>
+<button class="btn btn-sm query-subtab" data-type="chain" onclick="filterHistory('chain', this)">长视频</button>
+<button class="btn btn-sm query-subtab" data-type="story" onclick="filterHistory('story', this)">Story</button>
+<button class="btn btn-sm query-subtab" data-type="extend" onclick="filterHistory('extend', this)">延续</button>
+</div>
 <div id="history-list"></div>
+</div>
 </div>
 
 <!-- Download LoRA Panel -->
@@ -220,6 +333,96 @@ h1{text-align:center;color:#7c83ff;margin-bottom:24px;font-size:1.6em}
 <button class="btn btn-sm" style="margin-left:10px;background:#333" onclick="refreshLoraFiles()">刷新文件列表</button></div>
 <div id="dl-status" style="margin-top:16px"></div>
 <div class="file-list"><h3 style="color:#7c83ff;font-size:14px;margin-bottom:8px">已有 LoRA 文件</h3><div id="lora-file-list"></div></div>
+</div>
+
+<!-- Story Video Panel -->
+<div class="panel" id="panel-story">
+<div style="margin-bottom:16px;padding:12px;background:#0f3460;border-radius:8px">
+<div style="color:#7c83ff;font-weight:600;margin-bottom:6px">Story 多段视频</div>
+<div style="font-size:12px;color:#ccc">上传首帧图片，AI 自动生成4段连贯故事视频。提示词留空则由 VLM 自动生成。</div>
+</div>
+
+<!-- 首帧图片 + 分段1 -->
+<div class="row">
+<div class="field" style="flex:1;max-width:300px"><label>首帧图片（必需）</label>
+<div class="upload-area" id="story-upload-area">
+<img id="story-img-preview" style="display:none">
+<span id="story-upload-text">点击或拖拽上传首帧图片</span>
+<input type="file" id="story-file" accept="image/*">
+</div>
+<div style="font-size:11px;color:#666;margin-top:4px">分辨率自动适配图片比例</div>
+</div>
+<div class="field" style="flex:2">
+<label>分段 1 提示词 <span style="color:#666;font-size:11px">（留空=AI自动生成）</span></label>
+<textarea id="story-seg-1-prompt" placeholder="第一段：描述开场画面和动作...（留空则 AI 自动分析图片生成）" style="min-height:120px"></textarea>
+<div class="row" style="margin-top:6px;margin-bottom:0">
+<div class="field" style="margin-bottom:0"><label>时长(秒)</label><input type="number" id="story-seg-1-duration" value="5.0" step="0.1" min="0.5" max="20"></div>
+</div>
+</div>
+</div>
+
+<!-- 全局参数（可折叠） -->
+<div class="collapsible" onclick="toggleCollapsible(this)">
+<span style="color:#7c83ff;font-weight:600">全局参数</span>
+<span>▼</span>
+</div>
+<div class="collapsible-content">
+<div class="row">
+<div class="field"><label>Sigma Shift</label><input type="number" id="story-shift" value="8.0" step="0.5"></div>
+<div class="field"><label>Motion Amplitude</label><input type="number" id="story-motion" value="1.15" step="0.05" min="0" max="3"></div>
+<div class="field"><label>Motion Frames</label><input type="number" id="story-motion-frames" value="5" min="1" max="73"></div>
+<div class="field"><label>Seed (-1=随机)</label><input type="number" id="story-seed" value="-1"></div>
+</div>
+</div>
+
+<!-- 4段视频 -->
+<div style="margin-top:16px">
+<h3 style="color:#7c83ff;font-size:14px;margin-bottom:12px">后续分段</h3>
+<div class="segment-card" style="border-left:3px solid #5a62e0">
+<div class="row" style="margin-bottom:0">
+<div class="field" style="flex:3">
+<label><span style="color:#5a62e0;font-weight:600">分段 2</span> <span style="color:#666;font-size:11px">（留空=AI自动生成）</span></label>
+<textarea id="story-seg-2-prompt" placeholder="第二段：描述接续的场景和动作..." style="min-height:60px"></textarea>
+</div>
+<div class="field" style="flex:0;min-width:100px">
+<label>时长(秒)</label>
+<input type="number" id="story-seg-2-duration" value="5.0" step="0.1" min="0.5" max="20">
+</div>
+</div>
+</div>
+<div class="segment-card" style="border-left:3px solid #9d4edd">
+<div class="row" style="margin-bottom:0">
+<div class="field" style="flex:3">
+<label><span style="color:#9d4edd;font-weight:600">分段 3</span> <span style="color:#666;font-size:11px">（留空=AI自动生成）</span></label>
+<textarea id="story-seg-3-prompt" placeholder="第三段：描述高潮或转折..." style="min-height:60px"></textarea>
+</div>
+<div class="field" style="flex:0;min-width:100px">
+<label>时长(秒)</label>
+<input type="number" id="story-seg-3-duration" value="5.0" step="0.1" min="0.5" max="20">
+</div>
+</div>
+</div>
+<div class="segment-card" style="border-left:3px solid #4ade80">
+<div class="row" style="margin-bottom:0">
+<div class="field" style="flex:3">
+<label><span style="color:#4ade80;font-weight:600">分段 4</span> <span style="color:#666;font-size:11px">（留空=AI自动生成）</span></label>
+<textarea id="story-seg-4-prompt" placeholder="第四段：描述结尾画面..." style="min-height:60px"></textarea>
+</div>
+<div class="field" style="flex:0;min-width:100px">
+<label>时长(秒)</label>
+<input type="number" id="story-seg-4-duration" value="5.0" step="0.1" min="0.5" max="20">
+</div>
+</div>
+</div>
+</div>
+
+<!-- 生成按钮 -->
+<div class="btn-row">
+<button class="btn" onclick="submitStoryWorkflow()">生成 Story 视频</button>
+</div>
+
+<!-- 生成状态 -->
+<div id="story-status" style="margin-top:20px"></div>
 </div>
 
 <!-- CivitAI Panel -->
@@ -294,8 +497,25 @@ const BASE = window.location.origin;
 const getKey = () => document.getElementById('apiKey').value;
 let allLoras = [];
 let activeTasks = {};
+
+// Convert COS URL to local proxy path to avoid CORS issues
+function toLocalUrl(url) {
+  if (!url) return url;
+  if (url.startsWith('/')) return url; // already local
+  try {
+    const u = new URL(url);
+    if (u.hostname.includes('.cos.')) {
+      const filename = u.pathname.split('/').pop();
+      return '/api/v1/results/' + filename;
+    }
+  } catch(e) {}
+  return url;
+}
 let i2vSelectedFile = null;
+let storySelectedFile = null;
+let chainSelectedFile = null;
 let modelPresets = [];
+let t5Presets = [];
 
 function formatDuration(created, completed) {
   if (!created) return '';
@@ -329,12 +549,16 @@ function framesToDuration(frames, fps) {
 
 // Save/restore form params to localStorage
 const FORM_FIELDS = {
-  t2v: ['t2v-prompt','t2v-neg','t2v-model','t2v-preset','t2v-w','t2v-h','t2v-duration','t2v-fps','t2v-steps','t2v-cfg','t2v-shift','t2v-seed','t2v-sched'],
-  i2v: ['i2v-prompt','i2v-neg','i2v-model','i2v-preset','i2v-w','i2v-h','i2v-duration','i2v-fps','i2v-steps','i2v-cfg','i2v-shift','i2v-seed','i2v-sched','i2v-noise','i2v-motion','i2v-colormatch','i2v-colormatch-method','i2v-resize']
+  t2v: ['t2v-prompt','t2v-neg','t2v-model','t2v-preset','t2v-t5preset','t2v-w','t2v-h','t2v-duration','t2v-fps','t2v-steps','t2v-cfg','t2v-shift','t2v-seed','t2v-sched'],
+  i2v: ['i2v-prompt','i2v-neg','i2v-model','i2v-preset','i2v-t5preset','i2v-w','i2v-h','i2v-duration','i2v-fps','i2v-steps','i2v-cfg','i2v-shift','i2v-seed','i2v-sched','i2v-noise','i2v-motion','i2v-colormatch','i2v-colormatch-method','i2v-resize'],
+  chain: ['chain-prompt','chain-neg','chain-model','chain-preset','chain-t5preset','chain-w','chain-h','chain-total','chain-seg','chain-fps','chain-steps','chain-cfg','chain-shift','chain-seed','chain-sched','chain-noise','chain-motion','chain-transition','chain-colormatch','chain-colormatch-method','chain-resize','chain-story-motion-frames','chain-story-boundary','chain-story-clip'],
+  story: ['story-shift','story-motion','story-motion-frames','story-seed','story-seg-1-prompt','story-seg-1-duration','story-seg-2-prompt','story-seg-2-duration','story-seg-3-prompt','story-seg-3-duration','story-seg-4-prompt','story-seg-4-duration']
 };
 const CHECKBOX_FIELDS = {
   t2v: ['t2v-auto-lora','t2v-auto-prompt'],
-  i2v: ['i2v-auto-lora','i2v-auto-prompt']
+  i2v: ['i2v-auto-lora','i2v-auto-prompt'],
+  chain: ['chain-auto-lora','chain-auto-prompt','chain-auto-continue','chain-upscale','chain-story-mode'],
+  story: []
 };
 function saveFormParams(prefix) {
   const data = {};
@@ -382,14 +606,14 @@ async function loadPresets() {
     const r = await fetch(BASE + '/api/v1/model-presets');
     if (!r.ok) return;
     modelPresets = await r.json();
-    ['t2v-preset','i2v-preset'].forEach(id => {
+    ['t2v-preset','i2v-preset','chain-preset'].forEach(id => {
       const sel = document.getElementById(id);
       sel.innerHTML = modelPresets.map(p =>
         `<option value="${p.name}" ${!p.available?'disabled':''}>${p.name}${p.available?'':' (未下载)'}</option>`
       ).join('');
     });
     // Restore saved preset values after options are populated
-    ['t2v','i2v'].forEach(prefix => {
+    ['t2v','i2v','chain'].forEach(prefix => {
       try {
         const data = JSON.parse(localStorage.getItem('wan22_'+prefix));
         if (data && data[prefix+'-preset']) {
@@ -400,6 +624,41 @@ async function loadPresets() {
   } catch(e) {}
 }
 
+// Load T5 text encoder presets
+async function loadT5Presets() {
+  try {
+    const r = await fetch(BASE + '/api/v1/t5-presets');
+    if (!r.ok) return;
+    t5Presets = await r.json();
+    ['t2v-t5preset','i2v-t5preset','chain-t5preset'].forEach(id => {
+      const sel = document.getElementById(id);
+      sel.innerHTML = '<option value="">默认</option>' + t5Presets.filter(p => p.name !== 'default').map(p =>
+        `<option value="${p.name}" ${!p.available?'disabled':''}>${p.name}${p.available?'':' (未下载)'}</option>`
+      ).join('');
+    });
+    // Restore saved t5 preset values
+    ['t2v','i2v','chain'].forEach(prefix => {
+      try {
+        const data = JSON.parse(localStorage.getItem('wan22_'+prefix));
+        if (data && data[prefix+'-t5preset']) {
+          document.getElementById(prefix+'-t5preset').value = data[prefix+'-t5preset'];
+        }
+      } catch(e) {}
+    });
+  } catch(e) {}
+}
+
+// Auto-fill recommended params when model preset changes
+function onPresetChange(prefix) {
+  const presetName = document.getElementById(prefix + '-preset').value;
+  const preset = modelPresets.find(p => p.name === presetName);
+  if (!preset || !preset.recommended_params) return;
+  const rec = preset.recommended_params;
+  if (rec.steps !== undefined) document.getElementById(prefix + '-steps').value = rec.steps;
+  if (rec.cfg !== undefined) document.getElementById(prefix + '-cfg').value = rec.cfg;
+  if (rec.scheduler !== undefined) document.getElementById(prefix + '-sched').value = rec.scheduler;
+}
+
 // Tab switching
 document.querySelectorAll('.tab').forEach(t => {
   t.addEventListener('click', () => {
@@ -407,11 +666,21 @@ document.querySelectorAll('.tab').forEach(t => {
     document.querySelectorAll('.panel').forEach(x => x.classList.remove('active'));
     t.classList.add('active');
     document.getElementById('panel-' + t.dataset.tab).classList.add('active');
+    localStorage.setItem('wan22_active_tab', t.dataset.tab);
     if (t.dataset.tab === 'dlora') refreshLoraFiles();
     if (t.dataset.tab === 'query') loadHistory();
     if (t.dataset.tab === 'civitai' && !document.getElementById('civitai-results').innerHTML) searchCivitAI();
   });
 });
+
+// Restore last active tab
+try {
+  const savedTab = localStorage.getItem('wan22_active_tab');
+  if (savedTab) {
+    const tabEl = document.querySelector(`.tab[data-tab="${savedTab}"]`);
+    if (tabEl) tabEl.click();
+  }
+} catch(e) {}
 
 // Image upload - store file in variable to avoid losing it
 document.getElementById('i2v-file').addEventListener('change', function() {
@@ -425,6 +694,36 @@ document.getElementById('i2v-file').addEventListener('change', function() {
   reader.readAsDataURL(file);
 });
 
+// Chain image upload
+document.getElementById('chain-file').addEventListener('change', function() {
+  const file = this.files[0];
+  if (!file) return;
+  chainSelectedFile = file;
+  const reader = new FileReader();
+  const preview = document.getElementById('chain-img-preview');
+  const text = document.getElementById('chain-upload-text');
+  reader.onload = e => {
+    preview.src = e.target.result;
+    preview.style.display = 'block';
+    text.style.display = 'none';
+    // Cache image to localStorage
+    try { localStorage.setItem('wan22_chain_image', e.target.result); localStorage.setItem('wan22_chain_image_name', file.name); } catch(e) {}
+  };
+  reader.readAsDataURL(file);
+});
+
+// Story image upload
+document.getElementById('story-file').addEventListener('change', function() {
+  const file = this.files[0];
+  if (!file) return;
+  storySelectedFile = file;
+  const reader = new FileReader();
+  const preview = document.getElementById('story-img-preview');
+  const text = document.getElementById('story-upload-text');
+  reader.onload = e => { preview.src = e.target.result; preview.style.display = 'block'; text.style.display = 'none'; };
+  reader.readAsDataURL(file);
+});
+
 async function loadLoras() {
   try {
     const r = await fetch(BASE + '/api/v1/loras', {headers: {'X-API-Key': getKey()}});
@@ -432,9 +731,41 @@ async function loadLoras() {
     allLoras = await r.json();
     renderLoras('t2v-loras');
     renderLoras('i2v-loras');
+    // Don't render chain-loras here, it will be rendered when segments are restored or added
     restoreLoraSelections('t2v');
     restoreLoraSelections('i2v');
-  } catch(e) {}
+    restoreLoraSelections('chain');
+
+    // Try to restore segments from storage first
+    try {
+      const savedSegments = localStorage.getItem('wan22_chain_segments');
+      console.log('loadLoras: checking saved segments:', savedSegments ? 'exists' : 'null');
+
+      if (savedSegments) {
+        const segments = JSON.parse(savedSegments);
+        console.log('loadLoras: parsed segments:', segments.length);
+
+        if (segments && segments.length > 0) {
+          console.log('loadLoras: calling restoreSegmentsFromStorage');
+          const restored = restoreSegmentsFromStorage();
+          console.log('loadLoras: restore result:', restored);
+          if (restored) {
+            return; // Successfully restored, don't add default segment
+          }
+        }
+      }
+    } catch(e) {
+      console.error('loadLoras: failed to parse saved segments:', e);
+    }
+
+    // Initialize chain panel with one default segment if no saved data
+    console.log('loadLoras: no saved segments, adding default segment');
+    if (document.getElementById('segments-container').children.length === 0) {
+      addSegment();
+    }
+  } catch(e) {
+    console.error('loadLoras failed:', e);
+  }
 }
 
 function restoreLoraSelections(prefix) {
@@ -454,6 +785,10 @@ function restoreLoraSelections(prefix) {
 
 function renderLoras(cid) {
   const c = document.getElementById(cid);
+  if (!c) {
+    console.warn(`renderLoras: container ${cid} not found, skipping`);
+    return;
+  }
   if (!allLoras.length) { c.innerHTML = '<span style="color:#666;font-size:13px">暂无可用 LoRA</span>'; return; }
   c.innerHTML = allLoras.map((l, i) => {
     const twText = (l.trigger_words||[]).join(', ');
@@ -513,6 +848,7 @@ async function submitT2V() {
     seed: seed >= 0 ? seed : null,
     scheduler: document.getElementById('t2v-sched').value,
     model_preset: document.getElementById('t2v-preset').value,
+    t5_preset: document.getElementById('t2v-t5preset').value,
     loras: loras,
     upscale: document.getElementById('t2v-upscale').checked,
     auto_lora: document.getElementById('t2v-auto-lora').checked,
@@ -557,6 +893,7 @@ async function submitI2V() {
     color_match_method: document.getElementById('i2v-colormatch-method').value,
     resize_mode: document.getElementById('i2v-resize').value,
     model_preset: document.getElementById('i2v-preset').value,
+    t5_preset: document.getElementById('i2v-t5preset').value,
     loras: loras,
     upscale: document.getElementById('i2v-upscale').checked,
     auto_lora: document.getElementById('i2v-auto-lora').checked,
@@ -593,7 +930,11 @@ async function queryTask() {
       <div class="progress-bar"><div class="progress-fill" style="width:${pct}%"></div></div>
       <div style="font-size:12px;color:#666">${pct}%</div>`;
     if (d.error) html += `<div style="color:#f87171;font-size:13px;margin-top:4px">${d.error}</div>`;
-    if (d.video_url) html += `<div class="video-result"><video src="${d.video_url}" controls autoplay loop></video>
+    if (d.video_url) html += `<div class="video-result">
+      <div id="video-placeholder-${d.task_id}" style="background:#0a0a23;border:1px solid #444;border-radius:6px;padding:20px;text-align:center;cursor:pointer" onclick="loadVideo('${d.task_id}', '${d.video_url}')">
+        <div style="color:#7c83ff;font-size:14px;margin-bottom:8px">🎬 点击加载视频</div>
+        <div style="font-size:12px;color:#888">视频已生成，点击播放</div>
+      </div>
       <div style="margin-top:6px"><a href="${d.video_url}" download style="color:#7c83ff;font-size:13px">下载视频</a></div></div>`;
     html += '</div>';
     box.innerHTML = html;
@@ -606,45 +947,264 @@ async function queryTask() {
 }
 
 // Load all task history
+let allHistoryTasks = [];
+let allHistoryChains = [];
+let currentHistoryFilter = 'all';
+
+function filterHistory(type, btn) {
+  currentHistoryFilter = type;
+
+  // Update button states
+  document.querySelectorAll('.query-subtab').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+
+  // Re-render with filter
+  renderHistory();
+}
+
+function renderHistory() {
+  const list = document.getElementById('history-list');
+  let html = '';
+
+  // Filter chains
+  let filteredChains = allHistoryChains;
+  if (currentHistoryFilter === 'chain') {
+    filteredChains = allHistoryChains;
+  } else if (currentHistoryFilter !== 'all') {
+    filteredChains = [];
+  }
+
+  // Filter tasks
+  let filteredTasks = allHistoryTasks;
+  if (currentHistoryFilter !== 'all' && currentHistoryFilter !== 'chain') {
+    filteredTasks = allHistoryTasks.filter(t => {
+      if (currentHistoryFilter === 'story') {
+        // Story tasks are T2V mode but created via workflow API
+        return t.mode === 't2v' && t.params && t.params.workflow_name;
+      }
+      return t.mode === currentHistoryFilter;
+    });
+  } else if (currentHistoryFilter === 'all') {
+    // Exclude story tasks from "all" view (they'll be in story tab)
+    filteredTasks = allHistoryTasks.filter(t => {
+      return !(t.mode === 't2v' && t.params && t.params.workflow_name);
+    });
+  } else if (currentHistoryFilter === 'chain') {
+    filteredTasks = [];
+  }
+
+  // Render chains
+  if (filteredChains.length) {
+    html += filteredChains.map(c => {
+      const statusCls = c.status === 'completed' ? 'completed' : c.status === 'failed' || c.status === 'partial' ? 'failed' : 'running';
+      const statusMap = {queued:'排队中',running:'生成中',completed:'完成',failed:'失败',partial:'部分完成'};
+      const statusText = statusMap[c.status] || c.status;
+      const promptText = c.params ? (c.params.prompt||'') : '';
+      const timeStr = c.created_at ? new Date(c.created_at*1000).toLocaleString('zh-CN',{month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'}) : '';
+      const durStr = c.created_at ? formatDuration(c.created_at, c.completed_at) : '';
+      let extra = '';
+      if (promptText) extra += `<div style="font-size:12px;color:#aaa;margin:4px 0;white-space:pre-wrap;word-break:break-all">${promptText}</div>`;
+
+      // AI data display
+      if (c.params) {
+        if (c.params.ai_loras && c.params.ai_loras.length) {
+          extra += `<div style="font-size:11px;color:#7c83ff;margin-bottom:2px">AI LoRA: ${c.params.ai_loras.map(l=>l.name+'('+l.strength+')').join(', ')}</div>`;
+        }
+        if (c.params.ai_prompt && c.params.ai_prompt !== promptText) {
+          extra += `<div style="font-size:11px;color:#7c83ff;margin-bottom:2px;white-space:pre-wrap">AI优化: ${c.params.ai_prompt}</div>`;
+        }
+      }
+
+      if (c.error) extra += `<div style="color:#f87171;font-size:12px;margin-top:4px">${c.error}</div>`;
+      if (c.final_video_url) extra += `<div class="video-result" style="margin-top:8px">
+        <div id="video-placeholder-chain-${c.chain_id}" style="background:#0a0a23;border:1px solid #444;border-radius:6px;padding:16px;text-align:center;cursor:pointer" onclick="loadVideo('chain-${c.chain_id}', '${c.final_video_url}')">
+          <div style="color:#7c83ff;font-size:14px;margin-bottom:6px">🎬 点击加载完整视频</div>
+          <div style="font-size:11px;color:#888">避免自动加载，节省带宽</div>
+        </div>
+        <div style="margin-top:4px"><a href="${c.final_video_url}" download style="color:#7c83ff;font-size:13px">下载完整视频</a></div></div>`;
+
+      // Segment details (collapsible)
+      let segmentsHtml = '';
+      if (c.segment_task_ids && c.segment_task_ids.length) {
+        const segmentPrompts = c.params?.segment_prompts || [];
+        segmentsHtml = `<div id="segments-${c.chain_id}" style="display:none;margin-top:8px;padding:8px;background:#0a1929;border-radius:4px">`;
+        c.segment_task_ids.forEach((taskId, i) => {
+          const segTask = window._historyTasks[taskId];
+          const segParams = segTask?.params || {};
+          const segPrompt = segParams.prompt || '';
+          const segVideo = segTask?.video_url || '';
+          const segStatus = segTask?.status || 'unknown';
+          const segStatusText = {queued:'排队',running:'生成中',completed:'完成',failed:'失败'}[segStatus] || segStatus;
+          const segStatusCls = {queued:'queued',running:'running',completed:'completed',failed:'failed'}[segStatus] || '';
+
+          segmentsHtml += `<div style="margin-bottom:8px;padding:8px;background:#0a0a23;border-radius:4px;border-left:3px solid ${segStatus==='completed'?'#4ade80':segStatus==='failed'?'#f87171':'#7c83ff'}">`;
+          segmentsHtml += `<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">`;
+          segmentsHtml += `<span style="font-size:12px;color:#7c83ff">段 ${i+1}</span>`;
+          segmentsHtml += `<span class="status ${segStatusCls}" style="font-size:10px;padding:2px 8px">${segStatusText}</span>`;
+          segmentsHtml += `</div>`;
+
+          if (segPrompt) {
+            const targetPrompt = segmentPrompts[i] || segPrompt;
+            segmentsHtml += `<div style="margin-bottom:4px;padding:4px;background:#1a2332;border-radius:2px">`;
+            segmentsHtml += `<div style="font-size:10px;color:#888;margin-bottom:2px">🎯 Target Prompt:</div>`;
+            segmentsHtml += `<div style="font-size:11px;color:#ccc;white-space:pre-wrap;word-break:break-all">${targetPrompt}</div>`;
+            segmentsHtml += `</div>`;
+
+            const vlmPrompt = segParams.vlm_prompt || '';
+            const finalPrompt = segParams.final_prompt || segParams.ai_prompt || '';
+
+            if (vlmPrompt && vlmPrompt !== targetPrompt) {
+              segmentsHtml += `<div style="margin-bottom:4px;padding:4px;background:#1a2332;border-radius:2px">`;
+              segmentsHtml += `<div style="font-size:10px;color:#888;margin-bottom:2px">🤖 VLM Generated:</div>`;
+              segmentsHtml += `<div style="font-size:11px;color:#7c83ff;white-space:pre-wrap;word-break:break-all">${vlmPrompt}</div>`;
+              segmentsHtml += `</div>`;
+            }
+
+            if (finalPrompt && finalPrompt !== vlmPrompt && finalPrompt !== targetPrompt) {
+              segmentsHtml += `<div style="margin-bottom:4px;padding:4px;background:#1a2332;border-radius:2px">`;
+              segmentsHtml += `<div style="font-size:10px;color:#888;margin-bottom:2px">✅ Final Prompt (实际使用):</div>`;
+              segmentsHtml += `<div style="font-size:11px;color:#4ade80;white-space:pre-wrap;word-break:break-all">${finalPrompt}</div>`;
+              segmentsHtml += `</div>`;
+            }
+
+            if (segVideo) {
+              segmentsHtml += `<div style="margin-top:6px">`;
+              segmentsHtml += `<div id="video-placeholder-seg-${taskId}" style="background:#0a0a23;border:1px solid #333;border-radius:4px;padding:12px;text-align:center;cursor:pointer" onclick="loadVideo('seg-${taskId}', '${segVideo}')">`;
+              segmentsHtml += `<div style="color:#7c83ff;font-size:12px">🎬 点击加载视频</div>`;
+              segmentsHtml += `</div>`;
+              segmentsHtml += `</div>`;
+            }
+
+            segmentsHtml += `</div>`;
+          }
+        });
+        segmentsHtml += `</div>`;
+        extra += `<div style="margin-top:6px"><button class="btn btn-sm" style="background:#1a3a4a;font-size:11px;padding:3px 10px" onclick="toggleSegments('${c.chain_id}')">查看各段详情</button></div>`;
+      }
+
+      const chainCancelBtn = (c.status === 'running' || c.status === 'queued') ? `<button class="btn btn-sm" style="margin-left:8px;background:#4a1a1a;font-size:11px;padding:3px 10px" onclick="cancelChain('${c.chain_id}')">取消</button>` : '';
+      return `<div class="task-card" style="border-color:#7c83ff55">
+        <div class="task-header"><span><b style="color:#7c83ff">长视频</b> <span style="color:#888;font-size:12px">${c.total_segments}段</span> <span style="color:#666;font-size:11px">${timeStr}</span>${durStr ? ` <span style="color:#4ade80;font-size:11px">⏱${durStr}</span>` : ''} <span class="task-id">${c.chain_id.substring(0,8)}</span>${chainCancelBtn}</span>
+          <span class="status ${statusCls}">${statusText}</span></div>
+        ${extra}${segmentsHtml}</div>`;
+    }).join('');
+  }
+
+  // Render tasks
+  if (filteredTasks.length) {
+    html += filteredTasks.map(t => {
+      const statusCls = (t.status || 'queued').toLowerCase();
+      const statusText = {queued:'排队中',running:'生成中',completed:'完成',failed:'失败'}[statusCls] || statusCls;
+      const modeLabel = {t2v:'T2V',i2v:'I2V',extend:'EXTEND'}[t.mode] || t.mode || '';
+      const modelLabel = t.model || '';
+      const promptText = t.params ? (t.params.prompt||'') : '';
+      const timeStr = t.created_at ? new Date(t.created_at*1000).toLocaleString('zh-CN',{month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'}) : '';
+      const durStr = t.created_at ? formatDuration(t.created_at, t.completed_at) : '';
+
+      // Check if it's a story task
+      const isStory = t.params && t.params.workflow_name;
+      const taskTypeLabel = isStory ? `<b style="color:#9d4edd">STORY</b>` : `<b>${modeLabel}</b>`;
+
+      let extra = '';
+      if (promptText) extra += `<div style="font-size:12px;color:#aaa;margin:4px 0;white-space:pre-wrap;word-break:break-all">${promptText}</div>`;
+
+      // Show workflow name for story tasks
+      if (isStory) {
+        extra += `<div style="font-size:11px;color:#9d4edd;margin-bottom:2px">Workflow: ${t.params.workflow_name}</div>`;
+      }
+
+      if (t.params && t.params.ai_loras && t.params.ai_loras.length) {
+        extra += `<div style="font-size:11px;color:#7c83ff;margin-bottom:2px">AI LoRA: ${t.params.ai_loras.map(l=>l.name+'('+l.strength+')').join(', ')}</div>`;
+      }
+      if (t.params && (t.params.final_prompt || t.params.ai_prompt)) {
+        const dp = t.params.final_prompt || t.params.ai_prompt;
+        extra += `<div style="font-size:11px;color:#7c83ff;margin-bottom:2px;white-space:pre-wrap">AI Prompt: ${dp}</div>`;
+      }
+      if (t.error) extra += `<div style="color:#f87171;font-size:12px;margin-top:4px">${t.error}</div>`;
+      if (t.video_url) extra += `<div class="video-result" style="margin-top:8px">
+        <div id="video-placeholder-task-${t.task_id}" style="background:#0a0a23;border:1px solid #444;border-radius:6px;padding:16px;text-align:center;cursor:pointer" onclick="loadVideo('task-${t.task_id}', '${t.video_url}')">
+          <div style="color:#7c83ff;font-size:14px;margin-bottom:6px">🎬 点击加载视频</div>
+          <div style="font-size:11px;color:#888">避免自动加载，节省带宽</div>
+        </div>
+        <div style="margin-top:4px"><a href="${t.video_url}" download style="color:#7c83ff;font-size:13px">下载视频</a></div></div>`;
+
+      // Build parameter details
+      let paramsHtml = '';
+      if (t.params) {
+        const p = t.params;
+        const fps = p.fps || 24;
+        const frames = p.num_frames || 81;
+        const duration = (frames / fps).toFixed(1);
+        const resolution = `${p.width||'?'}×${p.height||'?'}`;
+        const loraList = p.loras && p.loras.length ? p.loras.map(l=>`${l.name}(${l.strength})`).join(', ') : '无';
+        const aiLoraList = p.ai_loras && p.ai_loras.length ? p.ai_loras.map(l=>`${l.name}(${l.strength})`).join(', ') : '';
+        paramsHtml = `<div id="params-${t.task_id}" style="display:none;margin-top:8px;padding:8px;background:#0a1929;border-radius:4px;font-size:11px;line-height:1.6">
+          <div><span style="color:#888">基础参数：</span>${resolution} | ${frames}帧(${duration}s) | ${fps}fps</div>
+          <div><span style="color:#888">采样参数：</span>steps=${p.steps||20} | cfg=${p.cfg||6} | shift=${p.shift||5} | seed=${p.seed||-1}</div>
+          <div><span style="color:#888">LoRA：</span>${loraList}</div>
+          ${aiLoraList ? `<div><span style="color:#888">AI LoRA：</span>${aiLoraList}</div>` : ''}
+          ${p.model_preset ? `<div><span style="color:#888">预设：</span>${p.model_preset}</div>` : ''}
+        </div>`;
+      }
+
+      const rerunBtn = statusCls === 'completed' || statusCls === 'failed' ? `<button class="btn btn-sm" style="margin-left:8px;background:#1a4a2e;font-size:11px;padding:3px 10px" onclick="rerunTask('${t.task_id}')">重新生成</button>` : '';
+
+      return `<div class="task-card">
+        <div class="task-header"><span>${taskTypeLabel} <span style="color:#888;font-size:11px">${modelLabel}</span> <span style="color:#666;font-size:11px">${timeStr}</span>${durStr ? ` <span style="color:#4ade80;font-size:11px">⏱${durStr}</span>` : ''} <span class="task-id">${t.task_id.substring(0,8)}</span>${rerunBtn}</span>
+          <span class="status ${statusCls}">${statusText}</span></div>
+        ${extra}
+        ${paramsHtml ? `<div style="margin-top:6px"><button class="btn btn-sm" style="background:#1a3a4a;font-size:11px;padding:3px 10px" onclick="toggleParams('${t.task_id}')">查看参数</button></div>` : ''}
+        ${paramsHtml}</div>`;
+    }).join('');
+  }
+
+  if (!html) {
+    html = '<p style="color:#666;font-size:13px;text-align:center;padding:20px">暂无任务</p>';
+  }
+
+  list.innerHTML = html;
+}
+
 async function loadHistory() {
   const list = document.getElementById('history-list');
   list.innerHTML = '<span style="color:#aaa">加载中...</span>';
   try {
-    const r = await fetch(BASE + '/api/v1/tasks', {headers:{'X-API-Key':getKey()}});
-    if (!r.ok) { list.innerHTML = '<span style="color:#f87171">加载失败</span>'; return; }
-    const tasks = await r.json();
-    if (!tasks.length) { list.innerHTML = '<span style="color:#666;font-size:13px">暂无历史任务</span>'; return; }
+    const [tasksRes, chainsRes] = await Promise.all([
+      fetch(BASE + '/api/v1/tasks', {headers:{'X-API-Key':getKey()}}),
+      fetch(BASE + '/api/v1/chains', {headers:{'X-API-Key':getKey()}}),
+    ]);
+    if (!tasksRes.ok) { list.innerHTML = '<span style="color:#f87171">加载失败</span>'; return; }
+    const tasks = await tasksRes.json();
+    const chains = chainsRes.ok ? await chainsRes.json() : [];
     // Store for rerun
     window._historyTasks = {};
     tasks.forEach(t => window._historyTasks[t.task_id] = t);
-    list.innerHTML = tasks.map(t => {
-      const pct = Math.round((t.progress || 0) * 100);
-      const statusCls = (t.status || 'queued').toLowerCase();
-      const statusText = {queued:'排队中',running:'生成中',completed:'完成',failed:'失败'}[statusCls] || statusCls;
-      const modeLabel = {t2v:'T2V',i2v:'I2V'}[t.mode] || t.mode || '';
-      const modelLabel = t.model || '';
-      const promptText = t.params ? (t.params.prompt||'').substring(0,60) : '';
-      const timeStr = t.created_at ? new Date(t.created_at*1000).toLocaleString('zh-CN',{month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'}) : '';
-      const durStr = t.created_at ? formatDuration(t.created_at, t.completed_at) : '';
-      let extra = '';
-      if (promptText) extra += `<div style="font-size:12px;color:#aaa;margin:4px 0">${promptText}${(t.params?.prompt||'').length>60?'...':''}</div>`;
-      if (t.params && t.params.ai_loras && t.params.ai_loras.length) {
-        extra += `<div style="font-size:11px;color:#7c83ff;margin-bottom:2px">AI LoRA: ${t.params.ai_loras.map(l=>l.name+'('+l.strength+')').join(', ')}</div>`;
+
+    // Fetch segment tasks for each chain (they're filtered from main task list)
+    for (const chain of chains) {
+      if (chain.segment_task_ids && chain.segment_task_ids.length) {
+        for (const taskId of chain.segment_task_ids) {
+          if (!window._historyTasks[taskId]) {
+            try {
+              const segRes = await fetch(BASE + '/api/v1/tasks/' + taskId, {headers:{'X-API-Key':getKey()}});
+              if (segRes.ok) {
+                const segTask = await segRes.json();
+                window._historyTasks[taskId] = segTask;
+              }
+            } catch(e) {
+              console.warn('Failed to fetch segment task', taskId, e);
+            }
+          }
+        }
       }
-      if (t.params && t.params.ai_prompt) {
-        extra += `<div style="font-size:11px;color:#7c83ff;margin-bottom:2px;white-space:pre-wrap">AI Prompt: ${t.params.ai_prompt}</div>`;
-      }
-      if (t.error) extra += `<div style="color:#f87171;font-size:12px;margin-top:4px">${t.error}</div>`;
-      if (t.video_url) extra += `<div class="video-result" style="margin-top:8px"><video src="${t.video_url}" controls loop style="max-width:100%;max-height:300px;border-radius:6px"></video><div style="margin-top:4px"><a href="${t.video_url}" download style="color:#7c83ff;font-size:13px">下载视频</a></div></div>`;
-      const rerunBtn = t.params ? `<button class="btn btn-sm" style="margin-left:8px;background:#0f3460;font-size:11px;padding:3px 10px" onclick="rerunTask('${t.task_id}')">重跑</button>` : '';
-      const cancelBtn = (statusCls==='queued'||statusCls==='running') ? `<button class="btn btn-sm" style="margin-left:4px;background:#4a1a1a;font-size:11px;padding:3px 10px" onclick="cancelTask('${t.task_id}')">取消</button>` : '';
-      return `<div class="task-card">
-        <div class="task-header"><span><b>${modeLabel}</b> <span style="color:#888;font-size:12px">${modelLabel}</span> <span style="color:#666;font-size:11px">${timeStr}</span>${durStr ? ` <span style="color:#4ade80;font-size:11px">⏱${durStr}</span>` : ''} <span class="task-id">${t.task_id.substring(0,8)}</span>${rerunBtn}${cancelBtn}</span>
-          <span class="status ${statusCls}">${statusText}</span></div>
-        <div class="progress-bar"><div class="progress-fill" style="width:${pct}%"></div></div>
-        <div style="font-size:12px;color:#666">${pct}%</div>
-        ${extra}</div>`;
-    }).join('');
+    }
+
+    // Store data globally for filtering
+    allHistoryTasks = tasks;
+    allHistoryChains = chains;
+
+    // Render with current filter
+    renderHistory();
   } catch(e) { list.innerHTML = '<span style="color:#f87171">加载失败: ' + e.message + '</span>'; }
 }
 
@@ -661,6 +1221,9 @@ function rerunTask(taskId) {
   document.getElementById(prefix+'-neg').value = p.negative_prompt || '';
   document.getElementById(prefix+'-model').value = p.model || 'a14b';
   document.getElementById(prefix+'-preset').value = p.model_preset || '';
+  if (document.getElementById(prefix+'-t5preset')) {
+    document.getElementById(prefix+'-t5preset').value = p.t5_preset || '';
+  }
   document.getElementById(prefix+'-w').value = p.width || (mode==='t2v'?848:832);
   document.getElementById(prefix+'-h').value = p.height || 480;
   document.getElementById(prefix+'-duration').value = duration;
@@ -699,6 +1262,37 @@ function rerunTask(taskId) {
   document.querySelectorAll('.panel').forEach(x => x.classList.remove('active'));
   document.querySelector(`.tab[data-tab="${mode}"]`).classList.add('active');
   document.getElementById('panel-'+mode).classList.add('active');
+}
+
+function toggleParams(taskId) {
+  const el = document.getElementById('params-' + taskId);
+  if (el) el.style.display = el.style.display === 'none' ? 'block' : 'none';
+}
+
+function toggleSegments(chainId) {
+  const el = document.getElementById('segments-' + chainId);
+  if (el) el.style.display = el.style.display === 'none' ? 'block' : 'none';
+}
+
+// Load video on demand
+function loadVideo(id, url) {
+  const placeholder = document.getElementById('video-placeholder-' + id);
+  if (!placeholder) return;
+
+  placeholder.innerHTML = '<div style="color:#7c83ff;font-size:13px">加载中...</div>';
+
+  // Create video element
+  const video = document.createElement('video');
+  video.src = url;
+  video.controls = true;
+  video.loop = true;
+  video.autoplay = true;
+  video.style.maxWidth = '100%';
+  video.style.maxHeight = '300px';
+  video.style.borderRadius = '6px';
+
+  // Replace placeholder with video
+  placeholder.replaceWith(video);
 }
 
 // LoRA download
@@ -759,42 +1353,77 @@ function addTask(taskId, type, prompt) {
   pollTask(taskId);
 }
 
-function renderTasks() {
-  const list = document.getElementById('task-list');
-  const ids = Object.keys(activeTasks).reverse();
-  if (!ids.length) { list.innerHTML = '<p style="color:#666;font-size:13px">暂无任务</p>'; return; }
-  list.innerHTML = ids.map(id => {
-    const t = activeTasks[id];
+function _buildTaskCard(id, t) {
     const pct = Math.round((t.progress || 0) * 100);
     const statusCls = (t.status || 'queued').toLowerCase();
     const statusText = {queued:'排队中',running:'生成中',completed:'完成',failed:'失败'}[statusCls] || statusCls;
     let videoHtml = '';
     if (t.video_url) {
-      videoHtml = `<div class="video-result"><video src="${t.video_url}" controls autoplay loop></video>
+      videoHtml = `<div class="video-result">
+        <div id="video-placeholder-active-${id}" style="background:#0a0a23;border:1px solid #444;border-radius:6px;padding:16px;text-align:center;cursor:pointer" onclick="loadVideo('active-${id}', '${t.video_url}')">
+          <div style="color:#7c83ff;font-size:14px;margin-bottom:6px">🎬 点击加载视频</div>
+          <div style="font-size:11px;color:#888">避免自动加载，节省带宽</div>
+        </div>
         <div style="margin-top:6px"><a href="${t.video_url}" download style="color:#7c83ff;font-size:13px">下载视频</a></div></div>`;
     }
     let errorHtml = t.error ? `<div style="color:#f87171;font-size:13px;margin-top:4px">${t.error}</div>` : '';
-    const promptText = (t.prompt||'').substring(0,80) + ((t.prompt||'').length>80?'...':'');
+    const promptText = (t.prompt||'');
     const durStr = t.created_at ? formatDuration(t.created_at, t.completed_at) : '';
     let aiHtml = '';
     if (t.params) {
       if (t.params.ai_loras && t.params.ai_loras.length) {
         aiHtml += `<div style="font-size:11px;color:#7c83ff;margin-bottom:2px">AI LoRA: ${t.params.ai_loras.map(l=>l.name+'('+l.strength+')').join(', ')}</div>`;
       }
-      if (t.params.ai_prompt) {
-        aiHtml += `<div style="font-size:11px;color:#7c83ff;margin-bottom:2px;white-space:pre-wrap">AI Prompt: ${t.params.ai_prompt}</div>`;
+      const displayPrompt = t.params.final_prompt || t.params.ai_prompt;
+      if (displayPrompt) {
+        aiHtml += `<div style="font-size:11px;color:#7c83ff;margin-bottom:2px;white-space:pre-wrap">AI Prompt: ${displayPrompt}</div>`;
       }
     }
     const cancelBtn = (statusCls==='queued'||statusCls==='running') ? `<button class="btn btn-sm" style="margin-left:8px;background:#4a1a1a;font-size:11px;padding:3px 10px" onclick="cancelTask('${id}')">取消</button>` : '';
-    return `<div class="task-card">
-      <div class="task-header"><span><b>${t.type||''}</b> <span class="task-id">${id}</span>${durStr ? ` <span style="color:#4ade80;font-size:11px">⏱${durStr}</span>` : ''}${cancelBtn}</span>
+    const extendBtn = statusCls==='completed' && t.video_url ? `<button class="btn btn-sm" style="margin-left:8px;background:#1a4a2e;font-size:11px;padding:3px 10px" onclick="extendTask('${id}')">延续</button>` : '';
+    return `<div class="task-card" data-task-id="${id}">
+      <div class="task-header"><span><b>${t.type||''}</b> <span class="task-id">${id}</span>${durStr ? ` <span data-role="dur" style="color:#4ade80;font-size:11px">⏱${durStr}</span>` : ` <span data-role="dur" style="color:#4ade80;font-size:11px"></span>`}${cancelBtn}${extendBtn}</span>
         <span class="status ${statusCls}">${statusText}</span></div>
       <div style="font-size:13px;color:#aaa;margin-bottom:6px">${promptText}</div>
       ${aiHtml}
       <div class="progress-bar"><div class="progress-fill" style="width:${pct}%"></div></div>
-      <div style="font-size:12px;color:#666">${pct}%</div>
+      <div style="font-size:12px;color:#666" data-role="pct">${pct}%</div>
       ${errorHtml}${videoHtml}</div>`;
-  }).join('');
+}
+
+function renderTasks() {
+  const list = document.getElementById('task-list');
+  const ids = Object.keys(activeTasks).reverse();
+  if (!ids.length) { list.innerHTML = '<p style="color:#666;font-size:13px">暂无任务</p>'; return; }
+  // Full render if task count changed or first render
+  const existing = list.querySelectorAll('.task-card[data-task-id]');
+  const existingIds = new Set(Array.from(existing).map(el => el.dataset.taskId));
+  if (existing.length !== ids.length || ids.some(id => !existingIds.has(id))) {
+    list.innerHTML = ids.map(id => _buildTaskCard(id, activeTasks[id])).join('');
+    return;
+  }
+  // Incremental update: only patch progress bar and time; rebuild card on status/video/error change
+  ids.forEach(id => {
+    const t = activeTasks[id];
+    const card = list.querySelector(`.task-card[data-task-id="${id}"]`);
+    if (!card) return;
+    const pct = Math.round((t.progress || 0) * 100);
+    const statusEl = card.querySelector('.status');
+    const curStatus = statusEl ? statusEl.textContent : '';
+    const statusText = {queued:'排队中',running:'生成中',completed:'完成',failed:'失败'}[(t.status||'queued').toLowerCase()] || t.status;
+    // If status changed, or video/error appeared, rebuild
+    if (curStatus !== statusText || (t.video_url && !card.querySelector('.video-result')) || (t.error && !card.querySelector('[style*="f87171"]'))) {
+      card.outerHTML = _buildTaskCard(id, t);
+      return;
+    }
+    // Patch progress and time in place
+    const fill = card.querySelector('.progress-fill');
+    if (fill) fill.style.width = pct + '%';
+    const pctEl = card.querySelector('[data-role="pct"]');
+    if (pctEl) pctEl.textContent = pct + '%';
+    const durEl = card.querySelector('[data-role="dur"]');
+    if (durEl && t.created_at) durEl.textContent = '⏱' + formatDuration(t.created_at, t.completed_at);
+  });
 }
 
 async function cancelTask(taskId) {
@@ -806,6 +1435,22 @@ async function cancelTask(taskId) {
     if (r.ok) {
       activeTasks[taskId] = {...activeTasks[taskId], status:'failed', error:'Cancelled by user'};
       renderTasks();
+    } else {
+      const d = await r.json();
+      alert(d.detail || '取消失败');
+    }
+  } catch(e) { alert('取消失败: ' + e.message); }
+}
+
+async function cancelChain(chainId) {
+  if (!confirm('确定取消此长视频任务？')) return;
+  try {
+    const r = await fetch(BASE + '/api/v1/chains/' + chainId + '/cancel', {
+      method: 'POST', headers: {'X-API-Key': getKey()}
+    });
+    if (r.ok) {
+      const box = document.getElementById('chain-status');
+      if (box) box.innerHTML = '<div style="color:#f87171;font-size:13px">已取消</div>';
     } else {
       const d = await r.json();
       alert(d.detail || '取消失败');
@@ -1181,11 +1826,1567 @@ async function recommendLoras(mode, btn) {
   finally { btn.disabled = false; btn.textContent = 'AI 推荐 LoRA'; }
 }
 
+// Keep duration display ticking every second for running tasks
+setInterval(() => {
+  const hasRunning = Object.values(activeTasks).some(t => t.status === 'running' || t.status === 'queued');
+  if (!hasRunning) return;
+  document.querySelectorAll('#task-list .task-card[data-task-id]').forEach(card => {
+    const id = card.dataset.taskId;
+    const t = activeTasks[id];
+    if (!t || !t.created_at || t.completed_at) return;
+    const durEl = card.querySelector('[data-role="dur"]');
+    if (durEl) durEl.textContent = '⏱' + formatDuration(t.created_at, null);
+  });
+}, 1000);
+
+// Re-poll all active tasks immediately when page becomes visible again
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) return;
+  Object.keys(activeTasks).forEach(id => {
+    const t = activeTasks[id];
+    if (t.status === 'running' || t.status === 'queued') {
+      // Fire one immediate poll
+      fetch(BASE + '/api/v1/tasks/' + id, {headers:{'X-API-Key':getKey()}})
+        .then(r => r.ok ? r.json() : null)
+        .then(d => { if (d) { activeTasks[id] = {...activeTasks[id], ...d}; renderTasks(); } })
+        .catch(() => {});
+    }
+  });
+});
+
 // Init
 loadPresets();
+loadT5Presets();
 loadLoras();
 restoreFormParams('t2v');
 restoreFormParams('i2v');
+restoreFormParams('chain');
+// Restore story mode UI state after form params are restored (don't overwrite saved values)
+if (document.getElementById('chain-story-mode').checked) {
+  toggleStoryMode(false);
+}
+
+// Restore cached chain image from localStorage
+try {
+  const cachedImg = localStorage.getItem('wan22_chain_image');
+  const cachedName = localStorage.getItem('wan22_chain_image_name');
+  if (cachedImg) {
+    const preview = document.getElementById('chain-img-preview');
+    const text = document.getElementById('chain-upload-text');
+    preview.src = cachedImg;
+    preview.style.display = 'block';
+    text.style.display = 'none';
+    // Convert dataURL back to File for submission
+    fetch(cachedImg).then(r => r.blob()).then(blob => {
+      chainSelectedFile = new File([blob], cachedName || 'cached.png', {type: blob.type});
+    });
+  }
+} catch(e) {}
+
+// --- Extend task ---
+function extendTask(taskId) {
+  // Find task from active or history
+  const t = activeTasks[taskId] || (window._historyTasks && window._historyTasks[taskId]);
+  if (!t) { alert('找不到任务信息'); return; }
+  // Switch to I2V tab and fill form
+  const p = t.params || {};
+  document.getElementById('i2v-prompt').value = p.prompt || '';
+  document.getElementById('i2v-neg').value = p.negative_prompt || '';
+  document.getElementById('i2v-model').value = p.model || 'a14b';
+  document.getElementById('i2v-preset').value = p.model_preset || '';
+  if (document.getElementById('i2v-t5preset')) {
+    document.getElementById('i2v-t5preset').value = p.t5_preset || '';
+  }
+  document.getElementById('i2v-w').value = p.width || 832;
+  document.getElementById('i2v-h').value = p.height || 480;
+  const fps = p.fps || 24;
+  document.getElementById('i2v-duration').value = p.num_frames ? framesToDuration(p.num_frames, fps) : '3.3';
+  document.getElementById('i2v-fps').value = fps;
+  document.getElementById('i2v-steps').value = p.steps || 20;
+  document.getElementById('i2v-cfg').value = p.cfg || 6.0;
+  document.getElementById('i2v-shift').value = p.shift || 5.0;
+  document.getElementById('i2v-seed').value = -1;
+  document.getElementById('i2v-sched').value = p.scheduler || 'unipc';
+  document.getElementById('i2v-noise').value = 0.05;
+  document.getElementById('i2v-motion').value = p.motion_amplitude || 0;
+  document.getElementById('i2v-colormatch').value = p.color_match !== false ? 'true' : 'false';
+  document.getElementById('i2v-colormatch-method').value = p.color_match_method || 'mkl';
+  document.getElementById('i2v-resize').value = p.resize_mode || 'crop_to_new';
+  // Select matching LoRAs
+  if (p.loras && p.loras.length) {
+    const cid = 'i2v-loras';
+    document.querySelectorAll('#'+cid+' .lora-item').forEach(item => {
+      const cb = item.querySelector('input[type=checkbox]');
+      const idx = parseInt(cb.dataset.idx);
+      const match = p.loras.find(l => l.name === allLoras[idx]?.name);
+      if (match) { cb.checked = true; item.classList.add('selected'); item.querySelector('.lora-strength').value = match.strength; }
+      else { cb.checked = false; item.classList.remove('selected'); }
+    });
+  }
+  // Hide image upload, show extend info
+  const uploadArea = document.getElementById('i2v-upload-area');
+  uploadArea.innerHTML = `<div style="color:#4ade80;font-size:13px;text-align:center">
+    <div style="margin-bottom:6px">延续模式</div>
+    <div style="font-size:11px;color:#aaa">将自动提取上一段视频最后一帧</div>
+    <div style="font-size:11px;color:#888;margin-top:4px">父任务: ${taskId.substring(0,8)}</div>
+    <button class="btn btn-sm" style="margin-top:8px;background:#333;font-size:11px;padding:3px 10px" onclick="resetI2VUpload()">取消延续</button>
+  </div>`;
+  window._extendParentId = taskId;
+  // Change submit button
+  const btnRow = document.querySelector('#panel-i2v .btn-row');
+  const submitBtn = btnRow.querySelector('.btn:not(.btn-sm):not([type=checkbox])');
+  if (submitBtn) { submitBtn.textContent = '延续生成'; submitBtn.setAttribute('onclick', 'submitExtend()'); }
+  // Switch tab
+  document.querySelectorAll('.tab').forEach(x => x.classList.remove('active'));
+  document.querySelectorAll('.panel').forEach(x => x.classList.remove('active'));
+  document.querySelector('.tab[data-tab="i2v"]').classList.add('active');
+  document.getElementById('panel-i2v').classList.add('active');
+}
+
+function resetI2VUpload() {
+  window._extendParentId = null;
+  const uploadArea = document.getElementById('i2v-upload-area');
+  uploadArea.innerHTML = `<img id="i2v-img-preview" style="display:none">
+    <span id="i2v-upload-text">点击或拖拽上传图片</span>
+    <input type="file" id="i2v-file" accept="image/*">`;
+  document.getElementById('i2v-file').addEventListener('change', function() {
+    const file = this.files[0]; if (!file) return;
+    i2vSelectedFile = file;
+    const reader = new FileReader();
+    const preview = document.getElementById('i2v-img-preview');
+    const text = document.getElementById('i2v-upload-text');
+    reader.onload = e => { preview.src = e.target.result; preview.style.display = 'block'; text.style.display = 'none'; };
+    reader.readAsDataURL(file);
+  });
+  const btnRow = document.querySelector('#panel-i2v .btn-row');
+  const submitBtn = btnRow.querySelector('.btn:not(.btn-sm):not([type=checkbox])');
+  if (submitBtn) { submitBtn.textContent = '生成视频'; submitBtn.setAttribute('onclick', 'submitI2V()'); }
+}
+
+async function submitExtend() {
+  const parentId = window._extendParentId;
+  if (!parentId) { alert('无延续父任务'); return; }
+  const prompt = document.getElementById('i2v-prompt').value;
+  if (!prompt) { alert('请输入提示词'); return; }
+  const fps = parseInt(document.getElementById('i2v-fps').value);
+  const duration = parseFloat(document.getElementById('i2v-duration').value);
+  const seed = parseInt(document.getElementById('i2v-seed').value);
+  const loras = getSelectedLoras('i2v-loras');
+  const body = {
+    parent_task_id: parentId,
+    prompt,
+    negative_prompt: document.getElementById('i2v-neg').value,
+    num_frames: durationToFrames(duration, fps),
+    steps: parseInt(document.getElementById('i2v-steps').value),
+    cfg: parseFloat(document.getElementById('i2v-cfg').value),
+    shift: parseFloat(document.getElementById('i2v-shift').value),
+    seed: seed >= 0 ? seed : null,
+    scheduler: document.getElementById('i2v-sched').value,
+    noise_aug_strength: parseFloat(document.getElementById('i2v-noise').value),
+    loras: loras,
+    auto_prompt: document.getElementById('i2v-auto-prompt').checked,
+    concat_with_parent: true,
+  };
+  try {
+    const r = await fetch(BASE + '/api/v1/generate/extend', {
+      method: 'POST', headers: {'Content-Type':'application/json','X-API-Key':getKey()},
+      body: JSON.stringify(body)
+    });
+    const d = await r.json();
+    if (!r.ok) { alert('Error: ' + (d.detail || JSON.stringify(d))); return; }
+    addTask(d.task_id, 'EXTEND', prompt);
+    resetI2VUpload();
+  } catch(e) { alert('请求失败: ' + e.message); }
+}
+
+// --- Chain (long video) ---
+let segmentCounter = 0;
+
+// Toggle Story mode fields visibility
+// setDefaults=true when user clicks the checkbox, false when restoring from localStorage
+function toggleStoryMode(setDefaults) {
+  if (setDefaults === undefined) setDefaults = true;
+  const isStory = document.getElementById('chain-story-mode').checked;
+  // Show story-specific fields
+  document.getElementById('chain-story-motion-frames-field').style.display = isStory ? '' : 'none';
+  document.getElementById('chain-story-boundary-field').style.display = isStory ? '' : 'none';
+  document.getElementById('chain-story-clip-field').style.display = isStory ? '' : 'none';
+  // Hide fields not applicable to story mode
+  const noiseField = document.getElementById('chain-noise').closest('.field');
+  const colormatchField = document.getElementById('chain-colormatch').closest('.field');
+  const colormatchMethodField = document.getElementById('chain-colormatch-method').closest('.field');
+  if (noiseField) noiseField.style.display = isStory ? 'none' : '';
+  if (colormatchField) colormatchField.style.display = isStory ? 'none' : '';
+  if (colormatchMethodField) colormatchMethodField.style.display = isStory ? 'none' : '';
+  // When story mode is toggled on by user, set recommended defaults
+  if (isStory && setDefaults) {
+    document.getElementById('chain-shift').value = '8.0';
+    document.getElementById('chain-cfg').value = '1.0';
+    document.getElementById('chain-steps').value = '5';
+    document.getElementById('chain-sched').value = 'euler';
+    document.getElementById('chain-motion').value = '1.15';
+    document.getElementById('chain-fps').value = '16';
+  }
+}
+
+// Toggle collapsible sections
+function toggleCollapsible(el) {
+  const content = el.nextElementSibling;
+  const icon = el.querySelector('#collapse-icon');
+  if (content.classList.contains('active')) {
+    content.classList.remove('active');
+    icon.textContent = '▼';
+  } else {
+    content.classList.add('active');
+    icon.textContent = '▲';
+  }
+}
+
+// Add a new segment
+function addSegment() {
+  segmentCounter++;
+  const container = document.getElementById('segments-container');
+  const segmentDiv = document.createElement('div');
+  segmentDiv.className = 'segment-card';
+  segmentDiv.dataset.segmentId = segmentCounter;
+
+  segmentDiv.innerHTML = `
+    <div class="segment-header">
+      <span class="segment-title">分段 ${segmentCounter}</span>
+      <div style="display:flex;gap:8px">
+        <button class="btn btn-sm" style="background:#0f3460;padding:4px 12px" onclick="generateSingleSegment(${segmentCounter})">单独生成</button>
+        <button class="segment-remove" onclick="removeSegment(${segmentCounter})">删除</button>
+      </div>
+    </div>
+    <div class="row">
+      <div class="field" style="flex:2">
+        <label>提示词</label>
+        <textarea id="seg-${segmentCounter}-prompt" placeholder="描述这一段的内容..." style="min-height:60px" onchange="saveSegmentsToStorage()"></textarea>
+        <div style="margin-top:6px;display:flex;gap:8px">
+          <button class="btn btn-sm" style="background:#0f3460;padding:4px 12px" onclick="optimizeSegmentPrompt(${segmentCounter}, this)">AI 优化 Prompt</button>
+          <button class="btn btn-sm" style="background:#0f3460;padding:4px 12px" onclick="recommendSegmentLoras(${segmentCounter}, this)">AI 推荐 LoRA</button>
+        </div>
+      </div>
+      <div class="field" style="flex:0;min-width:100px">
+        <label>时长(秒)</label>
+        <input type="number" id="seg-${segmentCounter}-duration" value="3.3" step="0.1" min="0.5" max="10" onchange="saveSegmentsToStorage()">
+      </div>
+    </div>
+    <div style="margin-bottom:12px">
+      <button class="btn btn-sm" style="background:#16213e;padding:6px 14px" onclick="toggleSegmentPreview(${segmentCounter})">
+        <span id="seg-${segmentCounter}-preview-toggle">▼ 查看参考图</span>
+      </button>
+      <button class="btn btn-sm" style="background:#1a4a2e;padding:6px 14px;margin-left:8px" onclick="analyzeAndContinue(${segmentCounter}, this)">
+        🔍 VLM 分析续写
+      </button>
+      <button class="btn btn-sm" style="background:#2e1a4a;padding:6px 14px;margin-left:8px" onclick="describeSegmentImage(${segmentCounter}, this)">
+        📝 仅描述图片
+      </button>
+    </div>
+    <div id="seg-${segmentCounter}-preview-area" style="display:none;margin-bottom:12px;padding:12px;background:#0a0a23;border:1px solid #444;border-radius:6px">
+      <div style="color:#888;font-size:12px;margin-bottom:8px">参考图（上一段的最后一帧）</div>
+      <div id="seg-${segmentCounter}-preview-content" style="color:#666;font-size:13px">暂无参考图</div>
+      <div id="seg-${segmentCounter}-description" style="margin-top:12px;padding:10px;background:#16213e;border-radius:4px;display:none">
+        <div style="color:#7c83ff;font-size:12px;margin-bottom:6px">VLM 图片描述：</div>
+        <div id="seg-${segmentCounter}-description-text" style="color:#e0e0e0;font-size:13px;line-height:1.5"></div>
+      </div>
+    </div>
+    <div class="lora-section">
+      <label style="cursor:pointer;user-select:none" onclick="toggleSegLoras(${segmentCounter}, this)">▶ LoRA 选择（可选）</label>
+      <div class="lora-grid" id="seg-${segmentCounter}-loras" style="display:none"></div>
+    </div>
+    <div id="seg-${segmentCounter}-status" style="margin-top:12px"></div>
+  `;
+
+  container.appendChild(segmentDiv);
+
+  // Don't render LoRAs immediately - they load on expand via toggleSegLoras()
+
+  saveSegmentsToStorage();
+}
+
+// Remove a segment
+function removeSegment(id) {
+  const segment = document.querySelector(`[data-segment-id="${id}"]`);
+  if (segment) {
+    segment.remove();
+    saveSegmentsToStorage();
+  }
+}
+
+// Toggle segment LoRA section (lazy load)
+function toggleSegLoras(segId, labelEl) {
+  const grid = document.getElementById(`seg-${segId}-loras`);
+  if (!grid) return;
+  const isHidden = grid.style.display === 'none';
+  grid.style.display = isHidden ? '' : 'none';
+  labelEl.textContent = (isHidden ? '▼' : '▶') + ' LoRA 选择（可选）';
+  // Render LoRAs on first expand
+  if (isHidden && grid.children.length === 0 && allLoras && allLoras.length > 0) {
+    renderLoras(`seg-${segId}-loras`);
+    // Restore pending selections if any
+    const pending = window['_pendingSegLoras_' + segId];
+    if (pending) {
+      delete window['_pendingSegLoras_' + segId];
+      setTimeout(() => {
+        pending.forEach(lora => {
+          const idx = allLoras.findIndex(l => l.name === lora.name);
+          if (idx >= 0) {
+            const item = document.getElementById(`seg-${segId}-loras-${idx}`);
+            if (item) {
+              item.querySelector('input[type=checkbox]').checked = true;
+              item.querySelector('.lora-strength').value = lora.strength;
+              item.classList.add('selected');
+            }
+          }
+        });
+      }, 50);
+    }
+  }
+}
+
+// Toggle segment preview area
+function toggleSegmentPreview(segId) {
+  const previewArea = document.getElementById(`seg-${segId}-preview-area`);
+  const toggleText = document.getElementById(`seg-${segId}-preview-toggle`);
+
+  if (previewArea.style.display === 'none') {
+    previewArea.style.display = 'block';
+    toggleText.textContent = '▲ 隐藏参考图';
+
+    // Load preview image if not already loaded
+    loadSegmentPreview(segId);
+  } else {
+    previewArea.style.display = 'none';
+    toggleText.textContent = '▼ 查看参考图';
+  }
+}
+
+// Load preview image for a segment
+async function loadSegmentPreview(segId) {
+  const previewContent = document.getElementById(`seg-${segId}-preview-content`);
+
+  // Find the previous segment or use the initial image
+  const allSegments = Array.from(document.querySelectorAll('.segment-card'));
+  const currentIndex = allSegments.findIndex(s => s.dataset.segmentId === String(segId));
+
+  if (currentIndex === 0) {
+    // First segment - check if there's an uploaded image
+    const chainImgPreview = document.getElementById('chain-img-preview');
+    if (chainSelectedFile) {
+      const reader = new FileReader();
+      reader.onload = function(e) {
+        previewContent.innerHTML = `<img src="${e.target.result}" style="max-width:100%;max-height:200px;border-radius:6px">`;
+      };
+      reader.readAsDataURL(chainSelectedFile);
+    } else {
+      previewContent.innerHTML = '<span style="color:#666">第一段，无参考图（可在上方上传首帧图片）</span>';
+    }
+  } else {
+    // Not first segment - get last frame from previous segment
+    const prevSegment = allSegments[currentIndex - 1];
+    const prevSegId = prevSegment.dataset.segmentId;
+    const prevTaskId = window[`seg_${prevSegId}_task_id`];
+    const prevLastFrameUrl = window[`seg_${prevSegId}_last_frame_url`];
+
+    // If we already have the last frame URL, display it directly
+    if (prevLastFrameUrl) {
+      previewContent.innerHTML = `
+        <div style="color:#888;font-size:12px;margin-bottom:8px">上一段（分段 ${prevSegId}）的最后一帧</div>
+        <img src="${prevLastFrameUrl}" style="max-width:100%;max-height:200px;border-radius:6px">
+        <div style="margin-top:6px;font-size:12px;color:#7c83ff">提示：点击"VLM 分析续写"可基于此图生成续写提示词</div>
+      `;
+      return;
+    }
+
+    // If previous segment has a task, try to get last frame from task info
+    if (prevTaskId) {
+      previewContent.innerHTML = '<div style="color:#7c83ff;font-size:13px">正在加载最后一帧...</div>';
+      try {
+        const r = await fetch(BASE + '/api/v1/tasks/' + prevTaskId, {headers:{'X-API-Key':getKey()}});
+        if (r.ok) {
+          const task = await r.json();
+          if (task.last_frame_url) {
+            window[`seg_${prevSegId}_last_frame_url`] = toLocalUrl(task.last_frame_url);
+            previewContent.innerHTML = `
+              <div style="color:#888;font-size:12px;margin-bottom:8px">上一段（分段 ${prevSegId}）的最后一帧</div>
+              <img src="${toLocalUrl(task.last_frame_url)}" style="max-width:100%;max-height:200px;border-radius:6px">
+              <div style="margin-top:6px;font-size:12px;color:#7c83ff">提示：点击"VLM 分析续写"可基于此图生成续写提示词</div>
+            `;
+            return;
+          }
+        }
+      } catch(e) {
+        console.error('Failed to load last frame from task:', e);
+      }
+    }
+
+    previewContent.innerHTML = `<span style="color:#666">上一段（分段 ${prevSegId}）尚未生成或最后一帧未提取</span>`;
+  }
+}
+
+// Optimize prompt for a specific segment
+async function optimizeSegmentPrompt(segId, btn) {
+  const promptEl = document.getElementById(`seg-${segId}-prompt`);
+  const prompt = promptEl.value;
+
+  if (!prompt) {
+    alert('请先输入提示词');
+    return;
+  }
+
+  const originalText = btn.textContent;
+  btn.textContent = '优化中...';
+  btn.disabled = true;
+
+  try {
+    const loras = getSelectedLoras(`seg-${segId}-loras`);
+    const duration = parseFloat(document.getElementById(`seg-${segId}-duration`).value);
+
+    const r = await fetch(BASE + '/api/v1/prompt/optimize', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json', 'X-API-Key': getKey()},
+      body: JSON.stringify({
+        prompt: prompt,
+        lora_names: loras.map(l => l.name),
+        mode: 't2v',
+        duration: duration
+      })
+    });
+
+    if (!r.ok) {
+      const err = await r.json();
+      alert('优化失败: ' + (err.detail || JSON.stringify(err)));
+      return;
+    }
+
+    const data = await r.json();
+    if (data.optimized_prompt && data.optimized_prompt !== prompt) {
+      promptEl.value = data.optimized_prompt;
+
+      // Show explanation in description area
+      const descArea = document.getElementById(`seg-${segId}-description`);
+      const descText = document.getElementById(`seg-${segId}-description-text`);
+      if (descText) descText.innerHTML = `<div style="color:#4ade80;margin-bottom:6px">✓ 提示词已优化</div>${data.explanation || ''}`;
+      if (descArea) descArea.style.display = 'block';
+
+      // Auto-expand preview area
+      const previewArea = document.getElementById(`seg-${segId}-preview-area`);
+      const toggleText = document.getElementById(`seg-${segId}-preview-toggle`);
+      if (previewArea) previewArea.style.display = 'block';
+      if (toggleText) toggleText.textContent = '▲ 隐藏参考图';
+
+      saveSegmentsToStorage();
+    } else {
+      const descArea = document.getElementById(`seg-${segId}-description`);
+      const descText = document.getElementById(`seg-${segId}-description-text`);
+      if (descText) descText.innerHTML = '<div style="color:#888">提示词已经很好，无需优化</div>';
+      if (descArea) descArea.style.display = 'block';
+
+      const previewArea = document.getElementById(`seg-${segId}-preview-area`);
+      const toggleText = document.getElementById(`seg-${segId}-preview-toggle`);
+      if (previewArea) previewArea.style.display = 'block';
+      if (toggleText) toggleText.textContent = '▲ 隐藏参考图';
+    }
+  } catch(e) {
+    alert('请求失败: ' + e.message);
+  } finally {
+    btn.textContent = originalText;
+    btn.disabled = false;
+  }
+}
+
+// Recommend LoRAs for a specific segment
+async function recommendSegmentLoras(segId, btn) {
+  const promptEl = document.getElementById(`seg-${segId}-prompt`);
+  const prompt = promptEl.value;
+
+  if (!prompt) {
+    alert('请先输入提示词');
+    return;
+  }
+
+  const originalText = btn.textContent;
+  btn.textContent = '推荐中...';
+  btn.disabled = true;
+
+  try {
+    const r = await fetch(BASE + '/api/v1/loras/recommend', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json', 'X-API-Key': getKey()},
+      body: JSON.stringify({prompt: prompt})
+    });
+
+    if (!r.ok) {
+      const err = await r.json();
+      alert('推荐失败: ' + (err.detail || JSON.stringify(err)));
+      return;
+    }
+
+    const data = await r.json();
+    if (data.loras && data.loras.length > 0) {
+      // Auto-select recommended LoRAs
+      const containerPrefix = `seg-${segId}-loras`;
+      data.loras.forEach(lora => {
+        const idx = allLoras.findIndex(l => l.name === lora.name);
+        if (idx >= 0) {
+          const item = document.getElementById(`${containerPrefix}-${idx}`);
+          if (item) {
+            const cb = item.querySelector('input[type=checkbox]');
+            const strengthInput = item.querySelector('.lora-strength');
+            cb.checked = true;
+            strengthInput.value = lora.strength;
+            item.classList.add('selected');
+          }
+        }
+      });
+
+      // Show result in description area
+      const descArea = document.getElementById(`seg-${segId}-description`);
+      const descText = document.getElementById(`seg-${segId}-description-text`);
+      const loraNames = data.loras.map(l => l.name).join(', ');
+      descText.innerHTML = `<div style="color:#4ade80;margin-bottom:6px">✓ 已推荐并选中 ${data.loras.length} 个 LoRA</div><div style="color:#888;font-size:12px">${loraNames}</div>`;
+      descArea.style.display = 'block';
+
+      const previewArea = document.getElementById(`seg-${segId}-preview-area`);
+      const toggleText = document.getElementById(`seg-${segId}-preview-toggle`);
+      previewArea.style.display = 'block';
+      toggleText.textContent = '▲ 隐藏参考图';
+
+      saveSegmentsToStorage();
+    } else {
+      const descArea = document.getElementById(`seg-${segId}-description`);
+      const descText = document.getElementById(`seg-${segId}-description-text`);
+      descText.innerHTML = '<div style="color:#888">未找到合适的 LoRA 推荐</div>';
+      descArea.style.display = 'block';
+
+      const previewArea = document.getElementById(`seg-${segId}-preview-area`);
+      const toggleText = document.getElementById(`seg-${segId}-preview-toggle`);
+      previewArea.style.display = 'block';
+      toggleText.textContent = '▲ 隐藏参考图';
+    }
+  } catch(e) {
+    alert('请求失败: ' + e.message);
+  } finally {
+    btn.textContent = originalText;
+    btn.disabled = false;
+  }
+}
+
+// Generate a single segment
+async function generateSingleSegment(segId) {
+  const promptEl = document.getElementById(`seg-${segId}-prompt`);
+  const prompt = promptEl.value;
+
+  if (!prompt) {
+    alert('请输入提示词');
+    return;
+  }
+
+  const duration = parseFloat(document.getElementById(`seg-${segId}-duration`).value);
+  const loras = getSelectedLoras(`seg-${segId}-loras`);
+
+  // Get global parameters
+  const seed = parseInt(document.getElementById('chain-seed').value);
+  const params = {
+    prompt: prompt,
+    negative_prompt: document.getElementById('chain-neg').value,
+    model: document.getElementById('chain-model').value,
+    model_preset: document.getElementById('chain-preset').value,
+    t5_preset: document.getElementById('chain-t5preset').value,
+    width: parseInt(document.getElementById('chain-w').value),
+    height: parseInt(document.getElementById('chain-h').value),
+    num_frames: durationToFrames(duration, parseInt(document.getElementById('chain-fps').value)),
+    fps: parseInt(document.getElementById('chain-fps').value),
+    steps: parseInt(document.getElementById('chain-steps').value),
+    cfg: parseFloat(document.getElementById('chain-cfg').value),
+    shift: parseFloat(document.getElementById('chain-shift').value),
+    seed: seed >= 0 ? seed : null,
+    scheduler: document.getElementById('chain-sched').value,
+    loras: loras,
+    upscale: document.getElementById('chain-upscale').checked,
+  };
+
+  const statusBox = document.getElementById(`seg-${segId}-status`);
+  statusBox.innerHTML = '<div style="color:#aaa;font-size:13px">提交中...</div>';
+
+  try {
+    // Check if this is the first segment and has an uploaded image
+    const allSegments = Array.from(document.querySelectorAll('.segment-card'));
+    const currentIndex = allSegments.findIndex(s => s.dataset.segmentId === String(segId));
+
+    let endpoint = BASE + '/api/v1/generate';
+    let requestBody;
+    let headers = {'X-API-Key': getKey()};
+
+    if (currentIndex === 0) {
+      // First segment
+      if (chainSelectedFile) {
+        // Use I2V with uploaded image
+        endpoint = BASE + '/api/v1/generate/i2v';
+        params.noise_aug_strength = parseFloat(document.getElementById('chain-noise').value);
+        params.motion_amplitude = parseFloat(document.getElementById('chain-motion').value);
+        params.color_match = document.getElementById('chain-colormatch').value === 'true';
+        params.color_match_method = document.getElementById('chain-colormatch-method').value;
+        params.resize_mode = document.getElementById('chain-resize').value;
+
+        const fd = new FormData();
+        fd.append('image', chainSelectedFile);
+        fd.append('params', JSON.stringify(params));
+        requestBody = fd;
+      } else {
+        // T2V without image
+        headers['Content-Type'] = 'application/json';
+        requestBody = JSON.stringify(params);
+      }
+    } else {
+      // Second segment and beyond - MUST use previous segment's last frame
+      const prevSegment = allSegments[currentIndex - 1];
+      const prevSegId = prevSegment.dataset.segmentId;
+      const prevLastFrameUrl = window[`seg_${prevSegId}_last_frame_url`];
+
+      if (!prevLastFrameUrl) {
+        statusBox.innerHTML = `<div style="color:#f87171;font-size:13px">错误：上一段（分段 ${prevSegId}）尚未生成或最后一帧未提取，请先生成上一段</div>`;
+        return;
+      }
+
+      // Use I2V with previous segment's last frame
+      endpoint = BASE + '/api/v1/generate/i2v';
+      params.noise_aug_strength = parseFloat(document.getElementById('chain-noise').value);
+      params.motion_amplitude = parseFloat(document.getElementById('chain-motion').value);
+      params.color_match = document.getElementById('chain-colormatch').value === 'true';
+      params.color_match_method = document.getElementById('chain-colormatch-method').value;
+      params.resize_mode = document.getElementById('chain-resize').value;
+
+      const fd = new FormData();
+
+      try {
+        const imgBlob = await fetch(prevLastFrameUrl).then(r => r.blob());
+        fd.append('image', imgBlob, 'last_frame.png');
+      } catch(e) {
+        statusBox.innerHTML = `<div style="color:#f87171;font-size:13px">获取上一段最后一帧失败: ${e.message}</div>`;
+        return;
+      }
+
+      fd.append('params', JSON.stringify(params));
+      requestBody = fd;
+    }
+
+    const r = await fetch(endpoint, {
+      method: 'POST',
+      headers: headers,
+      body: requestBody
+    });
+
+    const data = await r.json();
+    if (!r.ok) {
+      statusBox.innerHTML = `<div style="color:#f87171;font-size:13px">${data.detail || JSON.stringify(data)}</div>`;
+      return;
+    }
+
+    statusBox.innerHTML = `<div style="color:#4ade80;font-size:13px">已提交任务: ${data.task_id.substring(0, 8)}</div>`;
+
+    // Store task ID for this segment
+    window[`seg_${segId}_task_id`] = data.task_id;
+    saveSegmentsToStorage();
+
+    // Poll task status
+    pollSegmentTask(segId, data.task_id);
+  } catch(e) {
+    statusBox.innerHTML = `<div style="color:#f87171;font-size:13px">请求失败: ${e.message}</div>`;
+  }
+}
+
+// Poll single segment task status
+async function pollSegmentTask(segId, taskId) {
+  const statusBox = document.getElementById(`seg-${segId}-status`);
+
+  const poll = async () => {
+    try {
+      const r = await fetch(BASE + `/api/v1/tasks/${taskId}`, {
+        headers: {'X-API-Key': getKey()}
+      });
+      if (!r.ok) return;
+
+      const task = await r.json();
+      const progress = Math.round((task.progress || 0) * 100);
+      const statusCls = {queued:'queued',running:'running',completed:'completed',failed:'failed'}[task.status] || '';
+      const statusText = {queued:'排队中',running:'生成中',completed:'完成',failed:'失败'}[task.status] || task.status;
+
+      let html = `<div style="font-size:13px">
+        <span class="status ${statusCls}">${statusText}</span>
+        <span style="color:#888;margin-left:8px">${task.task_id.substring(0, 8)}</span>
+      </div>`;
+
+      if (task.status === 'running') {
+        html += `<div class="progress-bar" style="margin-top:6px"><div class="progress-fill" style="width:${progress}%"></div></div>`;
+        html += `<div style="font-size:12px;color:#666;margin-top:4px">${progress}%</div>`;
+      }
+
+      if (task.error) {
+        html += `<div style="color:#f87171;font-size:12px;margin-top:4px">${task.error}</div>`;
+      }
+
+      if (task.video_url) {
+        html += `<div class="video-result" style="margin-top:8px">
+          <div id="video-placeholder-poll-seg-${segId}" style="background:#0a0a23;border:1px solid #444;border-radius:6px;padding:16px;text-align:center;cursor:pointer" onclick="loadVideo('poll-seg-${segId}', '${task.video_url}')">
+            <div style="color:#7c83ff;font-size:14px;margin-bottom:6px">🎬 点击加载视频</div>
+            <div style="font-size:11px;color:#888">避免自动加载</div>
+          </div>
+          <div style="margin-top:4px"><a href="${task.video_url}" download style="color:#7c83ff;font-size:12px">下载视频</a></div>
+        </div>`;
+
+        // Store video URL and last frame URL for this segment
+        window[`seg_${segId}_video_url`] = task.video_url;
+        if (task.last_frame_url) {
+          window[`seg_${segId}_last_frame_url`] = toLocalUrl(task.last_frame_url);
+        }
+        saveSegmentsToStorage();
+      }
+
+      statusBox.innerHTML = html;
+
+      if (task.status === 'completed' || task.status === 'failed') return;
+    } catch(e) {}
+
+    setTimeout(poll, 2000);
+  };
+
+  poll();
+}
+
+// Analyze previous segment and generate continuation prompt
+async function analyzeAndContinue(segId, btn) {
+  const allSegments = Array.from(document.querySelectorAll('.segment-card'));
+  const currentIndex = allSegments.findIndex(s => s.dataset.segmentId === String(segId));
+
+  if (currentIndex === 0) {
+    // First segment - check if there's an uploaded image
+    if (!chainSelectedFile) {
+      alert('第一段没有参考图，请先上传首帧图片');
+      return;
+    }
+
+    const originalText = btn.textContent;
+    btn.textContent = '分析中...';
+    btn.disabled = true;
+
+    try {
+      // Convert uploaded image to base64
+      const reader = new FileReader();
+      reader.onload = async function(e) {
+        const base64 = e.target.result.split(',')[1];
+
+        try {
+          const r = await fetch(BASE + '/api/v1/prompt/optimize', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json', 'X-API-Key': getKey()},
+            body: JSON.stringify({
+              prompt: '描述这张图片，并建议接下来的动作',
+              mode: 'i2v',
+              image_base64: base64,
+              duration: parseFloat(document.getElementById(`seg-${segId}-duration`).value)
+            })
+          });
+
+          if (!r.ok) {
+            const err = await r.json();
+            alert('分析失败: ' + (err.detail || JSON.stringify(err)));
+            return;
+          }
+
+          const data = await r.json();
+          if (data.optimized_prompt) {
+            document.getElementById(`seg-${segId}-prompt`).value = data.optimized_prompt;
+            alert('已根据首帧图片生成提示词');
+          }
+        } catch(e) {
+          alert('请求失败: ' + e.message);
+        } finally {
+          btn.textContent = originalText;
+          btn.disabled = false;
+        }
+      };
+      reader.readAsDataURL(chainSelectedFile);
+    } catch(e) {
+      alert('读取图片失败: ' + e.message);
+      btn.textContent = originalText;
+      btn.disabled = false;
+    }
+    return;
+  }
+
+  // Not first segment - need to get previous segment's last frame
+  const prevSegment = allSegments[currentIndex - 1];
+  const prevSegId = prevSegment.dataset.segmentId;
+  const prevLastFrameUrl = window[`seg_${prevSegId}_last_frame_url`];
+  const prevTaskId = window[`seg_${prevSegId}_task_id`];
+
+  if (!prevLastFrameUrl && !prevTaskId) {
+    alert('上一段视频尚未生成，请先生成上一段');
+    return;
+  }
+
+  const originalText = btn.textContent;
+  btn.textContent = '分析中...';
+  btn.disabled = true;
+
+  try {
+    let base64;
+    let lastFrameUrl = prevLastFrameUrl;
+
+    // If we don't have the last frame URL cached, try to get it from task
+    if (!lastFrameUrl && prevTaskId) {
+      const taskR = await fetch(BASE + '/api/v1/tasks/' + prevTaskId, {headers:{'X-API-Key':getKey()}});
+      if (taskR.ok) {
+        const task = await taskR.json();
+        if (task.last_frame_url) {
+          lastFrameUrl = toLocalUrl(task.last_frame_url);
+          window[`seg_${prevSegId}_last_frame_url`] = lastFrameUrl;
+        }
+      }
+    }
+
+    if (!lastFrameUrl) {
+      alert('无法获取上一段的最后一帧，请稍后重试');
+      btn.textContent = originalText;
+      btn.disabled = false;
+      return;
+    }
+
+    // Fetch the last frame image and convert to base64
+    const imgBlob = await fetch(lastFrameUrl).then(r => r.blob());
+    const reader = new FileReader();
+    base64 = await new Promise((resolve) => {
+      reader.onload = (e) => resolve(e.target.result.split(',')[1]);
+      reader.readAsDataURL(imgBlob);
+    });
+
+    // Get previous segment's prompt for context
+    const prevPrompt = document.getElementById(`seg-${prevSegId}-prompt`).value;
+
+    // Call VLM to analyze and generate continuation
+    const r = await fetch(BASE + '/api/v1/prompt/optimize', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json', 'X-API-Key': getKey()},
+      body: JSON.stringify({
+        prompt: `前一段的提示词是: "${prevPrompt}". 基于这个最后一帧，建议接下来的动作和场景`,
+        mode: 'i2v',
+        image_base64: base64,
+        duration: parseFloat(document.getElementById(`seg-${segId}-duration`).value)
+      })
+    });
+
+    if (!r.ok) {
+      const err = await r.json();
+      alert('分析失败: ' + (err.detail || JSON.stringify(err)));
+      return;
+    }
+
+    const data = await r.json();
+    if (data.optimized_prompt) {
+      document.getElementById(`seg-${segId}-prompt`).value = data.optimized_prompt;
+
+      // Also show the last frame in preview area
+      const previewContent = document.getElementById(`seg-${segId}-preview-content`);
+      const lastFrameUrl = window[`seg_${prevSegId}_last_frame`] || (cachedFrame || `data:image/jpeg;base64,${base64}`);
+      previewContent.innerHTML = `
+        <div style="color:#888;font-size:12px;margin-bottom:8px">上一段（分段 ${prevSegId}）的最后一帧</div>
+        <img src="${lastFrameUrl}" style="max-width:100%;max-height:200px;border-radius:6px">
+      `;
+
+      // Show result in description area
+      const descArea = document.getElementById(`seg-${segId}-description`);
+      const descText = document.getElementById(`seg-${segId}-description-text`);
+      descText.innerHTML = `<div style="color:#4ade80;margin-bottom:6px">✓ 已根据上一段视频生成续写提示词</div>${data.explanation || ''}`;
+      descArea.style.display = 'block';
+
+      // Auto-expand preview area
+      const previewArea = document.getElementById(`seg-${segId}-preview-area`);
+      const toggleText = document.getElementById(`seg-${segId}-preview-toggle`);
+      previewArea.style.display = 'block';
+      toggleText.textContent = '▲ 隐藏参考图';
+
+      saveSegmentsToStorage();
+    }
+  } catch(e) {
+    alert('分析失败: ' + e.message);
+  } finally {
+    btn.textContent = originalText;
+    btn.disabled = false;
+  }
+}
+
+// Describe image only (without generating prompt)
+async function describeSegmentImage(segId, btn) {
+  const allSegments = Array.from(document.querySelectorAll('.segment-card'));
+  const currentIndex = allSegments.findIndex(s => s.dataset.segmentId === String(segId));
+
+  let imageBase64 = null;
+
+  if (currentIndex === 0) {
+    // First segment - use uploaded image
+    if (!chainSelectedFile) {
+      alert('第一段没有参考图，请先上传首帧图片');
+      return;
+    }
+
+    const reader = new FileReader();
+    await new Promise((resolve) => {
+      reader.onload = function(e) {
+        imageBase64 = e.target.result.split(',')[1];
+        resolve();
+      };
+      reader.readAsDataURL(chainSelectedFile);
+    });
+  } else {
+    // Not first segment - get last frame from previous segment
+    const prevSegment = allSegments[currentIndex - 1];
+    const prevSegId = prevSegment.dataset.segmentId;
+    const prevLastFrameUrl = window[`seg_${prevSegId}_last_frame_url`];
+    const prevTaskId = window[`seg_${prevSegId}_task_id`];
+
+    if (!prevLastFrameUrl && !prevTaskId) {
+      alert('上一段视频尚未生成，请先生成上一段');
+      return;
+    }
+
+    let lastFrameUrl = prevLastFrameUrl;
+
+    // If we don't have the last frame URL cached, try to get it from task
+    if (!lastFrameUrl && prevTaskId) {
+      try {
+        const taskR = await fetch(BASE + '/api/v1/tasks/' + prevTaskId, {headers:{'X-API-Key':getKey()}});
+        if (taskR.ok) {
+          const task = await taskR.json();
+          if (task.last_frame_url) {
+            lastFrameUrl = toLocalUrl(task.last_frame_url);
+            window[`seg_${prevSegId}_last_frame_url`] = lastFrameUrl;
+          }
+        }
+      } catch(e) {
+        console.error('Failed to get task info:', e);
+      }
+    }
+
+    if (!lastFrameUrl) {
+      alert('无法获取上一段的最后一帧，请稍后重试');
+      return;
+    }
+
+    // Fetch the last frame image and convert to base64
+    try {
+      const imgBlob = await fetch(lastFrameUrl).then(r => r.blob());
+      const reader = new FileReader();
+      imageBase64 = await new Promise((resolve) => {
+        reader.onload = (e) => resolve(e.target.result.split(',')[1]);
+        reader.readAsDataURL(imgBlob);
+      });
+    } catch(e) {
+      alert('加载最后一帧失败: ' + e.message);
+      return;
+    }
+  }
+
+  const originalText = btn.textContent;
+  btn.textContent = '描述中...';
+  btn.disabled = true;
+
+  try {
+    const r = await fetch(BASE + '/api/v1/prompt/describe-image', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json', 'X-API-Key': getKey()},
+      body: JSON.stringify({image_base64: imageBase64})
+    });
+
+    if (!r.ok) {
+      const err = await r.json();
+      alert('描述失败: ' + (err.detail || JSON.stringify(err)));
+      return;
+    }
+
+    const data = await r.json();
+    if (data.description) {
+      // Show description in preview area
+      const descArea = document.getElementById(`seg-${segId}-description`);
+      const descText = document.getElementById(`seg-${segId}-description-text`);
+      descText.textContent = data.description;
+      descArea.style.display = 'block';
+
+      // Auto-expand preview area
+      const previewArea = document.getElementById(`seg-${segId}-preview-area`);
+      const toggleText = document.getElementById(`seg-${segId}-preview-toggle`);
+      previewArea.style.display = 'block';
+      toggleText.textContent = '▲ 隐藏参考图';
+    }
+  } catch(e) {
+    alert('请求失败: ' + e.message);
+  } finally {
+    btn.textContent = originalText;
+    btn.disabled = false;
+  }
+}
+
+// Remove a segment
+// Debug functions
+function showDebugInfo() {
+  const debugDiv = document.getElementById('debug-info');
+  const savedSegments = localStorage.getItem('wan22_chain_segments');
+  const savedCounter = localStorage.getItem('wan22_chain_counter');
+
+  let html = '<div style="margin-top:8px">';
+  html += `<div><b>Counter:</b> ${savedCounter || 'null'}</div>`;
+
+  if (savedSegments) {
+    try {
+      const segments = JSON.parse(savedSegments);
+      html += `<div><b>Segments count:</b> ${segments.length}</div>`;
+      html += '<div style="margin-top:6px"><b>Segments data:</b></div>';
+      segments.forEach((seg, i) => {
+        html += `<div style="margin-left:12px;margin-top:4px">`;
+        html += `<div>Segment ${i+1} (ID: ${seg.id}):</div>`;
+        html += `<div style="margin-left:12px;color:#666">Prompt: ${seg.prompt ? seg.prompt.substring(0, 50) + '...' : 'empty'}</div>`;
+        html += `<div style="margin-left:12px;color:#666">Duration: ${seg.duration}s</div>`;
+        html += `<div style="margin-left:12px;color:#666">LoRAs: ${seg.loras ? seg.loras.length : 0}</div>`;
+        html += `<div style="margin-left:12px;color:#666">Video: ${seg.videoUrl ? 'Yes' : 'No'}</div>`;
+        html += `</div>`;
+      });
+    } catch(e) {
+      html += `<div style="color:#f87171">Parse error: ${e.message}</div>`;
+    }
+  } else {
+    html += '<div style="color:#888">No saved segments</div>';
+  }
+
+  html += '</div>';
+  debugDiv.innerHTML = html;
+}
+
+function clearSegmentsStorage() {
+  if (confirm('确定要清除所有保存的分段数据吗？')) {
+    localStorage.removeItem('wan22_chain_segments');
+    localStorage.removeItem('wan22_chain_counter');
+    alert('已清除保存的数据，刷新页面后将重新开始');
+    location.reload();
+  }
+}
+
+// Get all segments data
+function getSegmentsData() {
+  const segments = [];
+  document.querySelectorAll('.segment-card').forEach(card => {
+    const id = card.dataset.segmentId;
+    const promptEl = document.getElementById(`seg-${id}-prompt`);
+    const durationEl = document.getElementById(`seg-${id}-duration`);
+    if (!promptEl || !durationEl) return;
+    const prompt = promptEl.value;
+    const duration = parseFloat(durationEl.value);
+    const loras = getSelectedLoras(`seg-${id}-loras`);
+
+    if (prompt) {
+      segments.push({
+        prompt: prompt,
+        duration: duration,
+        loras: loras
+      });
+    }
+  });
+  return segments;
+}
+
+// Save segments to localStorage
+function saveSegmentsToStorage() {
+  const segments = [];
+  document.querySelectorAll('.segment-card').forEach(card => {
+    const id = card.dataset.segmentId;
+    const promptEl = document.getElementById(`seg-${id}-prompt`);
+    const durationEl = document.getElementById(`seg-${id}-duration`);
+    if (!promptEl || !durationEl) return;
+    const prompt = promptEl.value;
+    const duration = parseFloat(durationEl.value);
+    const loras = getSelectedLoras(`seg-${id}-loras`);
+    const videoUrl = window[`seg_${id}_video_url`];
+    const lastFrameUrl = window[`seg_${id}_last_frame_url`];
+    const taskId = window[`seg_${id}_task_id`];
+
+    segments.push({
+      id: id,
+      prompt: prompt,
+      duration: duration,
+      loras: loras,
+      videoUrl: videoUrl || null,
+      lastFrameUrl: lastFrameUrl || null,
+      taskId: taskId || null
+    });
+  });
+
+  localStorage.setItem('wan22_chain_segments', JSON.stringify(segments));
+  localStorage.setItem('wan22_chain_counter', segmentCounter);
+  console.log('Saved segments to storage:', segments.length, 'segments');
+}
+
+// Restore segments from localStorage
+function restoreSegmentsFromStorage() {
+  try {
+    const savedSegments = localStorage.getItem('wan22_chain_segments');
+    const savedCounter = localStorage.getItem('wan22_chain_counter');
+
+    console.log('Attempting to restore segments from storage...');
+    console.log('Saved segments:', savedSegments);
+    console.log('Saved counter:', savedCounter);
+
+    if (!savedSegments) {
+      console.log('No saved segments found');
+      return false;
+    }
+
+    const segments = JSON.parse(savedSegments);
+    if (!segments || segments.length === 0) {
+      console.log('Segments array is empty');
+      return false;
+    }
+
+    console.log('Restoring', segments.length, 'segments');
+
+    // Restore counter
+    if (savedCounter) {
+      segmentCounter = parseInt(savedCounter);
+    }
+
+    // Clear existing segments
+    const container = document.getElementById('segments-container');
+    if (!container) {
+      console.error('segments-container not found!');
+      return false;
+    }
+    container.innerHTML = '';
+
+    // Restore each segment
+    segments.forEach((seg, index) => {
+      console.log(`Restoring segment ${index + 1}:`, seg);
+
+      const segmentDiv = document.createElement('div');
+      segmentDiv.className = 'segment-card';
+      segmentDiv.dataset.segmentId = seg.id;
+
+      segmentDiv.innerHTML = `
+        <div class="segment-header">
+          <span class="segment-title">分段 ${seg.id}</span>
+          <div style="display:flex;gap:8px">
+            <button class="btn btn-sm" style="background:#0f3460;padding:4px 12px" onclick="generateSingleSegment(${seg.id})">单独生成</button>
+            <button class="segment-remove" onclick="removeSegment(${seg.id})">删除</button>
+          </div>
+        </div>
+        <div class="row">
+          <div class="field" style="flex:2">
+            <label>提示词</label>
+            <textarea id="seg-${seg.id}-prompt" placeholder="描述这一段的内容..." style="min-height:60px">${seg.prompt || ''}</textarea>
+            <div style="margin-top:6px;display:flex;gap:8px">
+              <button class="btn btn-sm" style="background:#0f3460;padding:4px 12px" onclick="optimizeSegmentPrompt(${seg.id}, this)">AI 优化 Prompt</button>
+              <button class="btn btn-sm" style="background:#0f3460;padding:4px 12px" onclick="recommendSegmentLoras(${seg.id}, this)">AI 推荐 LoRA</button>
+            </div>
+          </div>
+          <div class="field" style="flex:0;min-width:100px">
+            <label>时长(秒)</label>
+            <input type="number" id="seg-${seg.id}-duration" value="${seg.duration}" step="0.1" min="0.5" max="10">
+          </div>
+        </div>
+        <div style="margin-bottom:12px">
+          <button class="btn btn-sm" style="background:#16213e;padding:6px 14px" onclick="toggleSegmentPreview(${seg.id})">
+            <span id="seg-${seg.id}-preview-toggle">▼ 查看参考图</span>
+          </button>
+          <button class="btn btn-sm" style="background:#1a4a2e;padding:6px 14px;margin-left:8px" onclick="analyzeAndContinue(${seg.id}, this)">
+            🔍 VLM 分析续写
+          </button>
+          <button class="btn btn-sm" style="background:#2e1a4a;padding:6px 14px;margin-left:8px" onclick="describeSegmentImage(${seg.id}, this)">
+            📝 仅描述图片
+          </button>
+        </div>
+        <div id="seg-${seg.id}-preview-area" style="display:none;margin-bottom:12px;padding:12px;background:#0a0a23;border:1px solid #444;border-radius:6px">
+          <div style="color:#888;font-size:12px;margin-bottom:8px">参考图（上一段的最后一帧）</div>
+          <div id="seg-${seg.id}-preview-content" style="color:#666;font-size:13px">暂无参考图</div>
+          <div id="seg-${seg.id}-description" style="margin-top:12px;padding:10px;background:#16213e;border-radius:4px;display:none">
+            <div style="color:#7c83ff;font-size:12px;margin-bottom:6px">VLM 图片描述：</div>
+            <div id="seg-${seg.id}-description-text" style="color:#e0e0e0;font-size:13px;line-height:1.5"></div>
+          </div>
+        </div>
+        <div class="lora-section">
+          <label style="cursor:pointer;user-select:none" onclick="toggleSegLoras(${seg.id}, this)">▶ LoRA 选择（可选）</label>
+          <div class="lora-grid" id="seg-${seg.id}-loras" style="display:none"></div>
+        </div>
+        <div id="seg-${seg.id}-status" style="margin-top:12px"></div>
+      `;
+
+      container.appendChild(segmentDiv);
+
+      // Restore video URL and last frame URL if exists
+      if (seg.videoUrl) {
+        window[`seg_${seg.id}_video_url`] = seg.videoUrl;
+        console.log(`Restored video URL for segment ${seg.id}`);
+
+        // Display the video result
+        const statusBox = document.getElementById(`seg-${seg.id}-status`);
+        if (statusBox) {
+          statusBox.innerHTML = `
+            <div style="font-size:13px">
+              <span class="status completed">完成</span>
+              <span style="color:#888;margin-left:8px">已恢复</span>
+            </div>
+            <div class="video-result" style="margin-top:8px">
+              <div id="video-placeholder-chain-seg-${seg.id}" style="background:#0a0a23;border:1px solid #444;border-radius:6px;padding:16px;text-align:center;cursor:pointer" onclick="loadVideo('chain-seg-${seg.id}', '${seg.videoUrl}')">
+                <div style="color:#7c83ff;font-size:14px;margin-bottom:6px">🎬 点击加载视频</div>
+                <div style="font-size:11px;color:#888">避免自动加载</div>
+              </div>
+              <div style="margin-top:4px"><a href="${seg.videoUrl}" download style="color:#7c83ff;font-size:12px">下载视频</a></div>
+            </div>
+          `;
+        }
+      }
+
+      // Restore last frame URL if exists
+      if (seg.lastFrameUrl) {
+        window[`seg_${seg.id}_last_frame_url`] = toLocalUrl(seg.lastFrameUrl);
+        console.log(`Restored last frame URL for segment ${seg.id}`);
+      }
+
+      // Restore task ID if exists
+      if (seg.taskId) {
+        window[`seg_${seg.id}_task_id`] = seg.taskId;
+        console.log(`Restored task ID for segment ${seg.id}`);
+      }
+
+      // Don't render LoRAs immediately - save pending selections for when user expands
+      if (seg.loras && seg.loras.length > 0) {
+        window['_pendingSegLoras_' + seg.id] = seg.loras;
+      }
+    });
+
+    console.log(`Restored ${segments.length} segments from storage`);
+    return true;
+  } catch(e) {
+    console.error('Failed to restore segments:', e);
+    return false;
+  }
+}
+
+async function submitChain() {
+  // Get segments data
+  const segments = getSegmentsData();
+  if (segments.length === 0) {
+    alert('请至少添加一个分段');
+    return;
+  }
+
+  const seed = parseInt(document.getElementById('chain-seed').value);
+  const params = {
+    segments: segments,
+    negative_prompt: document.getElementById('chain-neg').value,
+    model: document.getElementById('chain-model').value,
+    model_preset: document.getElementById('chain-preset').value,
+    t5_preset: document.getElementById('chain-t5preset').value,
+    width: parseInt(document.getElementById('chain-w').value),
+    height: parseInt(document.getElementById('chain-h').value),
+    fps: parseInt(document.getElementById('chain-fps').value),
+    steps: parseInt(document.getElementById('chain-steps').value),
+    cfg: parseFloat(document.getElementById('chain-cfg').value),
+    shift: parseFloat(document.getElementById('chain-shift').value),
+    seed: seed >= 0 ? seed : null,
+    scheduler: document.getElementById('chain-sched').value,
+    noise_aug_strength: parseFloat(document.getElementById('chain-noise').value),
+    motion_amplitude: parseFloat(document.getElementById('chain-motion').value),
+    auto_lora: document.getElementById('chain-auto-lora').checked,
+    auto_prompt: document.getElementById('chain-auto-prompt').checked,
+    transition: document.getElementById('chain-transition').value,
+    auto_continue: document.getElementById('chain-auto-continue').checked,
+    color_match: document.getElementById('chain-colormatch').value === 'true',
+    color_match_method: document.getElementById('chain-colormatch-method').value,
+    resize_mode: document.getElementById('chain-resize').value,
+    upscale: document.getElementById('chain-upscale').checked,
+    story_mode: document.getElementById('chain-story-mode').checked,
+    motion_frames: parseInt(document.getElementById('chain-story-motion-frames').value),
+    boundary: parseFloat(document.getElementById('chain-story-boundary').value),
+    clip_preset: document.getElementById('chain-story-clip').value,
+  };
+  saveFormParams('chain');
+  const fd = new FormData();
+  if (chainSelectedFile) fd.append('image', chainSelectedFile);
+  fd.append('params', JSON.stringify(params));
+  const box = document.getElementById('chain-status');
+  box.innerHTML = '<div style="color:#aaa">提交中...</div>';
+  try {
+    const r = await fetch(BASE + '/api/v1/generate/chain', {
+      method: 'POST', headers: {'X-API-Key': getKey()}, body: fd
+    });
+    const d = await r.json();
+    if (!r.ok) { box.innerHTML = `<div style="color:#f87171">${d.detail || JSON.stringify(d)}</div>`; return; }
+    // Keep the image cached for reuse, don't clear it
+    pollChain(d.chain_id, d.total_segments);
+  } catch(e) { box.innerHTML = `<div style="color:#f87171">请求失败: ${e.message}</div>`; }
+}
+
+function pollChain(chainId, totalSegments) {
+  const box = document.getElementById('chain-status');
+  const poll = async () => {
+    try {
+      const r = await fetch(BASE + '/api/v1/chains/' + chainId, {headers:{'X-API-Key':getKey()}});
+      if (!r.ok) { setTimeout(poll, 3000); return; }
+      const d = await r.json();
+      const total = d.total_segments || totalSegments;
+      const completed = d.completed_segments || 0;
+      const curProg = d.current_task_progress || 0;
+      const overallPct = Math.round(((completed + curProg) / total) * 100);
+      const statusMap = {queued:'排队中',running:'生成中',completed:'完成',failed:'失败',partial:'部分完成'};
+      const statusText = statusMap[d.status] || d.status;
+      const statusCls = d.status === 'completed' ? 'completed' : d.status === 'failed' ? 'failed' : d.status === 'partial' ? 'failed' : 'running';
+
+      // Fetch segment task details for timing info
+      let segDetails = [];
+      if (d.segment_task_ids && d.segment_task_ids.length) {
+        try {
+          const tasks = await Promise.all(d.segment_task_ids.map(id =>
+            fetch(BASE + '/api/v1/tasks/' + id, {headers:{'X-API-Key':getKey()}}).then(r => r.ok ? r.json() : null)
+          ));
+          segDetails = tasks;
+        } catch(e) {}
+      }
+
+      // Segment indicators with timing
+      let segHtml = '<div style="display:flex;gap:4px;margin:8px 0;flex-wrap:wrap">';
+      for (let i = 0; i < total; i++) {
+        let color = '#333'; // pending
+        let tooltip = `第${i+1}段`;
+        if (i < completed) {
+          color = '#4ade80'; // done
+          if (segDetails[i] && segDetails[i].created_at && segDetails[i].completed_at) {
+            const dur = segDetails[i].completed_at - segDetails[i].created_at;
+            tooltip += ` (${dur}秒)`;
+          }
+        } else if (i === d.current_segment && d.status === 'running') {
+          color = '#7c83ff'; // current
+        }
+        segHtml += `<div title="${tooltip}" style="width:24px;height:24px;border-radius:4px;background:${color};display:flex;align-items:center;justify-content:center;font-size:10px;color:#fff">${i+1}</div>`;
+      }
+      segHtml += '</div>';
+
+      // Segment timing details
+      let timingHtml = '';
+      if (segDetails.length > 0) {
+        const timings = segDetails.map((t, i) => {
+          if (!t) return null;
+          if (t.status === 'completed' && t.created_at && t.completed_at) {
+            const dur = t.completed_at - t.created_at;
+            const min = Math.floor(dur / 60);
+            const sec = dur % 60;
+            return `第${i+1}段: ${min > 0 ? min + '分' : ''}${sec}秒`;
+          } else if (t.status === 'running') {
+            return `第${i+1}段: 生成中...`;
+          } else if (t.status === 'failed') {
+            return `第${i+1}段: 失败`;
+          }
+          return null;
+        }).filter(Boolean);
+        if (timings.length) {
+          timingHtml = `<div style="font-size:12px;color:#aaa;margin-top:4px">${timings.join(' | ')}</div>`;
+        }
+        // Total time
+        if (d.created_at && d.completed_at) {
+          const totalDur = d.completed_at - d.created_at;
+          const totalMin = Math.floor(totalDur / 60);
+          const totalSec = totalDur % 60;
+          timingHtml += `<div style="font-size:12px;color:#4ade80;margin-top:2px">总耗时: ${totalMin > 0 ? totalMin + '分' : ''}${totalSec}秒</div>`;
+        }
+      }
+
+      const cancelBtn = (d.status === 'running' || d.status === 'queued') ? `<button class="btn btn-sm" style="margin-left:8px;background:#4a1a1a;font-size:11px;padding:3px 10px" onclick="cancelChain('${chainId}')">取消</button>` : '';
+      let html = `<div class="task-card">
+        <div class="task-header"><span><b>长视频</b> <span class="task-id">${chainId.substring(0,8)}</span>${cancelBtn}</span>
+          <span class="status ${statusCls}">${statusText}</span></div>
+        ${segHtml}
+        <div class="progress-bar"><div class="progress-fill" style="width:${overallPct}%"></div></div>
+        <div style="font-size:12px;color:#666">${overallPct}% (${completed}/${total} 段)</div>
+        ${timingHtml}`;
+      if (d.error) html += `<div style="color:#f87171;font-size:13px;margin-top:4px">${d.error}</div>`;
+      if (d.final_video_url) html += `<div class="video-result" style="margin-top:8px"><video src="${d.final_video_url}" controls autoplay loop style="max-width:100%;max-height:400px;border-radius:6px"></video>
+        <div style="margin-top:6px"><a href="${d.final_video_url}" download style="color:#7c83ff;font-size:13px">下载完整视频</a></div></div>`;
+      // Show individual segment videos
+      if (d.segment_task_ids && d.segment_task_ids.length) {
+        html += `<div style="margin-top:8px;font-size:12px;color:#888">各段任务: ${d.segment_task_ids.map((id,i) => `<span style="color:#7c83ff;cursor:pointer" onclick="document.getElementById('query-id').value='${id}';document.querySelector('.tab[data-tab=query]').click();queryTask();">${i+1}</span>`).join(' ')}</div>`;
+      }
+      html += '</div>';
+      box.innerHTML = html;
+      if (d.status === 'completed' || d.status === 'failed' || d.status === 'partial') return;
+    } catch(e) {}
+    setTimeout(poll, 3000);
+  };
+  poll();
+}
+
+async function mergeSegments() {
+  const allSegments = Array.from(document.querySelectorAll('.segment-card'));
+
+  // Collect task IDs from segments that have videos
+  const taskIds = [];
+  for (const segment of allSegments) {
+    const segId = segment.dataset.segmentId;
+    const taskId = window[`seg_${segId}_task_id`];
+    const videoUrl = window[`seg_${segId}_video_url`];
+
+    if (taskId && videoUrl) {
+      taskIds.push(taskId);
+    }
+  }
+
+  if (taskIds.length < 2) {
+    alert('至少需要 2 个已生成的视频段才能合并');
+    return;
+  }
+
+  const container = document.getElementById('merged-video-container');
+  container.innerHTML = '<div style="color:#7c83ff;font-size:13px">正在合并视频...</div>';
+
+  try {
+    const r = await fetch(BASE + '/api/v1/generate/merge-segments', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-API-Key': getKey()
+      },
+      body: JSON.stringify({
+        segment_task_ids: taskIds
+      })
+    });
+
+    if (!r.ok) {
+      const err = await r.json();
+      container.innerHTML = `<div style="color:#f87171;font-size:13px">合并失败: ${err.detail || JSON.stringify(err)}</div>`;
+      return;
+    }
+
+    const data = await r.json();
+    container.innerHTML = `
+      <div style="background:#0a0a23;border:1px solid #444;border-radius:8px;padding:16px;margin-top:12px">
+        <div style="color:#4ade80;font-size:14px;margin-bottom:8px">✓ 成功合并 ${data.segment_count} 个视频段</div>
+        <div class="video-result">
+          <div id="video-placeholder-merged" style="background:#0a0a23;border:1px solid #444;border-radius:6px;padding:20px;text-align:center;cursor:pointer" onclick="loadVideo('merged', '${data.video_url}')">
+            <div style="color:#7c83ff;font-size:14px;margin-bottom:8px">🎬 点击加载合并视频</div>
+            <div style="font-size:12px;color:#888">视频已合并完成</div>
+          </div>
+          <div style="margin-top:8px;display:flex;gap:12px">
+            <a href="${data.video_url}" download style="color:#7c83ff;font-size:13px">下载合并视频</a>
+            <button class="btn btn-sm" style="background:#4a1a1a;padding:4px 12px;font-size:12px" onclick="document.getElementById('merged-video-container').innerHTML=''">关闭</button>
+          </div>
+        </div>
+      </div>
+    `;
+  } catch(e) {
+    container.innerHTML = `<div style="color:#f87171;font-size:13px">请求失败: ${e.message}</div>`;
+  }
+}
+
+// Story Workflow functions
+async function loadWorkflowList() {
+  try {
+    const r = await fetch(BASE + '/api/v1/workflow/list', {
+      headers: { 'X-API-Key': getKey() }
+    });
+    if (!r.ok) return;
+
+    const data = await r.json();
+    const select = document.getElementById('story-workflow');
+    select.innerHTML = '<option value="">-- 选择 Workflow --</option>';
+
+    for (const wf of data.workflows) {
+      const opt = document.createElement('option');
+      opt.value = wf.name;
+      opt.textContent = `${wf.name} (${(wf.size / 1024).toFixed(1)} KB)`;
+      select.appendChild(opt);
+    }
+  } catch(e) {
+    console.error('Failed to load workflows:', e);
+  }
+}
+
+async function submitStoryWorkflow() {
+  const workflowName = 'WAN2.2-I2V-AutoPrompt-Story_api';
+
+  if (!storySelectedFile) {
+    alert('请上传首帧图片');
+    return;
+  }
+
+  // Save form params
+  saveFormParams('story');
+
+  const fps = 16; // Story workflow fixed at 16fps
+  const params = {
+    shift: parseFloat(document.getElementById('story-shift').value),
+    seed: parseInt(document.getElementById('story-seed').value),
+    motion_amplitude: parseFloat(document.getElementById('story-motion').value),
+    motion_frames: parseInt(document.getElementById('story-motion-frames').value),
+  };
+
+  // Collect per-segment prompts and durations
+  const segInfo = [];
+  for (let i = 1; i <= 4; i++) {
+    const prompt = document.getElementById(`story-seg-${i}-prompt`).value.trim();
+    const duration = parseFloat(document.getElementById(`story-seg-${i}-duration`).value);
+    const frames = durationToFrames(duration, fps);
+    if (prompt) {
+      params[`prompt_${i}`] = prompt;
+    }
+    params[`duration_${i}`] = duration;
+    segInfo.push(`${duration}s(${frames}帧)`);
+  }
+
+  // Use segment 1 prompt as the global prompt (for nodes that match on "prompt")
+  const prompt1 = document.getElementById('story-seg-1-prompt').value.trim();
+  if (prompt1) {
+    params.prompt = prompt1;
+  }
+
+  const model = 'a14b'; // Story workflow uses a14b (MoE)
+  const statusDiv = document.getElementById('story-status');
+  const hasCustomPrompt = Object.keys(params).some(k => k.startsWith('prompt_'));
+  statusDiv.innerHTML = `<div style="color:#7c83ff">正在提交任务... 各段: ${segInfo.join(' / ')}${hasCustomPrompt ? '' : ' (AI 自动生成 Prompt)'}</div>`;
+
+  try {
+    const fd = new FormData();
+    fd.append('image', storySelectedFile);
+    fd.append('workflow_name', workflowName);
+    fd.append('params', JSON.stringify(params));
+    fd.append('model', model);
+    const r = await fetch(BASE + '/api/v1/workflow/run-with-image', {
+      method: 'POST',
+      headers: { 'X-API-Key': getKey() },
+      body: fd
+    });
+
+    if (!r.ok) {
+      const err = await r.json();
+      statusDiv.innerHTML = `<div style="color:#f87171">提交失败: ${err.detail || JSON.stringify(err)}</div>`;
+      return;
+    }
+
+    const data = await r.json();
+    statusDiv.innerHTML = '';
+    addTask(data.task_id, 'STORY', prompt1 || '(AI 自动生成)');
+    pollTask(data.task_id);
+  } catch(e) {
+    statusDiv.innerHTML = `<div style="color:#f87171">请求失败: ${e.message}</div>`;
+  }
+}
+
+// Restore story params when tab is activated
+document.addEventListener('DOMContentLoaded', () => {
+  const storyTab = document.querySelector('[data-tab="story"]');
+  if (storyTab) {
+    storyTab.addEventListener('click', () => {
+      // Restore saved params
+      restoreFormParams('story');
+    });
+  }
+});
+
 </script>
 </body>
 </html>

@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from api.models.schemas import GenerateRequest, GenerateResponse, LoraInput
 from api.models.enums import GenerateMode, TaskStatus
 from api.middleware.auth import verify_api_key
-from api.services.workflow_builder import build_workflow
+from api.services.workflow_builder import build_workflow, _inject_trigger_words
 from api.services.lora_selector import LoraSelector
 
 logger = logging.getLogger(__name__)
@@ -81,9 +81,13 @@ async def generate_t2v(req: GenerateRequest, _=Depends(verify_api_key)):
         scheduler=req.scheduler,
         model_preset=req.model_preset,
         upscale=req.upscale,
+        t5_preset=req.t5_preset,
     )
 
     params_dict = req.model_dump()
+    # Store final prompt with trigger keywords for display
+    if req.loras:
+        params_dict["final_prompt"] = _inject_trigger_words(req.prompt, req.loras)
     params_dict.update(params_extra)
     task_id = await task_manager.create_task(GenerateMode.T2V, req.model, workflow, params=params_dict)
     return GenerateResponse(task_id=task_id, status=TaskStatus.QUEUED)

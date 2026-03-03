@@ -31,12 +31,14 @@ download_civitai() {
     fi
 
     local url="https://civitai.com/api/download/models/${version_id}"
+    local auth_header=""
     if [ -n "$CIVITAI_API_TOKEN" ]; then
-        url="${url}?token=${CIVITAI_API_TOKEN}"
+        auth_header="Authorization: Bearer ${CIVITAI_API_TOKEN}"
     fi
 
     echo "[DOWNLOAD] $filename (version $version_id)"
     aria2c -x 8 -s 8 --max-tries=5 --retry-wait=3 \
+        ${auth_header:+--header="$auth_header"} \
         -d "$LORAS_DIR" -o "$filename" "$url"
 
     # Verify file was downloaded

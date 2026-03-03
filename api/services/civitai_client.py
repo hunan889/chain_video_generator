@@ -61,10 +61,7 @@ async def get_version(version_id: int) -> dict:
 
 
 def download_url(version_id: int) -> str:
-    url = f"{BASE_URL}/model-versions/{version_id}/download"
-    if CIVITAI_API_TOKEN:
-        url += f"?token={CIVITAI_API_TOKEN}"
-    return url
+    return f"{BASE_URL}/model-versions/{version_id}/download"
 
 
 def extract_model_result(raw: dict) -> CivitAIModelResult:

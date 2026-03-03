@@ -1,21 +1,28 @@
-# Environment
-.env
-
 # Python
 __pycache__/
-*.pyc
-*.pyo
-*.egg-info/
+*.py[cod]
+*$py.class
+*.so
+.Python
 venv/
+env/
+ENV/
+*.egg-info/
+dist/
+build/
 
-# ComfyUI (cloned by setup.sh)
-ComfyUI/
+# Environment
+.env
+*.log
 
-# Storage (generated files)
-storage/videos/
-storage/uploads/
+# Storage
+storage/videos/*
+storage/uploads/*
+!storage/videos/.gitkeep
+!storage/uploads/.gitkeep
 
 # Logs
+logs/
 *.log
 
 # IDE
@@ -24,3 +31,27 @@ storage/uploads/
 *.swp
 *.swo
 *~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Temporary files
+*.tmp
+*.bak
+*.cache
+
+# Redis
+dump.rdb
+
+# Test files
+test_*.py
+*_test.py
+
+# Workflows (keep only templates)
+workflows/__MACOSX/
+
+# Models (too large for git)
+models/
+checkpoints/
+loras/

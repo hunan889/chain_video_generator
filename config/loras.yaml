@@ -1,110 +1,257 @@
 loras:
-  - name: "face_down_ass_up"
-    file: "WAN-2.2-I2V-FaceDownAssUp"
-    description: "Face Down Ass Up pose"
-    default_strength: 0.8
-    trigger_words: []
-    tags: []
-    civitai_id: 1929094
-    civitai_version_id: 2183383
-    preview_url: "https://image.civitai.com/xG1nkqKTMzGDvpLrqFT7WA/b9145e9f-0ad5-4446-af2f-056b2d2b8bc0/original=true/98438677.mp4"
+- civitai_id: 1929094
+  civitai_version_id: 2183383
+  default_strength: 0.8
+  description: Face Down Ass Up pose
+  example_prompts:
+  - "A sexy woman is having sex with a man in the face-down ass-up position. She is\
+    \ having sex with a man in the top-down bottom-up position. The man is mostly\
+    \ out of frame, with his hands on her hips. They are having rough, intense sex.\n\
+    \nThe view is a fixed third-person view. The video focuses on her face. Her body\
+    \ is bouncing back and forth roughly due to the man's thrusts. \nShe moans and\
+    \ screams loudly. Her eyes roll up as she experiences a screaming orgasm."
+  file: WAN-2.2-I2V-FaceDownAssUp
+  name: face_down_ass_up
+  preview_url: https://image.civitai.com/xG1nkqKTMzGDvpLrqFT7WA/b9145e9f-0ad5-4446-af2f-056b2d2b8bc0/original=true/98438677.mp4
+  tags: []
+  trigger_words: []
+- civitai_id: 1932929
+  civitai_version_id: 2187729
+  default_strength: 0.8
+  description: Orgasm / O-face
+  example_prompts:
+  - She is orgasming. She is experiencing an orgasm. As she orgasms, she throws her
+    head back and opens her mouth as she moans loudly.
+  - She is orgasming. She is experiencing an orgasm. She closes her eyes and has a
+    screaming orgasm. Her whole body shakes and spasms as she has a shaking orgasm.
+  file: WAN-2.2-I2V-Orgasm
+  name: orgasm
+  preview_url: https://image.civitai.com/xG1nkqKTMzGDvpLrqFT7WA/92e1dc82-0307-4709-a1ca-d286bbf9ac05/original=true/98681320.mp4
+  tags: []
+  trigger_words:
+  - She is orgasming. She is experiencing an orgasm. She closes her eyes and has a
+    screaming orgasm. Her whole body shakes and spasms as she has a shaking orgasm.
+  - She is orgasming. She is experiencing an orgasm. As she orgasms, she throws her
+    head back and opens her mouth as she moans loudly.
+- civitai_id: 1967237
+  civitai_version_id: 2230125
+  default_strength: 0.8
+  description: Breast Play
+  example_prompts:
+  - 'nipPull
 
-  - name: "orgasm"
-    file: "WAN-2.2-I2V-Orgasm"
-    description: "Orgasm / O-face"
-    default_strength: 0.8
-    trigger_words:
-      - "She is orgasming. She is experiencing an orgasm. She closes her eyes and has a screaming orgasm. Her whole body shakes and spasms as she has a shaking orgasm."
-      - "She is orgasming. She is experiencing an orgasm. As she orgasms, she throws her head back and opens her mouth as she moans loudly."
-    tags: []
-    civitai_id: 1932929
-    civitai_version_id: 2187729
-    preview_url: "https://image.civitai.com/xG1nkqKTMzGDvpLrqFT7WA/92e1dc82-0307-4709-a1ca-d286bbf9ac05/original=true/98681320.mp4"
 
-  - name: "breast_play"
-    file: "WAN-2.2-I2V-BreastPlay"
-    description: "Breast Play"
-    default_strength: 0.8
-    trigger_words:
-      - "nipPull"
-      - "nipRub"
-    tags: []
-    civitai_id: 1967237
-    civitai_version_id: 2230125
-    preview_url: "https://image.civitai.com/xG1nkqKTMzGDvpLrqFT7WA/0d28747e-1c32-44e6-8c5d-dbbb6a06751e/original=true/101181676.mp4"
+    she pulls her own nipples
 
-  - name: "reverse_suspended_congress"
-    file: "reverse_suspended_congress_I2V"
-    description: "Reverse Suspended Congress"
-    default_strength: 0.8
-    trigger_words:
-      - "A woman is having sex in the reverse_suspended_congress position"
-      - "She spreads her legs and her body moves up and down, while the man thrusts his penis in and out of her vaginal."
-    tags: []
-    civitai_id: 1894970
-    civitai_version_id: 2145089
-    preview_url: "https://image.civitai.com/xG1nkqKTMzGDvpLrqFT7WA/d4b0c12e-94d0-4c95-8f5e-af8baf4b57f3/original=true/96239956.mp4"
 
-  - name: "double_blowjob"
-    file: "WAN-2.2-I2V-Double-Blowjob"
-    description: "POV Double Blowjob"
-    default_strength: 0.8
-    trigger_words: []
-    tags: []
-    civitai_id: 1906148
-    civitai_version_id: 2164213
-    preview_url: "https://image.civitai.com/xG1nkqKTMzGDvpLrqFT7WA/eb3b0494-eeca-420d-bd40-37fc2ce67450/original=true/97372386.mp4"
+    nipple play'
+  - 'nipPull
 
-  - name: "paizuri"
-    file: "WAN-2.2-I2V-POV-Titfuck-Paizuri"
-    description: "POV Paizuri / Titfuck"
-    default_strength: 0.8
-    trigger_words:
-      - "titJob"
-      - "girlMove"
-    tags: []
-    civitai_id: 2070335
-    civitai_version_id: 2342652
-    preview_url: "https://image.civitai.com/xG1nkqKTMzGDvpLrqFT7WA/3c9b84bb-2dbd-4331-a603-a1b6a16debf6/original=true/107395660.mp4"
+    nipRub
 
-  - name: "handjob_blowjob_combo"
-    file: "WAN-2.2-I2V-HandjobBlowjobCombo"
-    description: "Combo Handjob Blowjob"
-    default_strength: 0.8
-    trigger_words: []
-    tags: []
-    civitai_id: 1899045
-    civitai_version_id: 2149593
-    preview_url: "https://image.civitai.com/xG1nkqKTMzGDvpLrqFT7WA/693097eb-99b2-4e43-8de0-40cb765a7639/original=true/96533576.mp4"
+    nipSqueeze'
+  - 'She is massaging and squeezing her breasts
 
-  - name: "cowgirl"
-    file: "WAN-2.2-I2V-POV-Cowgirl"
-    description: "POV Cowgirl"
-    default_strength: 0.8
-    trigger_words: []
-    tags: []
-    civitai_id: 1874099
-    civitai_version_id: 2169837
-    preview_url: "https://image.civitai.com/xG1nkqKTMzGDvpLrqFT7WA/b7e85172-748d-4870-aef8-f89cbd7e8995/original=true/97652264.mp4"
 
-  - name: "big_breasts"
-    file: "big_breasts_v2_epoch_30"
-    description: "Big Natural Breasts / Saggy Tits / Huge Breasts"
-    default_strength: 0.8
-    trigger_words:
-      - "big breasts"
-      - "huge breasts"
-    tags: []
-    civitai_id: 1336683
-    civitai_version_id: 1776890
-    preview_url: "https://image.civitai.com/xG1nkqKTMzGDvpLrqFT7WA/b575074d-6fc5-4d95-9492-eabfbd43a044/original=true/75698707.mp4"
+    Breast play. She is grabbing her own breasts.'
+  file: WAN-2.2-I2V-BreastPlay
+  name: breast_play
+  preview_url: https://image.civitai.com/xG1nkqKTMzGDvpLrqFT7WA/0d28747e-1c32-44e6-8c5d-dbbb6a06751e/original=true/101181676.mp4
+  tags: []
+  trigger_words:
+  - nipPull
+  - nipRub
+- civitai_id: 1894970
+  civitai_version_id: 2145089
+  default_strength: 0.8
+  description: Reverse Suspended Congress
+  example_prompts:
+  - A blue-eyed woman is being violently anally penetrated in the reverse_suspended_congress
+    position. Her face is flushed, and she has a lustful expression. She spreads her
+    legs and moves her body up and down, while the man thrusts his penis rapidly in
+    and out of her anus. (From the front view)
+  - 一个女性正在接受猛烈的性交，体位是reverse_suspended_congress。女性表情愉悦，半闭双眼，眉头微皱，脸色潮红，单手做出胜利手势。她的身后是一个男人，男人抱住她的双腿，她的双腿分开。男性扭动腰肢，阴茎在阴道中抽插。正视视角
+  - 一个女性正在接受猛烈的肛交，体位是reverse_suspended_congress。女性眉头微皱，脸色潮红，双手做出V胜利手势。她的身后是一个男人，男人抱住她的双腿，她的双腿分开。男性扭动腰肢，阴茎在肛门中快速抽插。正视视角。
+  file: reverse_suspended_congress_I2V
+  name: reverse_suspended_congress
+  preview_url: https://image.civitai.com/xG1nkqKTMzGDvpLrqFT7WA/d4b0c12e-94d0-4c95-8f5e-af8baf4b57f3/original=true/96239956.mp4
+  tags: []
+  trigger_words:
+  - A woman is having sex in the reverse_suspended_congress position
+  - She spreads her legs and her body moves up and down, while the man thrusts his
+    penis in and out of her vaginal.
+- civitai_id: 1906148
+  civitai_version_id: 2164213
+  default_strength: 0.8
+  description: POV Double Blowjob
+  example_prompts:
+  - 'Two sexy women are giving a man a double blowjob. The man is out of frame. The
+    view is POV.
 
-  - name: "instagirl_v2"
-    file: "Instagirlv2"
-    description: "Instagirl V2 - Realistic style"
-    default_strength: 0.8
-    trigger_words: []
-    tags: []
-    civitai_id: 1822984
-    civitai_version_id: 2086717
-    preview_url: "https://image.civitai.com/xG1nkqKTMzGDvpLrqFT7WA/03fc295f-585a-4a32-a13b-482a81e7bff0/original=true/92631977.jpeg"
+
+    Both women are licking and sucking the sides the penis. They move their head up
+    and down relative to the camera. They lick the penis with their tongues and kiss
+    the penis with their lips.'
+  file: WAN-2.2-I2V-Double-Blowjob
+  name: double_blowjob
+  preview_url: https://image.civitai.com/xG1nkqKTMzGDvpLrqFT7WA/eb3b0494-eeca-420d-bd40-37fc2ce67450/original=true/97372386.mp4
+  tags: []
+  trigger_words: []
+- civitai_id: 2070335
+  civitai_version_id: 2342652
+  default_strength: 0.8
+  description: POV Paizuri / Titfuck
+  example_prompts:
+  - 'titJob
+
+    girlMove
+
+    gather
+
+    fingersTogether
+
+    paizuri
+
+    smallBoobs
+
+
+    She rubs her breasts up and down his penis.
+
+
+    Her breasts are small. She gathers her breasts together around the penis, with
+    her fingertips touching together.'
+  - "titJob\npaizuri\ngirlMove\ngather\n\nShe is being tittyfucked by a man. She give\
+    \ the viewer a sexy look.\nA man is thrusting his penis between her breasts. \n\
+    \nHer breasts are large. She gathers her breasts together around the penis."
+  - "titJob\npaizuri\nmanMove\ngather\nfingersTogether\n\nShe is being tittyfucked\
+    \ by a man. \nA man is thrusting his penis between her breasts. \n\nHer breasts\
+    \ are small. She gathers her breasts together around the penis, with her fingertips\
+    \ touching together.\n\nShe moans and gives a sexy look."
+  file: WAN-2.2-I2V-POV-Titfuck-Paizuri
+  name: paizuri
+  preview_url: https://image.civitai.com/xG1nkqKTMzGDvpLrqFT7WA/3c9b84bb-2dbd-4331-a603-a1b6a16debf6/original=true/107395660.mp4
+  tags:
+  - paizuri
+  - titfuck
+  - tittyfuck
+  - breast sex
+  trigger_words:
+  - titJob
+  - girlMove
+  - paizuri
+  - titfuck
+- civitai_id: 1899045
+  civitai_version_id: 2149593
+  default_strength: 0.8
+  description: Combo Handjob Blowjob - woman performing oral sex while stroking with hand
+  example_prompts:
+  - 'A sexy woman is giving a man a blowjob and a handjob. The man is out of frame.
+
+
+    She is in front of the man. She is giving him a blowjob, while simultaneously
+    giving a handjob. She is performing fellatio while stroking the shaft of his penis
+    with one hand.'
+  file: WAN-2.2-I2V-HandjobBlowjobCombo
+  name: handjob_blowjob_combo
+  preview_url: https://image.civitai.com/xG1nkqKTMzGDvpLrqFT7WA/693097eb-99b2-4e43-8de0-40cb765a7639/original=true/96533576.mp4
+  tags:
+  - blowjob
+  - handjob
+  - oral
+  - fellatio
+  trigger_words:
+  - blowjob
+  - handjob
+  - oral sex
+  - fellatio
+- civitai_id: 1874099
+  civitai_version_id: 2169837
+  default_strength: 0.8
+  description: POV Cowgirl
+  example_prompts:
+  - A sexy woman is straddling a man, having sex with him in the cowgirl position.
+    His penis is going in and out of her pussy. They are having fast, rough, intense
+    sex. The penetration is deep. The woman's body is quivering and shuddering with
+    pleasure. The woman is moaning in ecstasy, her body bouncing.
+  file: WAN-2.2-I2V-POV-Cowgirl
+  name: cowgirl
+  preview_url: https://image.civitai.com/xG1nkqKTMzGDvpLrqFT7WA/b7e85172-748d-4870-aef8-f89cbd7e8995/original=true/97652264.mp4
+  tags: []
+  trigger_words: []
+- civitai_id: 1336683
+  civitai_version_id: 1776890
+  default_strength: 0.8
+  description: Big Natural Breasts / Saggy Tits / Huge Breasts
+  example_prompts:
+  - a high quality video of a pale woman with shoulder length wavy dark hair. she
+    appears to be in her 30s. she is in a dark blue studio environment, presenting
+    a tv show. she is wearing a sleeveless blue floral dress that has a cutout which
+    exposes her large naked breasts and nipples. she smiles as she walks over to a
+    podium and then starts talking. cinematic, muted colors, an audience is visible
+    in the background.
+  - 'a beautiful asian japanese woman with pale skin and huge breasts. she has straight
+    dark hair. she is naked, barefoot.
+
+
+    tracking shot, the camera follows the woman as she walks along a wooden pathway
+    next to a rocky onsen. snow, blossoms, mountains, steam.
+
+
+    amateur footage, handheld filming.
+
+
+    the woman appears to be in her 20s, she smiles as she approaches the camera. her
+    hair and skin are wet. she looks directly at the camera and starts talking.
+
+
+    there are other naked women visible in the water.'
+  - a slim woman with huge breasts wearing a sheer lacy teal sarong with floral patterns
+    around her waist. she walks across a veranda and then sits down on a dark brown
+    rattan armchair with cream cushions then smiles at the camera.
+  file: big_breasts_v2_epoch_30
+  name: big_breasts
+  preview_url: https://image.civitai.com/xG1nkqKTMzGDvpLrqFT7WA/b575074d-6fc5-4d95-9492-eabfbd43a044/original=true/75698707.mp4
+  tags: []
+  trigger_words:
+  - big breasts
+  - huge breasts
+- civitai_id: 1822984
+  civitai_version_id: 2086717
+  default_strength: 0.8
+  description: Instagirl V2 - Realistic style
+  example_prompts:
+  - Instagirl, l3n0v0, a stunningly beautiful young woman, the spitting image of the
+    reference model, with a heart-shaped face and large light-blue eyes. Her long,
+    honey-blonde hair appears wet and is slicked back from her face to emphasize her
+    features. The setting is a completely dark photo studio. A projector is casting
+    a dynamic, hypnotic pattern of swirling liquid light across her face, shoulders,
+    and the wall behind her. The projected light is a mesmerizing mix of milky white
+    and deep, electric violet. She wears a simple, wet-look black bandeau top, providing
+    a dark canvas for the light to play on. Her expression is intense and powerful
+    as she stares directly into the lens, unmoving, as the abstract light art flows
+    over her skin. This is a hyper-detailed, artistic masterpiece, capturing the intersection
+    of beauty and abstract technology.
+  - 'Instagirl, l3n0v0, petite body, reclining sideways on a cream sofa, torso angled
+    while pulling the collar toward her neck, head gently tilted and gazing into lens
+    with subtle closed-lip smile, handheld medium close-up at eye level, wearing a
+    fitted white long-sleeve buttoned bodysuit and small silver hoop and crawler earrings,
+    neutral living room with hardwood floor and boucle cushions, soft window daylight
+    casting even glow, cozy serene vibe, amateur cellphone quality.
+
+    visible sensor noise, artificial over-sharpening, heavy HDR glow, amateur photo,
+    blown-out highlights, crushed shadows'
+  - 'Instagirl, l3n0v0, no makeup, petite body, wink, raised arm selfie, high-angle
+    selfie shot, mixed-ethnicity young woman, wearing black bikini, defined midriff,
+    delicate pearl necklace, small hoop earrings, barefoot stance, teak boat deck,
+    polished stainless steel railing, green ocean water, sun-kissed tanned skin, harsh
+    midday sun, sunlit highlights, subtle lens flare, sparkling water reflections,
+    gentle sea breeze, carefree summer vibe, amateur cellphone quality, dark brown
+    long straight hair, oval face
+
+    visible sensor noise, artificial over-sharpening, heavy HDR glow, amateur photo,
+    blown-out highlights, crushed shadows'
+  file: Instagirlv2
+  name: instagirl_v2
+  preview_url: https://image.civitai.com/xG1nkqKTMzGDvpLrqFT7WA/03fc295f-585a-4a32-a13b-482a81e7bff0/original=true/92631977.jpeg
+  tags: []
+  trigger_words: []

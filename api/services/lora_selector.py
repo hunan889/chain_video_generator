@@ -18,11 +18,18 @@ Given a user's video prompt, select 0-3 LoRAs from the catalog below that best m
 - Select ONLY LoRAs whose effect directly matches what the user describes
 - If no LoRA is relevant, return an empty list
 - Maximum 3 LoRAs
-- Use the default_strength unless you have a strong reason to adjust it
-- Output ONLY valid JSON, no markdown, no explanation
 
-## Output format:
-{{"loras": [{{"name": "exact_name_from_catalog", "strength": 0.8}}]}}"""
+## Strength guidelines:
+- Single LoRA: use 0.7-0.9 (higher if it's the main focus)
+- Two LoRAs: use 0.6-0.8 each (reduce to avoid conflicts)
+- Three LoRAs: use 0.5-0.7 each
+- Style/quality LoRAs (e.g. instagirl): 0.4-0.6
+- Action/pose LoRAs (e.g. cowgirl, paizuri): 0.7-0.9
+- Body/attribute LoRAs (e.g. big_breasts): 0.5-0.7
+- If a LoRA is secondary to the scene, lower its strength
+
+## Output format (ONLY valid JSON, no markdown, no explanation):
+{{"loras": [{{"name": "exact_name_from_catalog", "strength": 0.7}}]}}"""
 
 
 class LoraSelector:

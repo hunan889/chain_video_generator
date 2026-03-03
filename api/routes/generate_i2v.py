@@ -3,7 +3,7 @@ from fastapi import APIRouter, Depends, UploadFile, File, Form, HTTPException
 from api.models.schemas import GenerateResponse, GenerateI2VRequest, LoraInput
 from api.models.enums import GenerateMode, ModelType, TaskStatus
 from api.middleware.auth import verify_api_key
-from api.services.workflow_builder import build_workflow
+from api.services.workflow_builder import build_workflow, _inject_trigger_words
 from api.services.lora_selector import LoraSelector
 from api.services import storage
 import json
@@ -53,7 +53,7 @@ async def generate_i2v(
     image_data = await image.read()
     if not image_data:
         raise HTTPException(400, "Empty image file")
-    local_name = storage.save_upload(image_data, image.filename or "upload.png")
+    local_name, _ = await storage.save_upload(image_data, image.filename or "upload.png")
 
     # Upload to ComfyUI
     client = task_manager.clients.get(req.model.value)
@@ -86,10 +86,14 @@ async def generate_i2v(
         color_match_method=req.color_match_method,
         resize_mode=req.resize_mode,
         upscale=req.upscale,
+        t5_preset=req.t5_preset,
     )
 
     params_dict = req.model_dump()
     params_dict["image_filename"] = comfy_filename
+    # Store final prompt with trigger keywords for display
+    if req.loras:
+        params_dict["final_prompt"] = _inject_trigger_words(req.prompt, req.loras)
     params_dict.update(params_extra)
     task_id = await task_manager.create_task(GenerateMode.I2V, req.model, workflow, params=params_dict)
     return GenerateResponse(task_id=task_id, status=TaskStatus.QUEUED)

@@ -16,3 +16,4 @@ class TaskStatus(str, Enum):
 class GenerateMode(str, Enum):
     T2V = "t2v"
     I2V = "i2v"
+    EXTEND = "extend"

@@ -61,6 +61,23 @@ class ComfyUIClient:
                     files.append(f)
         return files
 
+    async def get_output_files_ordered(self, prompt_id: str) -> list[dict]:
+        """Get output files ordered by node_id (for merged workflows).
+
+        Each file dict includes a '_node_id' key so callers can match
+        outputs to specific segments.
+        """
+        history = await self.get_history(prompt_id)
+        if not history:
+            return []
+        outputs = history.get("outputs", {})
+        files = []
+        for node_id, node_output in sorted(outputs.items(), key=lambda x: int(x[0])):
+            for f in node_output.get("gifs", []) + node_output.get("videos", []):
+                f["_node_id"] = node_id
+                files.append(f)
+        return files
+
     async def download_file(self, filename: str, subfolder: str = "", file_type: str = "output") -> bytes:
         session = await self._get_session()
         params = {"filename": filename, "subfolder": subfolder, "type": file_type}

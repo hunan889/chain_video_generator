@@ -1,0 +1,1355 @@
+{
+  "97": {
+    "inputs": {
+      "image": "233217_00001_.png"
+    },
+    "class_type": "LoadImage",
+    "_meta": {
+      "title": "Load Image"
+    }
+  },
+  "174": {
+    "inputs": {
+      "PowerLoraLoaderHeaderWidget": {
+        "type": "PowerLoraLoaderHeaderWidget"
+      },
+      "\u2795 Add Lora": "",
+      "model": [
+        "917",
+        0
+      ]
+    },
+    "class_type": "Power Lora Loader (rgthree)",
+    "_meta": {
+      "title": "1LORA HIGH"
+    }
+  },
+  "175": {
+    "inputs": {
+      "PowerLoraLoaderHeaderWidget": {
+        "type": "PowerLoraLoaderHeaderWidget"
+      },
+      "\u2795 Add Lora": "",
+      "model": [
+        "918",
+        0
+      ]
+    },
+    "class_type": "Power Lora Loader (rgthree)",
+    "_meta": {
+      "title": "1LORA LOW"
+    }
+  },
+  "179": {
+    "inputs": {
+      "PowerLoraLoaderHeaderWidget": {
+        "type": "PowerLoraLoaderHeaderWidget"
+      },
+      "\u2795 Add Lora": "",
+      "model": [
+        "917",
+        0
+      ]
+    },
+    "class_type": "Power Lora Loader (rgthree)",
+    "_meta": {
+      "title": "2LORA HIGH"
+    }
+  },
+  "180": {
+    "inputs": {
+      "PowerLoraLoaderHeaderWidget": {
+        "type": "PowerLoraLoaderHeaderWidget"
+      },
+      "\u2795 Add Lora": "",
+      "model": [
+        "918",
+        0
+      ]
+    },
+    "class_type": "Power Lora Loader (rgthree)",
+    "_meta": {
+      "title": "3LORA LOW"
+    }
+  },
+  "181": {
+    "inputs": {
+      "PowerLoraLoaderHeaderWidget": {
+        "type": "PowerLoraLoaderHeaderWidget"
+      },
+      "\u2795 Add Lora": "",
+      "model": [
+        "918",
+        0
+      ]
+    },
+    "class_type": "Power Lora Loader (rgthree)",
+    "_meta": {
+      "title": "2LORA LOW"
+    }
+  },
+  "182": {
+    "inputs": {
+      "PowerLoraLoaderHeaderWidget": {
+        "type": "PowerLoraLoaderHeaderWidget"
+      },
+      "\u2795 Add Lora": "",
+      "model": [
+        "917",
+        0
+      ]
+    },
+    "class_type": "Power Lora Loader (rgthree)",
+    "_meta": {
+      "title": "3LORA HIGH"
+    }
+  },
+  "604": {
+    "inputs": {
+      "value": 1.15
+    },
+    "class_type": "FloatConstant",
+    "_meta": {
+      "title": "motion amplitude"
+    }
+  },
+  "605": {
+    "inputs": {
+      "value": 5
+    },
+    "class_type": "INTConstant",
+    "_meta": {
+      "title": "motion_frames"
+    }
+  },
+  "916": {
+    "inputs": {
+      "vae_name": "wan_2.1_vae.safetensors"
+    },
+    "class_type": "VAELoader",
+    "_meta": {
+      "title": "Load VAE"
+    }
+  },
+  "917": {
+    "inputs": {
+      "unet_name": "wan22EnhancedNSFWSVICamera_nsfwV2FP8H.safetensors",
+      "weight_dtype": "default"
+    },
+    "class_type": "UNETLoader",
+    "_meta": {
+      "title": "Load Diffusion Model HIGH"
+    }
+  },
+  "918": {
+    "inputs": {
+      "unet_name": "wan22EnhancedNSFWSVICamera_nsfwV2FP8L.safetensors",
+      "weight_dtype": "default"
+    },
+    "class_type": "UNETLoader",
+    "_meta": {
+      "title": "Load Diffusion Model LOW"
+    }
+  },
+  "1037": {
+    "inputs": {
+      "PowerLoraLoaderHeaderWidget": {
+        "type": "PowerLoraLoaderHeaderWidget"
+      },
+      "\u2795 Add Lora": "",
+      "model": [
+        "918",
+        0
+      ]
+    },
+    "class_type": "Power Lora Loader (rgthree)",
+    "_meta": {
+      "title": "4LORA LOW"
+    }
+  },
+  "1040": {
+    "inputs": {
+      "PowerLoraLoaderHeaderWidget": {
+        "type": "PowerLoraLoaderHeaderWidget"
+      },
+      "\u2795 Add Lora": "",
+      "model": [
+        "917",
+        0
+      ]
+    },
+    "class_type": "Power Lora Loader (rgthree)",
+    "_meta": {
+      "title": "4LORA HIGH"
+    }
+  },
+  "1327": {
+    "inputs": {
+      "frame_rate": 16,
+      "loop_count": 0,
+      "filename_prefix": "wan22_02_02-57-15",
+      "format": "video/h264-mp4",
+      "pix_fmt": "yuv420p",
+      "crf": 19,
+      "save_metadata": true,
+      "trim_to_audio": false,
+      "pingpong": false,
+      "save_output": true,
+      "images": [
+        "1532",
+        0
+      ]
+    },
+    "class_type": "VHS_VideoCombine",
+    "_meta": {
+      "title": "16FPS"
+    }
+  },
+  "1445": {
+    "inputs": {
+      "desired_width": 480,
+      "desired_height": 832,
+      "divisible_by": 16,
+      "upscale": false,
+      "upscale_method": "lanczos",
+      "small_image_mode": "none",
+      "pad_color": "#000000",
+      "image": [
+        "97",
+        0
+      ]
+    },
+    "class_type": "FindPerfectResolution",
+    "_meta": {
+      "title": "Find Perfect Resolution"
+    }
+  },
+  "1521": {
+    "inputs": {
+      "clip_name": "nsfw_wan_umt5-xxl_fp8_scaled.safetensors",
+      "type": "wan",
+      "device": "default"
+    },
+    "class_type": "CLIPLoader",
+    "_meta": {
+      "title": "Load CLIP"
+    }
+  },
+  "1530": {
+    "inputs": {
+      "model_name": "2xLexicaRRDBNet.pth"
+    },
+    "class_type": "UpscaleModelLoader",
+    "_meta": {
+      "title": "Load Upscale Model"
+    }
+  },
+  "1531": {
+    "inputs": {
+      "upscale_model": [
+        "1530",
+        0
+      ],
+      "image": [
+        "1546",
+        0
+      ]
+    },
+    "class_type": "ImageUpscaleWithModel",
+    "_meta": {
+      "title": "Upscale Image (using Model)"
+    }
+  },
+  "1532": {
+    "inputs": {
+      "upscale_method": "nearest-exact",
+      "scale_by": 1,
+      "image": [
+        "1531",
+        0
+      ]
+    },
+    "class_type": "ImageScaleBy",
+    "_meta": {
+      "title": "Upscale Image By"
+    }
+  },
+  "1546": {
+    "inputs": {
+      "method": "mkl",
+      "strength": 0.4,
+      "multithread": true,
+      "image_ref": [
+        "97",
+        0
+      ],
+      "image_target": [
+        "1344:1253",
+        0
+      ]
+    },
+    "class_type": "ColorMatch",
+    "_meta": {
+      "title": "Color Match"
+    }
+  },
+  "1547": {
+    "inputs": {
+      "frame_rate": 16,
+      "loop_count": 0,
+      "filename_prefix": "wan22_02_02-57-15",
+      "format": "video/h264-mp4",
+      "pix_fmt": "yuv420p",
+      "crf": 19,
+      "save_metadata": false,
+      "trim_to_audio": false,
+      "pingpong": false,
+      "save_output": false,
+      "images": [
+        "1546",
+        0
+      ]
+    },
+    "class_type": "VHS_VideoCombine",
+    "_meta": {
+      "title": "Final Video"
+    }
+  },
+  "1551": {
+    "inputs": {
+      "value": 8
+    },
+    "class_type": "PrimitiveFloat",
+    "_meta": {
+      "title": "Sigma Shift"
+    }
+  },
+  "1581:1566": {
+    "inputs": {
+      "text": [
+        "1581:1564",
+        0
+      ],
+      "auto_split": true,
+      "custom_delimiter": ""
+    },
+    "class_type": "StorySplitNode",
+    "_meta": {
+      "title": "Story Split"
+    }
+  },
+  "1592": {
+    "inputs": {
+      "text": "",
+      "anything": [
+        "1581:1566",
+        0
+      ]
+    },
+    "class_type": "easy showAnything",
+    "_meta": {
+      "title": "Prompt 1"
+    }
+  },
+  "1593": {
+    "inputs": {
+      "text": "",
+      "anything": [
+        "1581:1566",
+        1
+      ]
+    },
+    "class_type": "easy showAnything",
+    "_meta": {
+      "title": "Prompt 2"
+    }
+  },
+  "1594": {
+    "inputs": {
+      "text": "",
+      "anything": [
+        "1581:1566",
+        2
+      ]
+    },
+    "class_type": "easy showAnything",
+    "_meta": {
+      "title": "Prompt 3"
+    }
+  },
+  "1595": {
+    "inputs": {
+      "text": "",
+      "anything": [
+        "1581:1566",
+        3
+      ]
+    },
+    "class_type": "easy showAnything",
+    "_meta": {
+      "title": "Prompt 4"
+    }
+  },
+  "1581:1564": {
+    "inputs": {
+      "model_name": "Qwen3-VL-8B-Instruct-c_abliterated-v3.Q8_0.gguf",
+      "device": "auto",
+      "preset_prompt": "\ud83d\udcd6 Wan 2.2 NSFW I2V Story",
+      "custom_prompt": "",
+      "max_tokens": 1536,
+      "temperature": 0.6,
+      "top_p": 0.9,
+      "repetition_penalty": 1.2,
+      "frame_count": 16,
+      "ctx": 65536,
+      "n_batch": 512,
+      "gpu_layers": -1,
+      "image_max_tokens": 4096,
+      "top_k": 0,
+      "pool_size": 4194304,
+      "keep_model_loaded": false,
+      "seed": 2308460460,
+      "image": [
+        "97",
+        0
+      ]
+    },
+    "class_type": "AILab_QwenVL_GGUF_Advanced",
+    "_meta": {
+      "title": "QwenVL Advanced (GGUF)"
+    }
+  },
+  "1252:1249": {
+    "inputs": {
+      "samples": [
+        "1252:1604",
+        0
+      ],
+      "vae": [
+        "916",
+        0
+      ]
+    },
+    "class_type": "VAEDecode",
+    "_meta": {
+      "title": "VAE Decode"
+    }
+  },
+  "1252:1245": {
+    "inputs": {
+      "text": "\u8272\u8c03\u8273\u4e3d\uff0c\u8fc7\u66dd\uff0c\u9759\u6001\uff0c\u7ec6\u8282\u6a21\u7cca\u4e0d\u6e05\uff0c\u5b57\u5e55\uff0c\u98ce\u683c\uff0c\u4f5c\u54c1\uff0c\u753b\u4f5c\uff0c\u753b\u9762\uff0c\u9759\u6b62\uff0c\u6574\u4f53\u53d1\u7070\uff0c\u6700\u5dee\u8d28\u91cf\uff0c\u4f4e\u8d28\u91cf\uff0cJPEG\u538b\u7f29\u6b8b\u7559\uff0c\u4e11\u964b\u7684\uff0c\u6b8b\u7f3a\u7684\uff0c\u591a\u4f59\u7684\u624b\u6307\uff0c\u753b\u5f97\u4e0d\u597d\u7684\u624b\u90e8\uff0c\u753b\u5f97\u4e0d\u597d\u7684\u8138\u90e8\uff0c\u7578\u5f62\u7684\uff0c\u6bc1\u5bb9\u7684\uff0c\u5f62\u6001\u7578\u5f62\u7684\u80a2\u4f53\uff0c\u624b\u6307\u878d\u5408\uff0c\u9759\u6b62\u4e0d\u52a8\u7684\u753b\u9762\uff0c\u6742\u4e71\u7684\u80cc\u666f\uff0c\u4e09\u6761\u817f\uff0c\u80cc\u666f\u4eba\u5f88\u591a\uff0c\u5012\u7740\u8d70",
+      "clip": [
+        "1521",
+        0
+      ]
+    },
+    "class_type": "CLIPTextEncode",
+    "_meta": {
+      "title": "CLIP Text Encode (Negative Prompt)"
+    }
+  },
+  "1252:1250": {
+    "inputs": {
+      "seed": 241463181973626
+    },
+    "class_type": "Seed (rgthree)",
+    "_meta": {
+      "title": "1-Seed high"
+    }
+  },
+  "1252:1285": {
+    "inputs": {
+      "width": [
+        "1445",
+        0
+      ],
+      "height": [
+        "1445",
+        1
+      ],
+      "length": 0,
+      "batch_size": 1,
+      "motion_amplitude": [
+        "604",
+        0
+      ],
+      "positive": [
+        "1252:1258",
+        0
+      ],
+      "negative": [
+        "1252:1245",
+        0
+      ],
+      "vae": [
+        "916",
+        0
+      ],
+      "start_image": [
+        "97",
+        0
+      ]
+    },
+    "class_type": "PainterI2V",
+    "_meta": {
+      "title": "PainterI2V"
+    }
+  },
+  "1252:1258": {
+    "inputs": {
+      "text": [
+        "1252:1299",
+        0
+      ],
+      "clip": [
+        "1521",
+        0
+      ]
+    },
+    "class_type": "CLIPTextEncode",
+    "_meta": {
+      "title": "Positive encode"
+    }
+  },
+  "1252:1299": {
+    "inputs": {
+      "text": "A woman with long, flowing lavender hair stands in a dimly lit room, her gaze fixed directly on the viewer. She wears an alluring black lace bra that accentuates her curves under warm light from a wall-mounted fixture. Her hands gently cradle her chest as she slowly turns slightly to reveal more of her form against dark wooden paneling. Behind her, a window shows a starry night sky with silhouettes of trees swaying in the breeze. The scene exudes intimacy and quiet sensuality through soft shadows cast by ambient lighting.",
+      "anything": [
+        "1252:1301",
+        0
+      ]
+    },
+    "class_type": "easy showAnything",
+    "_meta": {
+      "title": "Final prompt preview"
+    }
+  },
+  "1252:1300": {
+    "inputs": {
+      "value": ""
+    },
+    "class_type": "PrimitiveStringMultiline",
+    "_meta": {
+      "title": "LoRaS Triggers"
+    }
+  },
+  "1252:1301": {
+    "inputs": {
+      "delimiter": "",
+      "clean_whitespace": "false",
+      "text_a": [
+        "1252:1300",
+        0
+      ],
+      "text_b": [
+        "1592",
+        0
+      ]
+    },
+    "class_type": "Text Concatenate",
+    "_meta": {
+      "title": "Text Concatenate"
+    }
+  },
+  "1252:1284": {
+    "inputs": {
+      "boundary": 0.9,
+      "add_noise": "enable",
+      "noise_seed": [
+        "1252:1250",
+        0
+      ],
+      "steps": 0,
+      "cfg_high_noise": 1,
+      "cfg_low_noise": 1,
+      "sampler_name": "euler",
+      "scheduler": "simple",
+      "sigma_shift": [
+        "1551",
+        0
+      ],
+      "start_at_step": 0,
+      "end_at_step": 10000,
+      "return_with_leftover_noise": "disable",
+      "model_high_noise": [
+        "174",
+        0
+      ],
+      "model_low_noise": [
+        "175",
+        0
+      ],
+      "positive": [
+        "1252:1285",
+        0
+      ],
+      "negative": [
+        "1252:1285",
+        1
+      ],
+      "latent_image": [
+        "1252:1285",
+        2
+      ]
+    },
+    "class_type": "WanMoeKSamplerAdvanced",
+    "_meta": {
+      "title": "Wan MoE KSampler (Advanced)"
+    }
+  },
+  "1262:1256": {
+    "inputs": {
+      "width": [
+        "1445",
+        0
+      ],
+      "height": [
+        "1445",
+        1
+      ],
+      "length": 0,
+      "batch_size": 1,
+      "motion_frames": [
+        "605",
+        0
+      ],
+      "motion_amplitude": [
+        "604",
+        0
+      ],
+      "positive": [
+        "1262:1268",
+        0
+      ],
+      "negative": [
+        "1262:1259",
+        0
+      ],
+      "vae": [
+        "916",
+        0
+      ],
+      "previous_video": [
+        "1262:1260",
+        0
+      ],
+      "initial_reference_image": [
+        "97",
+        0
+      ]
+    },
+    "class_type": "PainterLongVideo",
+    "_meta": {
+      "title": "2-PainterLongVideo"
+    }
+  },
+  "1262:1258": {
+    "inputs": {
+      "samples": [
+        "1262:1605",
+        0
+      ],
+      "vae": [
+        "916",
+        0
+      ]
+    },
+    "class_type": "VAEDecode",
+    "_meta": {
+      "title": "VAE Decode"
+    }
+  },
+  "1262:1261": {
+    "inputs": {
+      "indexes": "-1",
+      "err_if_missing": true,
+      "err_if_empty": true,
+      "image": [
+        "1252:1249",
+        0
+      ]
+    },
+    "class_type": "VHS_SelectImages",
+    "_meta": {
+      "title": "Select Images \ud83c\udfa5\ud83c\udd65\ud83c\udd57\ud83c\udd62"
+    }
+  },
+  "1262:1253": {
+    "inputs": {
+      "inputcount": 2,
+      "Update inputs": null,
+      "image_1": [
+        "1252:1249",
+        0
+      ],
+      "image_2": [
+        "1262:1258",
+        0
+      ]
+    },
+    "class_type": "ImageBatchMulti",
+    "_meta": {
+      "title": "Image Batch Multi"
+    }
+  },
+  "1262:1259": {
+    "inputs": {
+      "text": "\u8272\u8c03\u8273\u4e3d\uff0c\u8fc7\u66dd\uff0c\u9759\u6001\uff0c\u7ec6\u8282\u6a21\u7cca\u4e0d\u6e05\uff0c\u5b57\u5e55\uff0c\u98ce\u683c\uff0c\u4f5c\u54c1\uff0c\u753b\u4f5c\uff0c\u753b\u9762\uff0c\u9759\u6b62\uff0c\u6574\u4f53\u53d1\u7070\uff0c\u6700\u5dee\u8d28\u91cf\uff0c\u4f4e\u8d28\u91cf\uff0cJPEG\u538b\u7f29\u6b8b\u7559\uff0c\u4e11\u964b\u7684\uff0c\u6b8b\u7f3a\u7684\uff0c\u591a\u4f59\u7684\u624b\u6307\uff0c\u753b\u5f97\u4e0d\u597d\u7684\u624b\u90e8\uff0c\u753b\u5f97\u4e0d\u597d\u7684\u8138\u90e8\uff0c\u7578\u5f62\u7684\uff0c\u6bc1\u5bb9\u7684\uff0c\u5f62\u6001\u7578\u5f62\u7684\u80a2\u4f53\uff0c\u624b\u6307\u878d\u5408\uff0c\u9759\u6b62\u4e0d\u52a8\u7684\u753b\u9762\uff0c\u6742\u4e71\u7684\u80cc\u666f\uff0c\u4e09\u6761\u817f\uff0c\u80cc\u666f\u4eba\u5f88\u591a\uff0c\u5012\u7740\u8d70",
+      "clip": [
+        "1521",
+        0
+      ]
+    },
+    "class_type": "CLIPTextEncode",
+    "_meta": {
+      "title": "CLIP Text Encode (Negative Prompt)"
+    }
+  },
+  "1262:1260": {
+    "inputs": {
+      "upscale_method": "nearest-exact",
+      "scale_by": 2,
+      "image": [
+        "1262:1261",
+        0
+      ]
+    },
+    "class_type": "ImageScaleBy",
+    "_meta": {
+      "title": "Upscale Image By"
+    }
+  },
+  "1262:1268": {
+    "inputs": {
+      "text": [
+        "1262:1269",
+        0
+      ],
+      "clip": [
+        "1521",
+        0
+      ]
+    },
+    "class_type": "CLIPTextEncode",
+    "_meta": {
+      "title": "Positive encode"
+    }
+  },
+  "1262:1287": {
+    "inputs": {
+      "value": ""
+    },
+    "class_type": "PrimitiveStringMultiline",
+    "_meta": {
+      "title": "LoRaS Triggers"
+    }
+  },
+  "1262:1288": {
+    "inputs": {
+      "delimiter": "",
+      "clean_whitespace": "false",
+      "text_a": [
+        "1262:1287",
+        0
+      ],
+      "text_b": [
+        "1593",
+        0
+      ]
+    },
+    "class_type": "Text Concatenate",
+    "_meta": {
+      "title": "Text Concatenate"
+    }
+  },
+  "1262:1269": {
+    "inputs": {
+      "text": "She begins to sway gently from side to side as if lost in thought or anticipation, allowing her bra straps to shift subtly across her shoulders. Her expression remains calm yet inviting, eyes half-lidded with allure while one hand lifts slightly towards her collarbone. The camera glides slowly around her torso capturing the play of light and shadow on smooth skin illuminated by a single lamp above. Outside, leaves rustle faintly against glass panes as she continues to move languidly within this private sanctuary.",
+      "anything": [
+        "1262:1288",
+        0
+      ]
+    },
+    "class_type": "easy showAnything",
+    "_meta": {
+      "title": "Final prompt preview"
+    }
+  },
+  "1262:308": {
+    "inputs": {
+      "seed": 728473048418686
+    },
+    "class_type": "Seed (rgthree)",
+    "_meta": {
+      "title": "2-Seed high"
+    }
+  },
+  "1262:1282": {
+    "inputs": {
+      "boundary": 0.9,
+      "add_noise": "enable",
+      "noise_seed": [
+        "1262:308",
+        0
+      ],
+      "steps": 0,
+      "cfg_high_noise": 1,
+      "cfg_low_noise": 1,
+      "sampler_name": "euler",
+      "scheduler": "simple",
+      "sigma_shift": [
+        "1551",
+        0
+      ],
+      "start_at_step": 0,
+      "end_at_step": 10000,
+      "return_with_leftover_noise": "disable",
+      "model_high_noise": [
+        "179",
+        0
+      ],
+      "model_low_noise": [
+        "181",
+        0
+      ],
+      "positive": [
+        "1262:1256",
+        0
+      ],
+      "negative": [
+        "1262:1256",
+        1
+      ],
+      "latent_image": [
+        "1262:1256",
+        2
+      ]
+    },
+    "class_type": "WanMoeKSamplerAdvanced",
+    "_meta": {
+      "title": "Wan MoE KSampler (Advanced)"
+    }
+  },
+  "1332:1259": {
+    "inputs": {
+      "text": "\u8272\u8c03\u8273\u4e3d\uff0c\u8fc7\u66dd\uff0c\u9759\u6001\uff0c\u7ec6\u8282\u6a21\u7cca\u4e0d\u6e05\uff0c\u5b57\u5e55\uff0c\u98ce\u683c\uff0c\u4f5c\u54c1\uff0c\u753b\u4f5c\uff0c\u753b\u9762\uff0c\u9759\u6b62\uff0c\u6574\u4f53\u53d1\u7070\uff0c\u6700\u5dee\u8d28\u91cf\uff0c\u4f4e\u8d28\u91cf\uff0cJPEG\u538b\u7f29\u6b8b\u7559\uff0c\u4e11\u964b\u7684\uff0c\u6b8b\u7f3a\u7684\uff0c\u591a\u4f59\u7684\u624b\u6307\uff0c\u753b\u5f97\u4e0d\u597d\u7684\u624b\u90e8\uff0c\u753b\u5f97\u4e0d\u597d\u7684\u8138\u90e8\uff0c\u7578\u5f62\u7684\uff0c\u6bc1\u5bb9\u7684\uff0c\u5f62\u6001\u7578\u5f62\u7684\u80a2\u4f53\uff0c\u624b\u6307\u878d\u5408\uff0c\u9759\u6b62\u4e0d\u52a8\u7684\u753b\u9762\uff0c\u6742\u4e71\u7684\u80cc\u666f\uff0c\u4e09\u6761\u817f\uff0c\u80cc\u666f\u4eba\u5f88\u591a\uff0c\u5012\u7740\u8d70",
+      "clip": [
+        "1521",
+        0
+      ]
+    },
+    "class_type": "CLIPTextEncode",
+    "_meta": {
+      "title": "CLIP Text Encode (Negative Prompt)"
+    }
+  },
+  "1332:1253": {
+    "inputs": {
+      "inputcount": 2,
+      "Update inputs": null,
+      "image_1": [
+        "1262:1253",
+        0
+      ],
+      "image_2": [
+        "1332:1258",
+        0
+      ]
+    },
+    "class_type": "ImageBatchMulti",
+    "_meta": {
+      "title": "Image Batch Multi"
+    }
+  },
+  "1332:1260": {
+    "inputs": {
+      "upscale_method": "nearest-exact",
+      "scale_by": 2,
+      "image": [
+        "1332:1261",
+        0
+      ]
+    },
+    "class_type": "ImageScaleBy",
+    "_meta": {
+      "title": "Upscale Image By"
+    }
+  },
+  "1332:1261": {
+    "inputs": {
+      "indexes": "-1",
+      "err_if_missing": true,
+      "err_if_empty": true,
+      "image": [
+        "1262:1253",
+        0
+      ]
+    },
+    "class_type": "VHS_SelectImages",
+    "_meta": {
+      "title": "Select Images \ud83c\udfa5\ud83c\udd65\ud83c\udd57\ud83c\udd62"
+    }
+  },
+  "1332:1256": {
+    "inputs": {
+      "width": [
+        "1445",
+        0
+      ],
+      "height": [
+        "1445",
+        1
+      ],
+      "length": 0,
+      "batch_size": 1,
+      "motion_frames": [
+        "605",
+        0
+      ],
+      "motion_amplitude": [
+        "604",
+        0
+      ],
+      "positive": [
+        "1332:1268",
+        0
+      ],
+      "negative": [
+        "1332:1259",
+        0
+      ],
+      "vae": [
+        "916",
+        0
+      ],
+      "previous_video": [
+        "1332:1260",
+        0
+      ],
+      "initial_reference_image": [
+        "97",
+        0
+      ]
+    },
+    "class_type": "PainterLongVideo",
+    "_meta": {
+      "title": "2-PainterLongVideo"
+    }
+  },
+  "1332:1258": {
+    "inputs": {
+      "samples": [
+        "1332:1606",
+        0
+      ],
+      "vae": [
+        "916",
+        0
+      ]
+    },
+    "class_type": "VAEDecode",
+    "_meta": {
+      "title": "VAE Decode"
+    }
+  },
+  "1332:1269": {
+    "inputs": {
+      "text": "Her movements become more fluid now\u2014she leans forward slightly then back again in slow motion like water rippling across stone. Her fingers trace delicate patterns along the lace trim of her bra while maintaining steady eye contact with whoever observes from afar. The background remains unchanged save for slight shifts caused by movement, keeping focus entirely on her poised elegance and graceful motions inside this secluded space.",
+      "anything": [
+        "1332:1284",
+        0
+      ]
+    },
+    "class_type": "easy showAnything",
+    "_meta": {
+      "title": "Final prompt preview"
+    }
+  },
+  "1332:1283": {
+    "inputs": {
+      "value": ""
+    },
+    "class_type": "PrimitiveStringMultiline",
+    "_meta": {
+      "title": "LoRaS Triggers"
+    }
+  },
+  "1332:1268": {
+    "inputs": {
+      "text": [
+        "1332:1269",
+        0
+      ],
+      "clip": [
+        "1521",
+        0
+      ]
+    },
+    "class_type": "CLIPTextEncode",
+    "_meta": {
+      "title": "Positive encode"
+    }
+  },
+  "1332:1284": {
+    "inputs": {
+      "delimiter": "",
+      "clean_whitespace": "false",
+      "text_a": [
+        "1332:1283",
+        0
+      ],
+      "text_b": [
+        "1594",
+        0
+      ]
+    },
+    "class_type": "Text Concatenate",
+    "_meta": {
+      "title": "Text Concatenate"
+    }
+  },
+  "1332:308": {
+    "inputs": {
+      "seed": 581822612982378
+    },
+    "class_type": "Seed (rgthree)",
+    "_meta": {
+      "title": "2-Seed high"
+    }
+  },
+  "1332:1280": {
+    "inputs": {
+      "boundary": 0.9,
+      "add_noise": "enable",
+      "noise_seed": [
+        "1332:308",
+        0
+      ],
+      "steps": 0,
+      "cfg_high_noise": 1,
+      "cfg_low_noise": 1,
+      "sampler_name": "euler",
+      "scheduler": "simple",
+      "sigma_shift": [
+        "1551",
+        0
+      ],
+      "start_at_step": 0,
+      "end_at_step": 10000,
+      "return_with_leftover_noise": "disable",
+      "model_high_noise": [
+        "182",
+        0
+      ],
+      "model_low_noise": [
+        "180",
+        0
+      ],
+      "positive": [
+        "1332:1256",
+        0
+      ],
+      "negative": [
+        "1332:1256",
+        1
+      ],
+      "latent_image": [
+        "1332:1256",
+        2
+      ]
+    },
+    "class_type": "WanMoeKSamplerAdvanced",
+    "_meta": {
+      "title": "Wan MoE KSampler (Advanced)"
+    }
+  },
+  "1344:1259": {
+    "inputs": {
+      "text": "\u8272\u8c03\u8273\u4e3d\uff0c\u8fc7\u66dd\uff0c\u9759\u6001\uff0c\u7ec6\u8282\u6a21\u7cca\u4e0d\u6e05\uff0c\u5b57\u5e55\uff0c\u98ce\u683c\uff0c\u4f5c\u54c1\uff0c\u753b\u4f5c\uff0c\u753b\u9762\uff0c\u9759\u6b62\uff0c\u6574\u4f53\u53d1\u7070\uff0c\u6700\u5dee\u8d28\u91cf\uff0c\u4f4e\u8d28\u91cf\uff0cJPEG\u538b\u7f29\u6b8b\u7559\uff0c\u4e11\u964b\u7684\uff0c\u6b8b\u7f3a\u7684\uff0c\u591a\u4f59\u7684\u624b\u6307\uff0c\u753b\u5f97\u4e0d\u597d\u7684\u624b\u90e8\uff0c\u753b\u5f97\u4e0d\u597d\u7684\u8138\u90e8\uff0c\u7578\u5f62\u7684\uff0c\u6bc1\u5bb9\u7684\uff0c\u5f62\u6001\u7578\u5f62\u7684\u80a2\u4f53\uff0c\u624b\u6307\u878d\u5408\uff0c\u9759\u6b62\u4e0d\u52a8\u7684\u753b\u9762\uff0c\u6742\u4e71\u7684\u80cc\u666f\uff0c\u4e09\u6761\u817f\uff0c\u80cc\u666f\u4eba\u5f88\u591a\uff0c\u5012\u7740\u8d70",
+      "clip": [
+        "1521",
+        0
+      ]
+    },
+    "class_type": "CLIPTextEncode",
+    "_meta": {
+      "title": "CLIP Text Encode (Negative Prompt)"
+    }
+  },
+  "1344:1253": {
+    "inputs": {
+      "inputcount": 2,
+      "Update inputs": null,
+      "image_1": [
+        "1332:1253",
+        0
+      ],
+      "image_2": [
+        "1344:1258",
+        0
+      ]
+    },
+    "class_type": "ImageBatchMulti",
+    "_meta": {
+      "title": "Image Batch Multi"
+    }
+  },
+  "1344:1261": {
+    "inputs": {
+      "indexes": "-1",
+      "err_if_missing": true,
+      "err_if_empty": true,
+      "image": [
+        "1332:1253",
+        0
+      ]
+    },
+    "class_type": "VHS_SelectImages",
+    "_meta": {
+      "title": "Select Images \ud83c\udfa5\ud83c\udd65\ud83c\udd57\ud83c\udd62"
+    }
+  },
+  "1344:1256": {
+    "inputs": {
+      "width": [
+        "1445",
+        0
+      ],
+      "height": [
+        "1445",
+        1
+      ],
+      "length": 0,
+      "batch_size": 1,
+      "motion_frames": [
+        "605",
+        0
+      ],
+      "motion_amplitude": [
+        "604",
+        0
+      ],
+      "positive": [
+        "1344:1268",
+        0
+      ],
+      "negative": [
+        "1344:1259",
+        0
+      ],
+      "vae": [
+        "916",
+        0
+      ],
+      "previous_video": [
+        "1344:1260",
+        0
+      ],
+      "initial_reference_image": [
+        "97",
+        0
+      ]
+    },
+    "class_type": "PainterLongVideo",
+    "_meta": {
+      "title": "2-PainterLongVideo"
+    }
+  },
+  "1344:1258": {
+    "inputs": {
+      "samples": [
+        "1344:1607",
+        0
+      ],
+      "vae": [
+        "916",
+        0
+      ]
+    },
+    "class_type": "VAEDecode",
+    "_meta": {
+      "title": "VAE Decode"
+    }
+  },
+  "1344:1260": {
+    "inputs": {
+      "upscale_method": "nearest-exact",
+      "scale_by": 2,
+      "image": [
+        "1344:1261",
+        0
+      ]
+    },
+    "class_type": "ImageScaleBy",
+    "_meta": {
+      "title": "Upscale Image By"
+    }
+  },
+  "1344:1268": {
+    "inputs": {
+      "text": [
+        "1344:1269",
+        0
+      ],
+      "clip": [
+        "1521",
+        0
+      ]
+    },
+    "class_type": "CLIPTextEncode",
+    "_meta": {
+      "title": "Positive encode"
+    }
+  },
+  "1344:1269": {
+    "inputs": {
+      "text": "She lifts both hands slowly to frame her face in a gesture that feels almost reverent as though preparing herself for something significant about to unfold. Her posture becomes more upright yet relaxed; the room's warmth wraps around her like an embrace made of silk curtains and candlelight. The gentle sway continues, now synchronized with breathing patterns implied rather than seen directly\u2014an intimate dance between stillness and motion that captivates without demanding attention beyond what is already present.",
+      "anything": [
+        "1344:1284",
+        0
+      ]
+    },
+    "class_type": "easy showAnything",
+    "_meta": {
+      "title": "Final prompt preview"
+    }
+  },
+  "1344:1283": {
+    "inputs": {
+      "value": ""
+    },
+    "class_type": "PrimitiveStringMultiline",
+    "_meta": {
+      "title": "LoRaS Triggers"
+    }
+  },
+  "1344:1284": {
+    "inputs": {
+      "delimiter": "",
+      "clean_whitespace": "false",
+      "text_a": [
+        "1344:1283",
+        0
+      ],
+      "text_b": [
+        "1595",
+        0
+      ]
+    },
+    "class_type": "Text Concatenate",
+    "_meta": {
+      "title": "Text Concatenate"
+    }
+  },
+  "1344:308": {
+    "inputs": {
+      "seed": 988014350468869
+    },
+    "class_type": "Seed (rgthree)",
+    "_meta": {
+      "title": "2-Seed high"
+    }
+  },
+  "1344:1280": {
+    "inputs": {
+      "boundary": 0.9,
+      "add_noise": "enable",
+      "noise_seed": [
+        "1344:308",
+        0
+      ],
+      "steps": 0,
+      "cfg_high_noise": 1,
+      "cfg_low_noise": 1,
+      "sampler_name": "euler",
+      "scheduler": "simple",
+      "sigma_shift": [
+        "1551",
+        0
+      ],
+      "start_at_step": 0,
+      "end_at_step": 10000,
+      "return_with_leftover_noise": "disable",
+      "model_high_noise": [
+        "1040",
+        0
+      ],
+      "model_low_noise": [
+        "1037",
+        0
+      ],
+      "positive": [
+        "1344:1256",
+        0
+      ],
+      "negative": [
+        "1344:1256",
+        1
+      ],
+      "latent_image": [
+        "1344:1256",
+        2
+      ]
+    },
+    "class_type": "WanMoeKSamplerAdvanced",
+    "_meta": {
+      "title": "Wan MoE KSampler (Advanced)"
+    }
+  },
+  "1252:1604": {
+    "inputs": {
+      "offload_model": "Text Encoder",
+      "offload_cache": true,
+      "input": [
+        "1252:1284",
+        0
+      ]
+    },
+    "class_type": "VRAMCleanup",
+    "_meta": {
+      "title": "\ud83c\udf88VRAM-Cleanup"
+    }
+  },
+  "1262:1605": {
+    "inputs": {
+      "offload_model": "Text Encoder",
+      "offload_cache": true,
+      "input": [
+        "1262:1282",
+        0
+      ]
+    },
+    "class_type": "VRAMCleanup",
+    "_meta": {
+      "title": "\ud83c\udf88VRAM-Cleanup"
+    }
+  },
+  "1332:1606": {
+    "inputs": {
+      "offload_model": "Text Encoder",
+      "offload_cache": true,
+      "input": [
+        "1332:1280",
+        0
+      ]
+    },
+    "class_type": "VRAMCleanup",
+    "_meta": {
+      "title": "\ud83c\udf88VRAM-Cleanup"
+    }
+  },
+  "1344:1607": {
+    "inputs": {
+      "offload_model": "Full Cleanup",
+      "offload_cache": true,
+      "input": [
+        "1344:1280",
+        0
+      ]
+    },
+    "class_type": "VRAMCleanup",
+    "_meta": {
+      "title": "\ud83c\udf88VRAM-Cleanup"
+    }
+  }
+}

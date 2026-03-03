@@ -7,6 +7,7 @@ from pydantic import BaseModel
 from api.models.schemas import LoraInfo
 from api.config import LORAS_PATH, COMFYUI_PATH, CIVITAI_API_TOKEN
 from api.middleware.auth import verify_api_key
+from api.services import civitai_client
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -28,6 +29,7 @@ class LoraDownloadRequest(BaseModel):
     url: str
     filename: str = ""
     token: str = ""
+    civitai_version_id: int | None = None
 
 
 _download_tasks: dict[str, dict] = {}
@@ -82,10 +84,11 @@ async def download_lora(req: LoraDownloadRequest, _=Depends(verify_api_key)):
         try:
             dest = str(LORAS_DIR / filename)
             token = req.token or CIVITAI_API_TOKEN or ""
+            url = req.url
             cmd = ["curl", "-sL", "-o", dest]
             if token:
                 cmd += ["-H", f"Authorization: Bearer {token}"]
-            cmd.append(req.url)
+            cmd.append(url)
             proc = await asyncio.create_subprocess_exec(*cmd)
             await proc.wait()
             if proc.returncode == 0:
@@ -93,6 +96,17 @@ async def download_lora(req: LoraDownloadRequest, _=Depends(verify_api_key)):
                 size = os.path.getsize(dest)
                 if size > 1000000:  # > 1MB
                     _download_tasks[dl_id]["status"] = "completed"
+                    # Register with CivitAI metadata if version_id provided
+                    if req.civitai_version_id:
+                        try:
+                            from api.routes.civitai import _register_lora
+                            version_data = await civitai_client.get_version(req.civitai_version_id)
+                            model_id = version_data.get("modelId")
+                            model_data = await civitai_client.get_model(model_id) if model_id else {}
+                            entry = _register_lora(model_data, version_data, filename)
+                            _download_tasks[dl_id]["lora_entry"] = entry
+                        except Exception as e:
+                            logger.warning("Failed to register LoRA metadata: %s", e)
                 else:
                     _download_tasks[dl_id]["status"] = "failed"
                     _download_tasks[dl_id]["error"] = f"文件太小 ({size} bytes)，可能下载失败"

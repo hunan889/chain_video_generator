@@ -31,10 +31,12 @@ VIDEOS_DIR = STORAGE_PATH / "videos"
 UPLOADS_DIR = STORAGE_PATH / "uploads"
 WORKFLOWS_DIR = PROJECT_ROOT / "workflows"
 
-COMFYUI_URLS = {
+_ALL_COMFYUI_URLS = {
     "a14b": COMFYUI_A14B_URL,
     "5b": COMFYUI_5B_URL,
 }
+_enabled = os.getenv("ENABLED_WORKERS", "a14b,5b").split(",")
+COMFYUI_URLS = {k: v for k, v in _ALL_COMFYUI_URLS.items() if k.strip() in [w.strip() for w in _enabled]}
 
 # Task expiry in seconds (24 hours)
 TASK_EXPIRY = 86400
@@ -53,3 +55,11 @@ LLM_MODEL = os.getenv("LLM_MODEL", "")
 VISION_API_KEY = os.getenv("VISION_API_KEY", "")
 VISION_BASE_URL = os.getenv("VISION_BASE_URL", "")
 VISION_MODEL = os.getenv("VISION_MODEL", "gemini-2.5-flash")
+
+# Tencent COS
+COS_SECRET_ID = os.getenv("COS_SECRET_ID", "")
+COS_SECRET_KEY = os.getenv("COS_SECRET_KEY", "")
+COS_BUCKET = os.getenv("COS_BUCKET", "")
+COS_REGION = os.getenv("COS_REGION", "ap-guangzhou")
+COS_PREFIX = os.getenv("COS_PREFIX", "wan22")
+COS_ENABLED = bool(COS_BUCKET)
