@@ -47,10 +47,13 @@ bash launch_claude.sh
 ```
 
 该脚本会自动：
-- 检查并安装 Claude Code（如果未安装）
+- 检测打包的 Claude Code 二进制文件
+- 如果需要，从 GitHub Releases 自动下载（71MB）
 - 验证 Anthropic API Key
 - 加载项目配置和记忆
 - 在项目目录中启动 Claude Code
+
+**注意**：首次运行时会自动下载 Claude Code 二进制文件（约 71MB），请确保网络连接正常。
 
 详细使用说明请参考 [CLAUDE_USAGE.md](CLAUDE_USAGE.md)。
 
