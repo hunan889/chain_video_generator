@@ -2418,6 +2418,8 @@ async function generateSingleSegment(segId) {
     const allSegments = Array.from(document.querySelectorAll('.segment-card'));
     const currentIndex = allSegments.findIndex(s => s.dataset.segmentId === String(segId));
 
+    console.log(`[generateSingleSegment] segId=${segId}, currentIndex=${currentIndex}, totalSegments=${allSegments.length}, isStoryMode=${isStoryMode}`);
+
     let endpoint = BASE + '/api/v1/generate';
     let requestBody;
     let headers = {'X-API-Key': getKey()};
@@ -2427,6 +2429,8 @@ async function generateSingleSegment(segId) {
       const prevSegment = allSegments[currentIndex - 1];
       const prevSegId = prevSegment.dataset.segmentId;
       const prevLastFrameUrl = window[`seg_${prevSegId}_last_frame_url`];
+
+      console.log(`[generateSingleSegment] Story Mode segment 2+: prevSegId=${prevSegId}, prevLastFrameUrl=${prevLastFrameUrl}`);
 
       if (!prevLastFrameUrl) {
         statusBox.innerHTML = `<div style="color:#f87171;font-size:13px">错误：上一段（分段 ${prevSegId}）尚未生成或最后一帧未提取，请先生成上一段</div>`;
@@ -2449,6 +2453,8 @@ async function generateSingleSegment(segId) {
       if (!initialRefImage && chainSelectedFile) {
         initialRefImage = chainSelectedFile;
       }
+
+      console.log(`[generateSingleSegment] initialRefImage=${initialRefImage ? 'found' : 'null'}, cachedInitialRef=${cachedInitialRef ? 'exists' : 'null'}`);
 
       if (!initialRefImage) {
         statusBox.innerHTML = `<div style="color:#f87171;font-size:13px">错误：Story 模式需要首帧图片作为身份参考，请上传首帧图片</div>`;
@@ -2500,8 +2506,11 @@ async function generateSingleSegment(segId) {
       fd.append('params', JSON.stringify(chainParams));
       requestBody = fd;
 
+      console.log(`[generateSingleSegment] Using Chain API for Story Mode segment 2+`);
+
     } else if (currentIndex === 0) {
       // First segment
+      console.log(`[generateSingleSegment] First segment, chainSelectedFile=${chainSelectedFile ? 'exists' : 'null'}`);
       if (chainSelectedFile) {
         // Use I2V with uploaded image
         endpoint = BASE + '/api/v1/generate/i2v';
@@ -2539,9 +2548,12 @@ async function generateSingleSegment(segId) {
       }
     } else {
       // Second segment and beyond (non-Story Mode) - MUST use previous segment's last frame
+      console.log(`[generateSingleSegment] Non-Story Mode segment 2+`);
       const prevSegment = allSegments[currentIndex - 1];
       const prevSegId = prevSegment.dataset.segmentId;
       const prevLastFrameUrl = window[`seg_${prevSegId}_last_frame_url`];
+
+      console.log(`[generateSingleSegment] prevSegId=${prevSegId}, prevLastFrameUrl=${prevLastFrameUrl}`);
 
       if (!prevLastFrameUrl) {
         statusBox.innerHTML = `<div style="color:#f87171;font-size:13px">错误：上一段（分段 ${prevSegId}）尚未生成或最后一帧未提取，请先生成上一段</div>`;
