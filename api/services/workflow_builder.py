@@ -372,11 +372,8 @@ def build_workflow(
     # Normalize loras: accept both LoraInput objects and dicts
     if loras:
         loras = [l if isinstance(l, LoraInput) else LoraInput(**l) for l in loras]
-    # Use enhanced template when I2V features are enabled
-    if mode == GenerateMode.I2V and model == ModelType.A14B and (motion_amplitude > 0 or color_match):
-        template_name = "i2v_a14b_enhanced.json"
-    else:
-        template_name = WORKFLOW_MAP[(mode, model)]
+    # Always use standard workflow (enhanced workflow causes scene jumping issues)
+    template_name = WORKFLOW_MAP[(mode, model)]
     workflow = _load_template(template_name)
 
     if seed is None:
