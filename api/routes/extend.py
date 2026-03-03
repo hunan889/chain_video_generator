@@ -125,6 +125,7 @@ async def extend_video(req: ExtendRequest, _=Depends(verify_api_key)):
 @router.post("/generate/chain", response_model=ChainResponse)
 async def generate_chain(
     image: UploadFile = File(None),
+    initial_reference_image: UploadFile = File(None),
     params: str = Form(...),
     _=Depends(verify_api_key),
 ):
@@ -147,6 +148,17 @@ async def generate_chain(
             if client and await client.is_alive():
                 upload_result = await client.upload_image(image_data, local_name)
                 image_filename = upload_result.get("name", local_name)
+
+    # Handle optional initial reference image (for Story Mode identity consistency)
+    initial_ref_filename = ""
+    if initial_reference_image:
+        initial_ref_data = await initial_reference_image.read()
+        if initial_ref_data:
+            local_name, _ = await storage.save_upload(initial_ref_data, initial_reference_image.filename or "initial_ref.png")
+            client = task_manager.clients.get(req.model.value)
+            if client and await client.is_alive():
+                upload_result = await client.upload_image(initial_ref_data, local_name)
+                initial_ref_filename = upload_result.get("name", local_name)
 
     # New format: use segments array if provided
     if req.segments:
@@ -192,6 +204,9 @@ async def generate_chain(
             }
             if i == 0 and image_filename:
                 seg["image_filename"] = image_filename
+            # Add initial reference image for Story Mode (all segments)
+            if initial_ref_filename:
+                seg["initial_ref_filename"] = initial_ref_filename
             segments.append(seg)
 
         chain_id = await task_manager.create_chain(num_segments, {

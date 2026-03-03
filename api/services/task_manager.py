@@ -585,7 +585,8 @@ class TaskManager:
         segment_prompts = chain_params.get("segment_prompts", [])
 
         # Story mode: track the initial reference image filename (identity anchor)
-        initial_ref_filename = ""
+        # Check if segments already have initial_ref_filename set (from single segment generation)
+        initial_ref_filename = segments[0].get("initial_ref_filename", "") if segments else ""
 
         try:
             await self.redis.hset(f"chain:{chain_id}", "status", "running")

@@ -2411,6 +2411,9 @@ async function generateSingleSegment(segId) {
   statusBox.innerHTML = '<div style="color:#aaa;font-size:13px">提交中...</div>';
 
   try {
+    // Check if Story Mode is enabled
+    const isStoryMode = document.getElementById('chain-story-mode').checked;
+
     // Check if this is the first segment and has an uploaded image
     const allSegments = Array.from(document.querySelectorAll('.segment-card'));
     const currentIndex = allSegments.findIndex(s => s.dataset.segmentId === String(segId));
@@ -2419,7 +2422,85 @@ async function generateSingleSegment(segId) {
     let requestBody;
     let headers = {'X-API-Key': getKey()};
 
-    if (currentIndex === 0) {
+    // Story Mode: use Chain API for segments 2+
+    if (isStoryMode && currentIndex > 0) {
+      const prevSegment = allSegments[currentIndex - 1];
+      const prevSegId = prevSegment.dataset.segmentId;
+      const prevLastFrameUrl = window[`seg_${prevSegId}_last_frame_url`];
+
+      if (!prevLastFrameUrl) {
+        statusBox.innerHTML = `<div style="color:#f87171;font-size:13px">错误：上一段（分段 ${prevSegId}）尚未生成或最后一帧未提取，请先生成上一段</div>`;
+        return;
+      }
+
+      // Get initial reference image (from localStorage or first segment)
+      let initialRefImage = null;
+      const cachedInitialRef = localStorage.getItem('chain_initial_ref_image');
+
+      if (cachedInitialRef) {
+        try {
+          const blob = await fetch(cachedInitialRef).then(r => r.blob());
+          initialRefImage = blob;
+        } catch(e) {
+          console.warn('Failed to fetch cached initial ref:', e);
+        }
+      }
+
+      if (!initialRefImage && chainSelectedFile) {
+        initialRefImage = chainSelectedFile;
+      }
+
+      if (!initialRefImage) {
+        statusBox.innerHTML = `<div style="color:#f87171;font-size:13px">错误：Story 模式需要首帧图片作为身份参考，请上传首帧图片</div>`;
+        return;
+      }
+
+      // Use Chain API with Story Mode parameters
+      endpoint = BASE + '/api/v1/generate/chain';
+
+      const chainParams = {
+        segments: [{
+          prompt: prompt,
+          duration: duration
+        }],
+        model: params.model,
+        model_preset: params.model_preset,
+        t5_preset: params.t5_preset,
+        width: params.width,
+        height: params.height,
+        fps: params.fps,
+        steps: params.steps,
+        cfg: params.cfg,
+        shift: params.shift,
+        seed: params.seed,
+        scheduler: params.scheduler,
+        loras: params.loras,
+        upscale: params.upscale,
+        story_mode: true,
+        motion_frames: parseInt(document.getElementById('chain-story-motion-frames').value),
+        boundary: parseFloat(document.getElementById('chain-story-boundary').value),
+        clip_preset: document.getElementById('chain-story-clip').value,
+        auto_continue: false,
+        transition: 'none'
+      };
+
+      const fd = new FormData();
+
+      // Add previous segment's last frame
+      try {
+        const imgBlob = await fetch(prevLastFrameUrl).then(r => r.blob());
+        fd.append('image', imgBlob, 'last_frame.png');
+      } catch(e) {
+        statusBox.innerHTML = `<div style="color:#f87171;font-size:13px">获取上一段最后一帧失败: ${e.message}</div>`;
+        return;
+      }
+
+      // Add initial reference image for identity consistency
+      fd.append('initial_reference_image', initialRefImage, 'initial_ref.png');
+      fd.append('params', JSON.stringify(chainParams));
+      requestBody = fd;
+
+    } else if (currentIndex === 0) {
       // First segment
       if (chainSelectedFile) {
         // Use I2V with uploaded image
@@ -2430,17 +2511,34 @@ async function generateSingleSegment(segId) {
         params.color_match_method = document.getElementById('chain-colormatch-method').value;
         params.resize_mode = document.getElementById('chain-resize').value;
 
+        // Add Story Mode parameters if enabled
+        if (isStoryMode) {
+          params.story_mode = true;
+          params.motion_frames = parseInt(document.getElementById('chain-story-motion-frames').value);
+          params.boundary = parseFloat(document.getElementById('chain-story-boundary').value);
+          params.clip_preset = document.getElementById('chain-story-clip').value;
+        }
+
         const fd = new FormData();
         fd.append('image', chainSelectedFile);
         fd.append('params', JSON.stringify(params));
         requestBody = fd;
+
+        // Cache initial reference image for Story Mode
+        if (isStoryMode) {
+          const reader = new FileReader();
+          reader.onload = (e) => {
+            localStorage.setItem('chain_initial_ref_image', e.target.result);
+          };
+          reader.readAsDataURL(chainSelectedFile);
+        }
       } else {
         // T2V without image
         headers['Content-Type'] = 'application/json';
         requestBody = JSON.stringify(params);
       }
     } else {
-      // Second segment and beyond - MUST use previous segment's last frame
+      // Second segment and beyond (non-Story Mode) - MUST use previous segment's last frame
       const prevSegment = allSegments[currentIndex - 1];
       const prevSegId = prevSegment.dataset.segmentId;
       const prevLastFrameUrl = window[`seg_${prevSegId}_last_frame_url`];
@@ -2484,14 +2582,25 @@ async function generateSingleSegment(segId) {
       return;
     }
 
-    statusBox.innerHTML = `<div style="color:#4ade80;font-size:13px">已提交任务: ${data.task_id.substring(0, 8)}</div>`;
+    // Check if this is a Chain API response (has chain_id) or standard task response (has task_id)
+    const isChainResponse = !!data.chain_id;
+    const displayId = isChainResponse ? data.chain_id.substring(0, 8) : data.task_id.substring(0, 8);
 
-    // Store task ID for this segment
-    window[`seg_${segId}_task_id`] = data.task_id;
-    saveSegmentsToStorage();
+    statusBox.innerHTML = `<div style="color:#4ade80;font-size:13px">已提交任务: ${displayId}</div>`;
 
-    // Poll task status
-    pollSegmentTask(segId, data.task_id);
+    if (isChainResponse) {
+      // Store chain ID for this segment
+      window[`seg_${segId}_chain_id`] = data.chain_id;
+      saveSegmentsToStorage();
+      // Poll chain status
+      pollSegmentChain(segId, data.chain_id);
+    } else {
+      // Store task ID for this segment
+      window[`seg_${segId}_task_id`] = data.task_id;
+      saveSegmentsToStorage();
+      // Poll task status
+      pollSegmentTask(segId, data.task_id);
+    }
   } catch(e) {
     statusBox.innerHTML = `<div style="color:#f87171;font-size:13px">请求失败: ${e.message}</div>`;
   }
@@ -2547,6 +2656,82 @@ async function pollSegmentTask(segId, taskId) {
       statusBox.innerHTML = html;
 
       if (task.status === 'completed' || task.status === 'failed') return;
+    } catch(e) {}
+
+    setTimeout(poll, 2000);
+  };
+
+  poll();
+}
+
+// Poll single segment chain status (for Story Mode segments 2+)
+async function pollSegmentChain(segId, chainId) {
+  const statusBox = document.getElementById(`seg-${segId}-status`);
+
+  const poll = async () => {
+    try {
+      const r = await fetch(BASE + `/api/v1/chains/${chainId}`, {
+        headers: {'X-API-Key': getKey()}
+      });
+      if (!r.ok) return;
+
+      const chain = await r.json();
+      const statusCls = {queued:'queued',running:'running',completed:'completed',failed:'failed',partial:'failed'}[chain.status] || '';
+      const statusText = {queued:'排队中',running:'生成中',completed:'完成',failed:'失败',partial:'部分完成'}[chain.status] || chain.status;
+
+      let html = `<div style="font-size:13px">
+        <span class="status ${statusCls}">${statusText}</span>
+        <span style="color:#888;margin-left:8px">${chainId.substring(0, 8)}</span>
+      </div>`;
+
+      if (chain.status === 'running') {
+        const completed = chain.completed_segments || 0;
+        const total = chain.total_segments || 1;
+        const progress = Math.round((completed / total) * 100);
+        html += `<div class="progress-bar" style="margin-top:6px"><div class="progress-fill" style="width:${progress}%"></div></div>`;
+        html += `<div style="font-size:12px;color:#666;margin-top:4px">${completed}/${total} 段</div>`;
+      }
+
+      if (chain.error) {
+        html += `<div style="color:#f87171;font-size:12px;margin-top:4px">${chain.error}</div>`;
+      }
+
+      if (chain.final_video_url) {
+        html += `<div class="video-result" style="margin-top:8px">
+          <div id="video-placeholder-poll-seg-${segId}" style="background:#0a0a23;border:1px solid #444;border-radius:6px;padding:16px;text-align:center;cursor:pointer" onclick="loadVideo('poll-seg-${segId}', '${chain.final_video_url}')">
+            <div style="color:#7c83ff;font-size:14px;margin-bottom:6px">🎬 点击加载视频</div>
+            <div style="font-size:11px;color:#888">避免自动加载</div>
+          </div>
+          <div style="margin-top:4px"><a href="${chain.final_video_url}" download style="color:#7c83ff;font-size:12px">下载视频</a></div>
+        </div>`;
+
+        // Store video URL for this segment
+        window[`seg_${segId}_video_url`] = chain.final_video_url;
+
+        // Get last frame URL from the segment task
+        if (chain.segment_task_ids && chain.segment_task_ids.length > 0) {
+          const taskId = chain.segment_task_ids[0];
+          try {
+            const taskR = await fetch(BASE + `/api/v1/tasks/${taskId}`, {
+              headers: {'X-API-Key': getKey()}
+            });
+            if (taskR.ok) {
+              const task = await taskR.json();
+              if (task.last_frame_url) {
+                window[`seg_${segId}_last_frame_url`] = toLocalUrl(task.last_frame_url);
+              }
+            }
+          } catch(e) {
+            console.warn('Failed to fetch task for last frame:', e);
+          }
+        }
+
+        saveSegmentsToStorage();
+      }
+
+      statusBox.innerHTML = html;
+
+      if (chain.status === 'completed' || chain.status === 'failed' || chain.status === 'partial') return;
     } catch(e) {}
 
     setTimeout(poll, 2000);
