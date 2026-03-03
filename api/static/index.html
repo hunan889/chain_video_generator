@@ -2637,12 +2637,22 @@ async function pollSegmentTask(segId, taskId) {
       }
 
       if (task.video_url) {
+        // Calculate duration if we have timestamps
+        let durationText = '';
+        if (task.created_at && task.completed_at) {
+          const duration = task.completed_at - task.created_at;
+          const minutes = Math.floor(duration / 60);
+          const seconds = duration % 60;
+          durationText = `<div style="font-size:12px;color:#888;margin-top:4px">⏱️ 生成时长: ${minutes}分${seconds}秒</div>`;
+        }
+
         html += `<div class="video-result" style="margin-top:8px">
           <div id="video-placeholder-poll-seg-${segId}" style="background:#0a0a23;border:1px solid #444;border-radius:6px;padding:16px;text-align:center;cursor:pointer" onclick="loadVideo('poll-seg-${segId}', '${task.video_url}')">
             <div style="color:#7c83ff;font-size:14px;margin-bottom:6px">🎬 点击加载视频</div>
             <div style="font-size:11px;color:#888">避免自动加载</div>
           </div>
           <div style="margin-top:4px"><a href="${task.video_url}" download style="color:#7c83ff;font-size:12px">下载视频</a></div>
+          ${durationText}
         </div>`;
 
         // Store video URL and last frame URL for this segment
@@ -2697,12 +2707,22 @@ async function pollSegmentChain(segId, chainId) {
       }
 
       if (chain.final_video_url) {
+        // Calculate duration if we have timestamps
+        let durationText = '';
+        if (chain.created_at && chain.completed_at) {
+          const duration = parseInt(chain.completed_at) - parseInt(chain.created_at);
+          const minutes = Math.floor(duration / 60);
+          const seconds = duration % 60;
+          durationText = `<div style="font-size:12px;color:#888;margin-top:4px">⏱️ 生成时长: ${minutes}分${seconds}秒</div>`;
+        }
+
         html += `<div class="video-result" style="margin-top:8px">
           <div id="video-placeholder-poll-seg-${segId}" style="background:#0a0a23;border:1px solid #444;border-radius:6px;padding:16px;text-align:center;cursor:pointer" onclick="loadVideo('poll-seg-${segId}', '${chain.final_video_url}')">
             <div style="color:#7c83ff;font-size:14px;margin-bottom:6px">🎬 点击加载视频</div>
             <div style="font-size:11px;color:#888">避免自动加载</div>
           </div>
           <div style="margin-top:4px"><a href="${chain.final_video_url}" download style="color:#7c83ff;font-size:12px">下载视频</a></div>
+          ${durationText}
         </div>`;
 
         // Store video URL for this segment
