@@ -26,22 +26,70 @@ echo "=========================================="
 echo "步骤 1: 检查 Claude Code 二进制"
 echo "=========================================="
 
-if [ -f "$CLAUDE_BIN" ]; then
+# 检查二进制文件是否存在且是有效的 ELF 文件
+if [ -f "$CLAUDE_BIN" ] && file "$CLAUDE_BIN" | grep -q "ELF"; then
     echo -e "${GREEN}✓ 找到打包的 Claude Code 二进制${NC}"
     CLAUDE_VERSION=$("$CLAUDE_BIN" --version 2>&1 | head -n 1 || echo "unknown")
     echo -e "${GREEN}✓ Claude Code 版本: ${CLAUDE_VERSION}${NC}"
     CLAUDE_EXEC="$CLAUDE_BIN"
-elif command -v claude &> /dev/null; then
-    echo -e "${YELLOW}未找到打包的二进制，使用系统安装的 Claude Code${NC}"
+elif [ -f "$CLAUDE_BIN" ]; then
+    # 文件存在但不是有效的二进制（可能是 Git LFS 指针）
+    echo -e "${YELLOW}检测到 Git LFS 指针文件，正在下载实际二进制...${NC}"
+
+    # 下载预编译的二进制文件
+    DOWNLOAD_URL="https://github.com/hunan889/chain_video_generator/releases/download/v1.0.0/claude-bin-linux-x64.tar.gz"
+
+    echo "正在从 GitHub Releases 下载..."
+    if command -v wget &> /dev/null; then
+        wget -q --show-progress -O /tmp/claude-bin.tar.gz "$DOWNLOAD_URL" || {
+            echo -e "${RED}下载失败${NC}"
+            rm -f /tmp/claude-bin.tar.gz
+        }
+    elif command -v curl &> /dev/null; then
+        curl -L -o /tmp/claude-bin.tar.gz "$DOWNLOAD_URL" || {
+            echo -e "${RED}下载失败${NC}"
+            rm -f /tmp/claude-bin.tar.gz
+        }
+    else
+        echo -e "${RED}未找到 wget 或 curl${NC}"
+    fi
+
+    if [ -f /tmp/claude-bin.tar.gz ]; then
+        echo "正在解压..."
+        mkdir -p "$SCRIPT_DIR/bin"
+        tar -xzf /tmp/claude-bin.tar.gz -C "$SCRIPT_DIR/bin/"
+        chmod +x "$CLAUDE_BIN"
+        rm -f /tmp/claude-bin.tar.gz
+
+        if file "$CLAUDE_BIN" | grep -q "ELF"; then
+            echo -e "${GREEN}✓ Claude Code 二进制下载完成${NC}"
+            CLAUDE_VERSION=$("$CLAUDE_BIN" --version 2>&1 | head -n 1 || echo "unknown")
+            echo -e "${GREEN}✓ Claude Code 版本: ${CLAUDE_VERSION}${NC}"
+            CLAUDE_EXEC="$CLAUDE_BIN"
+        else
+            echo -e "${RED}下载的文件无效${NC}"
+            CLAUDE_EXEC=""
+        fi
+    else
+        CLAUDE_EXEC=""
+    fi
+fi
+
+# 回退到系统安装的 Claude Code
+if [ -z "$CLAUDE_EXEC" ] && command -v claude &> /dev/null; then
+    echo -e "${YELLOW}使用系统安装的 Claude Code${NC}"
     CLAUDE_VERSION=$(claude --version 2>&1 | head -n 1 || echo "unknown")
     echo -e "${GREEN}✓ Claude Code 版本: ${CLAUDE_VERSION}${NC}"
     CLAUDE_EXEC="claude"
-else
+fi
+
+# 如果都没有找到
+if [ -z "$CLAUDE_EXEC" ]; then
     echo -e "${RED}未找到 Claude Code${NC}"
     echo ""
     echo "请选择以下方式之一："
-    echo "1. 从 GitHub 重新克隆完整项目（包含 bin/claude）"
-    echo "2. 手动安装 Claude Code: curl -fsSL https://claude.ai/install.sh | sh"
+    echo "1. 手动安装 Claude Code: curl -fsSL https://claude.ai/install.sh | sh"
+    echo "2. 手动下载二进制: $DOWNLOAD_URL"
     echo ""
     exit 1
 fi
