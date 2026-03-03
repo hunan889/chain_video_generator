@@ -70,7 +70,7 @@ async def test_story_mode(image_filename: str):
             "height": 480,
             "num_frames": 49,
             "fps": 16,
-            "steps": 10,
+            "steps": 15,  # 使用 15 steps 进行公平对比
             "cfg": 1.0,
             "shift": 8.0,
             "motion_amplitude": 1.15,
@@ -85,7 +85,7 @@ async def test_story_mode(image_filename: str):
             "height": 480,
             "num_frames": 49,
             "fps": 16,
-            "steps": 10,
+            "steps": 15,  # 使用 15 steps 进行公平对比
             "cfg": 1.0,
             "shift": 8.0,
             "motion_amplitude": 1.15,
@@ -163,7 +163,7 @@ async def test_standard_i2v(image_filename: str):
             height=480,
             num_frames=49,
             fps=16,
-            steps=10,
+            steps=15,  # 使用 15 steps 进行公平对比
             cfg=1.0,
             shift=8.0,
             image_filename=image_filename,
@@ -205,10 +205,44 @@ async def test_standard_i2v(image_filename: str):
 
             await asyncio.sleep(3)
 
+    # 合并视频
+    print(f"\n合并视频...")
+    from api.services.ffmpeg_utils import concat_videos
+    from api.services import storage
+    from api.config import VIDEO_BASE_URL, COS_ENABLED
+
+    # 获取视频文件路径
+    video_paths = []
+    for result in results:
+        video_url = result["video_url"]
+        # 从 URL 提取文件名 (格式: /api/v1/results/xxx.mp4)
+        filename = video_url.split("/")[-1]
+        video_path = Path("/home/gime/soft/wan22-service/storage/videos") / filename
+        if video_path.exists():
+            video_paths.append(video_path)
+        else:
+            print(f"⚠ 视频文件不存在: {video_path}")
+
+    merged_video_url = None
+    if len(video_paths) == 2:
+        try:
+            # 合并视频
+            final_path = await concat_videos(video_paths, fps=16, transition="none")
+
+            # 保存合并后的视频
+            final_data = final_path.read_bytes()
+            ext = final_path.suffix
+            result_filename = await storage.save_video(final_data, ext)
+            merged_video_url = result_filename if COS_ENABLED else f"{VIDEO_BASE_URL}/{result_filename}"
+
+            print(f"✓ 视频合并完成: {merged_video_url}")
+        except Exception as e:
+            print(f"✗ 视频合并失败: {e}")
+
     total_elapsed = time.time() - start_time
     print(f"\n✓ 全部完成！总耗时: {total_elapsed/60:.2f} 分钟 ({total_elapsed:.1f} 秒)")
 
-    return results, total_elapsed, [r["video_url"] for r in results]
+    return results, total_elapsed, merged_video_url or [r["video_url"] for r in results]
 
 
 async def main():
@@ -219,7 +253,7 @@ async def main():
     print("\n测试配置:")
     print("  分辨率: 832x480")
     print("  FPS: 16")
-    print("  Steps: 10")
+    print("  Steps: 15")
     print("  段数: 2段（每段 49帧 ≈ 3秒）")
     print("  模型: A14B")
 
@@ -266,7 +300,7 @@ async def main():
         report_lines.append("视频生成性能对比测试结果")
         report_lines.append("="*70)
         report_lines.append(f"\n测试时间: {time.strftime('%Y-%m-%d %H:%M:%S')}")
-        report_lines.append(f"测试配置: 832x480, 16fps, 10 steps, 2段")
+        report_lines.append(f"测试配置: 832x480, 16fps, 15 steps, 2段")
         report_lines.append("")
 
         if isinstance(story_time, (int, float)) and isinstance(i2v_time, (int, float)):
@@ -277,10 +311,13 @@ async def main():
             report_lines.append(f"   视频: {story_video}")
             report_lines.append("")
 
-            report_lines.append(f"2. 标准 I2V（独立生成）:")
+            report_lines.append(f"2. 标准 I2V（独立生成 + 合并）:")
             report_lines.append(f"   耗时: {i2v_time/60:.2f} 分钟 ({i2v_time:.1f} 秒)")
-            for i, url in enumerate(i2v_videos, 1):
-                report_lines.append(f"   视频 {i}: {url}")
+            if isinstance(i2v_videos, str):
+                report_lines.append(f"   合并视频: {i2v_videos}")
+            else:
+                for i, url in enumerate(i2v_videos, 1):
+                    report_lines.append(f"   视频 {i}: {url}")
             report_lines.append("")
 
             report_lines.append(f"性能对比:")
@@ -307,8 +344,11 @@ async def main():
 
         print("\n视频文件位置:")
         print(f"  Story 模式: {story_video}")
-        for i, url in enumerate(i2v_videos, 1):
-            print(f"  标准 I2V 第{i}段: {url}")
+        if isinstance(i2v_videos, str):
+            print(f"  标准 I2V（合并）: {i2v_videos}")
+        else:
+            for i, url in enumerate(i2v_videos, 1):
+                print(f"  标准 I2V 第{i}段: {url}")
 
     finally:
         await task_manager.stop()

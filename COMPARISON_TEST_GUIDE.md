@@ -43,6 +43,7 @@ python3 run_comparison_test.py
 ### 测试 2: 标准 I2V（独立）
 - 生成 2 段独立视频
 - 每段重新加载模型
+- 最后合并成完整视频
 - 无连续性保证
 
 ## 测试配置
@@ -50,7 +51,7 @@ python3 run_comparison_test.py
 ```
 分辨率: 832x480
 FPS: 16
-Steps: 10
+Steps: 15
 段数: 2段（每段 49帧 ≈ 3秒）
 模型: A14B
 ```
@@ -61,7 +62,7 @@ Steps: 10
 
 1. **视频文件**
    - Story 模式: `storage/videos/[hash].mp4`（合并后的完整视频）
-   - 标准 I2V: `storage/videos/[hash1].mp4` 和 `storage/videos/[hash2].mp4`（两段独立视频）
+   - 标准 I2V: `storage/videos/[hash].mp4`（合并后的完整视频）
 
 2. **性能数据** (`comparison_results.json`)
    ```json
@@ -85,10 +86,9 @@ Steps: 10
       耗时: 3.31 分钟 (198.5 秒)
       视频: /api/v1/results/xxx.mp4
 
-   2. 标准 I2V（独立生成）:
+   2. 标准 I2V（独立生成 + 合并）:
       耗时: 6.20 分钟 (372.1 秒)
-      视频 1: /api/v1/results/yyy.mp4
-      视频 2: /api/v1/results/zzz.mp4
+      合并视频: /api/v1/results/xxx.mp4
 
    性能对比:
      Story 模式快 1.87x
@@ -118,16 +118,15 @@ vlc storage/videos/[filename].mp4
 curl http://localhost:8000/api/v1/results/[filename].mp4 -o story_mode.mp4
 
 # 查看标准 I2V 视频
-curl http://localhost:8000/api/v1/results/[filename1].mp4 -o i2v_segment1.mp4
-curl http://localhost:8000/api/v1/results/[filename2].mp4 -o i2v_segment2.mp4
+curl http://localhost:8000/api/v1/results/[filename].mp4 -o i2v_merged.mp4
 ```
 
 ## 预期结果
 
 基于之前的测试数据，预期结果：
 
-- **Story 模式**: 3-4 分钟
-- **标准 I2V**: 6-7 分钟
+- **Story 模式**: 4-5 分钟（15 steps）
+- **标准 I2V**: 8-10 分钟（15 steps）
 - **性能提升**: 1.8-2.0x
 
 ## 故障排除
@@ -170,23 +169,23 @@ nvidia-smi
 如果想修改测试参数，编辑 `run_comparison_test.py`：
 
 ```python
-# 修改分辨率
-"width": 768,   # 从 832 改为 768
-"height": 432,  # 从 480 改为 432
+# 修改步数
+"steps": 15,  # 从 10 改为 15（更高质量）
 
 # 修改帧数
 "num_frames": 33,  # 从 49 改为 33（约 2 秒）
 
 # 修改步数
-"steps": 8,  # 从 10 改为 8（更快但质量略降）
+"steps": 8,  # 从 15 改为 8（更快但质量略降）
 ```
 
 ## 注意事项
 
-1. **测试时间**: 完整测试需要 10-15 分钟
+1. **测试时间**: 完整测试需要 15-20 分钟
 2. **GPU 占用**: 测试期间 GPU 会满载运行
 3. **存储空间**: 确保有足够空间存储视频（每段约 1-2MB）
 4. **并发限制**: 测试期间避免运行其他生成任务
+5. **公平对比**: 两种模式都会生成合并后的完整视频
 
 ## 分析工具
 
