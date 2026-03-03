@@ -10,9 +10,10 @@
   },
   "20": {
     "inputs": {
-      "vae_name": "wan_2.1_vae.safetensors"
+      "vae_name": "wan_2.1_vae.safetensors",
+      "device": "cuda:0"
     },
-    "class_type": "VAELoader",
+    "class_type": "VAELoaderMultiGPU",
     "_meta": {
       "title": "Load VAE"
     }
@@ -20,9 +21,10 @@
   "30": {
     "inputs": {
       "unet_name": "wan22EnhancedNSFWSVICamera_nsfwV2FP8H.safetensors",
-      "weight_dtype": "fp8_e4m3fn_fast"
+      "weight_dtype": "fp8_e4m3fn_fast",
+      "device": "cuda:0"
     },
-    "class_type": "UNETLoader",
+    "class_type": "UNETLoaderMultiGPU",
     "_meta": {
       "title": "Load Diffusion Model HIGH"
     }
@@ -30,9 +32,10 @@
   "31": {
     "inputs": {
       "unet_name": "wan22EnhancedNSFWSVICamera_nsfwV2FP8L.safetensors",
-      "weight_dtype": "fp8_e4m3fn_fast"
+      "weight_dtype": "fp8_e4m3fn_fast",
+      "device": "cuda:3"
     },
-    "class_type": "UNETLoader",
+    "class_type": "UNETLoaderMultiGPU",
     "_meta": {
       "title": "Load Diffusion Model LOW"
     }
@@ -41,9 +44,9 @@
     "inputs": {
       "clip_name": "nsfw_wan_umt5-xxl_fp8_scaled.safetensors",
       "type": "wan",
-      "device": "default"
+      "device": "cuda:3"
     },
-    "class_type": "CLIPLoader",
+    "class_type": "CLIPLoaderMultiGPU",
     "_meta": {
       "title": "Load CLIP"
     }
