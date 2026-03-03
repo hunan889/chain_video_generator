@@ -162,6 +162,7 @@ class TaskManager:
                         "model": data.get("model", ""),
                         "progress": float(data.get("progress", 0)),
                         "video_url": data.get("video_url") or None,
+                        "last_frame_url": data.get("last_frame_url") or None,
                         "error": data.get("error") or None,
                         "params": params,
                         "created_at": created_at or None,
