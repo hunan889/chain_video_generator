@@ -1,0 +1,1429 @@
+{
+  "97": {
+    "inputs": {
+      "image": "20260227-105517.jpeg"
+    },
+    "class_type": "LoadImage",
+    "_meta": {
+      "title": "加载图像"
+    }
+  },
+  "174": {
+    "inputs": {
+      "PowerLoraLoaderHeaderWidget": {
+        "type": "PowerLoraLoaderHeaderWidget"
+      },
+      "➕ Add Lora": "",
+      "model": [
+        "1252:1279",
+        0
+      ]
+    },
+    "class_type": "Power Lora Loader (rgthree)",
+    "_meta": {
+      "title": "1LORA HIGH"
+    }
+  },
+  "175": {
+    "inputs": {
+      "PowerLoraLoaderHeaderWidget": {
+        "type": "PowerLoraLoaderHeaderWidget"
+      },
+      "➕ Add Lora": "",
+      "model": [
+        "1252:1280",
+        0
+      ]
+    },
+    "class_type": "Power Lora Loader (rgthree)",
+    "_meta": {
+      "title": "1LORA LOW"
+    }
+  },
+  "179": {
+    "inputs": {
+      "PowerLoraLoaderHeaderWidget": {
+        "type": "PowerLoraLoaderHeaderWidget"
+      },
+      "➕ Add Lora": "",
+      "model": [
+        "1252:1279",
+        0
+      ]
+    },
+    "class_type": "Power Lora Loader (rgthree)",
+    "_meta": {
+      "title": "2LORA HIGH"
+    }
+  },
+  "180": {
+    "inputs": {
+      "PowerLoraLoaderHeaderWidget": {
+        "type": "PowerLoraLoaderHeaderWidget"
+      },
+      "➕ Add Lora": "",
+      "model": [
+        "1252:1280",
+        0
+      ]
+    },
+    "class_type": "Power Lora Loader (rgthree)",
+    "_meta": {
+      "title": "3LORA LOW"
+    }
+  },
+  "181": {
+    "inputs": {
+      "PowerLoraLoaderHeaderWidget": {
+        "type": "PowerLoraLoaderHeaderWidget"
+      },
+      "➕ Add Lora": "",
+      "model": [
+        "1252:1280",
+        0
+      ]
+    },
+    "class_type": "Power Lora Loader (rgthree)",
+    "_meta": {
+      "title": "2LORA LOW"
+    }
+  },
+  "182": {
+    "inputs": {
+      "PowerLoraLoaderHeaderWidget": {
+        "type": "PowerLoraLoaderHeaderWidget"
+      },
+      "➕ Add Lora": "",
+      "model": [
+        "1252:1279",
+        0
+      ]
+    },
+    "class_type": "Power Lora Loader (rgthree)",
+    "_meta": {
+      "title": "3LORA HIGH"
+    }
+  },
+  "604": {
+    "inputs": {
+      "value": 1.15
+    },
+    "class_type": "FloatConstant",
+    "_meta": {
+      "title": "motion amplitude"
+    }
+  },
+  "605": {
+    "inputs": {
+      "value": 5
+    },
+    "class_type": "INTConstant",
+    "_meta": {
+      "title": "motion_frames"
+    }
+  },
+  "916": {
+    "inputs": {
+      "vae_name": "wan_2.1_vae.safetensors"
+    },
+    "class_type": "VAELoader",
+    "_meta": {
+      "title": "加载VAE"
+    }
+  },
+  "917": {
+    "inputs": {
+      "unet_name": "wan22EnhancedNSFWSVICamera_nsfwV2FP8H.safetensors",
+      "weight_dtype": "default"
+    },
+    "class_type": "UNETLoader",
+    "_meta": {
+      "title": "Load Diffusion Model HIGH"
+    }
+  },
+  "918": {
+    "inputs": {
+      "unet_name": "wan22EnhancedNSFWSVICamera_nsfwV2FP8L.safetensors",
+      "weight_dtype": "default"
+    },
+    "class_type": "UNETLoader",
+    "_meta": {
+      "title": "Load Diffusion Model LOW"
+    }
+  },
+  "1037": {
+    "inputs": {
+      "PowerLoraLoaderHeaderWidget": {
+        "type": "PowerLoraLoaderHeaderWidget"
+      },
+      "➕ Add Lora": "",
+      "model": [
+        "1252:1280",
+        0
+      ]
+    },
+    "class_type": "Power Lora Loader (rgthree)",
+    "_meta": {
+      "title": "4LORA LOW"
+    }
+  },
+  "1040": {
+    "inputs": {
+      "PowerLoraLoaderHeaderWidget": {
+        "type": "PowerLoraLoaderHeaderWidget"
+      },
+      "➕ Add Lora": "",
+      "model": [
+        "1252:1279",
+        0
+      ]
+    },
+    "class_type": "Power Lora Loader (rgthree)",
+    "_meta": {
+      "title": "4LORA HIGH"
+    }
+  },
+  "1282": {
+    "inputs": {
+      "Xi": 81,
+      "Xf": 81,
+      "isfloatX": 0
+    },
+    "class_type": "mxSlider",
+    "_meta": {
+      "title": "Lenght"
+    }
+  },
+  "1283": {
+    "inputs": {
+      "Xi": 5,
+      "Xf": 5,
+      "isfloatX": 0
+    },
+    "class_type": "mxSlider",
+    "_meta": {
+      "title": "Steps"
+    }
+  },
+  "1445": {
+    "inputs": {
+      "desired_width": 480,
+      "desired_height": 832,
+      "divisible_by": 16,
+      "upscale": false,
+      "upscale_method": "lanczos",
+      "small_image_mode": "none",
+      "pad_color": "#000000",
+      "image": [
+        "97",
+        0
+      ]
+    },
+    "class_type": "FindPerfectResolution",
+    "_meta": {
+      "title": "Find Perfect Resolution"
+    }
+  },
+  "1480": {
+    "inputs": {
+      "sampler_name": "euler"
+    },
+    "class_type": "SamplerSelector",
+    "_meta": {
+      "title": "Sampler Selector"
+    }
+  },
+  "1481": {
+    "inputs": {
+      "scheduler": "simple"
+    },
+    "class_type": "SchedulerSelector",
+    "_meta": {
+      "title": "Scheduler Selector"
+    }
+  },
+  "1521": {
+    "inputs": {
+      "clip_name": "nsfw_wan_umt5-xxl_fp8_scaled.safetensors",
+      "type": "wan",
+      "device": "default"
+    },
+    "class_type": "CLIPLoader",
+    "_meta": {
+      "title": "加载CLIP"
+    }
+  },
+  "1532": {
+    "inputs": {
+      "upscale_method": "nearest-exact",
+      "scale_by": 1,
+      "image": [
+        "1546",
+        0
+      ]
+    },
+    "class_type": "ImageScaleBy",
+    "_meta": {
+      "title": "缩放图像（比例）"
+    }
+  },
+  "1546": {
+    "inputs": {
+      "method": "mkl",
+      "strength": 0.4,
+      "multithread": true,
+      "image_ref": [
+        "97",
+        0
+      ],
+      "image_target": [
+        "1344:1253",
+        0
+      ]
+    },
+    "class_type": "ColorMatch",
+    "_meta": {
+      "title": "Color Match"
+    }
+  },
+  "1547": {
+    "inputs": {
+      "frame_rate": 16,
+      "loop_count": 0,
+      "filename_prefix": "wan22_04_23-31-16",
+      "format": "video/h264-mp4",
+      "pix_fmt": "yuv420p",
+      "crf": 19,
+      "save_metadata": false,
+      "trim_to_audio": false,
+      "pingpong": false,
+      "save_output": false,
+      "images": [
+        "1546",
+        0
+      ]
+    },
+    "class_type": "VHS_VideoCombine",
+    "_meta": {
+      "title": "Final Video"
+    }
+  },
+  "1551": {
+    "inputs": {
+      "value": 8
+    },
+    "class_type": "PrimitiveFloat",
+    "_meta": {
+      "title": "Sigma Shift"
+    }
+  },
+  "1592": {
+    "inputs": {
+      "text": "tensor([[[[0.1451, 0.1451, 0.1451],\n          [0.9294, 0.9294, 0.9294],\n          [0.9294, 0.9294, 0.9294],\n          ...,\n          [0.2353, 0.2353, 0.2353],\n          [0.0039, 0.0039, 0.0039],\n          [0.2824, 0.2824, 0.2824]],\n\n         [[0.1451, 0.1451, 0.1451],\n          [0.9255, 0.9255, 0.9255],\n          [0.9412, 0.9412, 0.9412],\n          ...,\n          [0.0000, 0.0000, 0.0000],\n          [0.0000, 0.0000, 0.0000],\n          [0.2784, 0.2784, 0.2784]],\n\n         [[0.1451, 0.1529, 0.1490],\n          [0.9333, 0.9412, 0.9373],\n          [0.9294, 0.9294, 0.9373],\n          ...,\n          [0.3333, 0.3412, 0.3294],\n          [0.0000, 0.0000, 0.0000],\n          [0.2824, 0.2824, 0.2824]],\n\n         ...,\n\n         [[0.7098, 0.7098, 0.7098],\n          [0.7020, 0.7020, 0.7020],\n          [0.7020, 0.7098, 0.7059],\n          ...,\n          [0.6980, 0.6980, 0.7059],\n          [0.7137, 0.7137, 0.7137],\n          [0.7059, 0.7059, 0.7059]],\n\n         [[0.7059, 0.7059, 0.7059],\n          [0.7098, 0.7098, 0.7098],\n          [0.7020, 0.7020, 0.7098],\n          ...,\n          [0.7098, 0.7098, 0.7098],\n          [0.7059, 0.7059, 0.7059],\n          [0.7098, 0.7098, 0.7098]],\n\n         [[0.7098, 0.7098, 0.7098],\n          [0.7059, 0.7059, 0.7059],\n          [0.7020, 0.7020, 0.7098],\n          ...,\n          [0.7020, 0.7020, 0.7020],\n          [0.7020, 0.7020, 0.7020],\n          [0.7176, 0.7176, 0.7176]]]])",
+      "anything": [
+        "97",
+        0
+      ]
+    },
+    "class_type": "easy showAnything",
+    "_meta": {
+      "title": "Prompt 1"
+    }
+  },
+  "1593": {
+    "inputs": {
+      "text": "tensor([[[[0.1451, 0.1451, 0.1451],\n          [0.9294, 0.9294, 0.9294],\n          [0.9294, 0.9294, 0.9294],\n          ...,\n          [0.2353, 0.2353, 0.2353],\n          [0.0039, 0.0039, 0.0039],\n          [0.2824, 0.2824, 0.2824]],\n\n         [[0.1451, 0.1451, 0.1451],\n          [0.9255, 0.9255, 0.9255],\n          [0.9412, 0.9412, 0.9412],\n          ...,\n          [0.0000, 0.0000, 0.0000],\n          [0.0000, 0.0000, 0.0000],\n          [0.2784, 0.2784, 0.2784]],\n\n         [[0.1451, 0.1529, 0.1490],\n          [0.9333, 0.9412, 0.9373],\n          [0.9294, 0.9294, 0.9373],\n          ...,\n          [0.3333, 0.3412, 0.3294],\n          [0.0000, 0.0000, 0.0000],\n          [0.2824, 0.2824, 0.2824]],\n\n         ...,\n\n         [[0.7098, 0.7098, 0.7098],\n          [0.7020, 0.7020, 0.7020],\n          [0.7020, 0.7098, 0.7059],\n          ...,\n          [0.6980, 0.6980, 0.7059],\n          [0.7137, 0.7137, 0.7137],\n          [0.7059, 0.7059, 0.7059]],\n\n         [[0.7059, 0.7059, 0.7059],\n          [0.7098, 0.7098, 0.7098],\n          [0.7020, 0.7020, 0.7098],\n          ...,\n          [0.7098, 0.7098, 0.7098],\n          [0.7059, 0.7059, 0.7059],\n          [0.7098, 0.7098, 0.7098]],\n\n         [[0.7098, 0.7098, 0.7098],\n          [0.7059, 0.7059, 0.7059],\n          [0.7020, 0.7020, 0.7098],\n          ...,\n          [0.7020, 0.7020, 0.7020],\n          [0.7020, 0.7020, 0.7020],\n          [0.7176, 0.7176, 0.7176]]]])",
+      "anything": [
+        "97",
+        0
+      ]
+    },
+    "class_type": "easy showAnything",
+    "_meta": {
+      "title": "Prompt 2"
+    }
+  },
+  "1594": {
+    "inputs": {
+      "text": "tensor([[[[0.1451, 0.1451, 0.1451],\n          [0.9294, 0.9294, 0.9294],\n          [0.9294, 0.9294, 0.9294],\n          ...,\n          [0.2353, 0.2353, 0.2353],\n          [0.0039, 0.0039, 0.0039],\n          [0.2824, 0.2824, 0.2824]],\n\n         [[0.1451, 0.1451, 0.1451],\n          [0.9255, 0.9255, 0.9255],\n          [0.9412, 0.9412, 0.9412],\n          ...,\n          [0.0000, 0.0000, 0.0000],\n          [0.0000, 0.0000, 0.0000],\n          [0.2784, 0.2784, 0.2784]],\n\n         [[0.1451, 0.1529, 0.1490],\n          [0.9333, 0.9412, 0.9373],\n          [0.9294, 0.9294, 0.9373],\n          ...,\n          [0.3333, 0.3412, 0.3294],\n          [0.0000, 0.0000, 0.0000],\n          [0.2824, 0.2824, 0.2824]],\n\n         ...,\n\n         [[0.7098, 0.7098, 0.7098],\n          [0.7020, 0.7020, 0.7020],\n          [0.7020, 0.7098, 0.7059],\n          ...,\n          [0.6980, 0.6980, 0.7059],\n          [0.7137, 0.7137, 0.7137],\n          [0.7059, 0.7059, 0.7059]],\n\n         [[0.7059, 0.7059, 0.7059],\n          [0.7098, 0.7098, 0.7098],\n          [0.7020, 0.7020, 0.7098],\n          ...,\n          [0.7098, 0.7098, 0.7098],\n          [0.7059, 0.7059, 0.7059],\n          [0.7098, 0.7098, 0.7098]],\n\n         [[0.7098, 0.7098, 0.7098],\n          [0.7059, 0.7059, 0.7059],\n          [0.7020, 0.7020, 0.7098],\n          ...,\n          [0.7020, 0.7020, 0.7020],\n          [0.7020, 0.7020, 0.7020],\n          [0.7176, 0.7176, 0.7176]]]])",
+      "anything": [
+        "97",
+        0
+      ]
+    },
+    "class_type": "easy showAnything",
+    "_meta": {
+      "title": "Prompt 3"
+    }
+  },
+  "1595": {
+    "inputs": {
+      "text": "tensor([[[[0.1451, 0.1451, 0.1451],\n          [0.9294, 0.9294, 0.9294],\n          [0.9294, 0.9294, 0.9294],\n          ...,\n          [0.2353, 0.2353, 0.2353],\n          [0.0039, 0.0039, 0.0039],\n          [0.2824, 0.2824, 0.2824]],\n\n         [[0.1451, 0.1451, 0.1451],\n          [0.9255, 0.9255, 0.9255],\n          [0.9412, 0.9412, 0.9412],\n          ...,\n          [0.0000, 0.0000, 0.0000],\n          [0.0000, 0.0000, 0.0000],\n          [0.2784, 0.2784, 0.2784]],\n\n         [[0.1451, 0.1529, 0.1490],\n          [0.9333, 0.9412, 0.9373],\n          [0.9294, 0.9294, 0.9373],\n          ...,\n          [0.3333, 0.3412, 0.3294],\n          [0.0000, 0.0000, 0.0000],\n          [0.2824, 0.2824, 0.2824]],\n\n         ...,\n\n         [[0.7098, 0.7098, 0.7098],\n          [0.7020, 0.7020, 0.7020],\n          [0.7020, 0.7098, 0.7059],\n          ...,\n          [0.6980, 0.6980, 0.7059],\n          [0.7137, 0.7137, 0.7137],\n          [0.7059, 0.7059, 0.7059]],\n\n         [[0.7059, 0.7059, 0.7059],\n          [0.7098, 0.7098, 0.7098],\n          [0.7020, 0.7020, 0.7098],\n          ...,\n          [0.7098, 0.7098, 0.7098],\n          [0.7059, 0.7059, 0.7059],\n          [0.7098, 0.7098, 0.7098]],\n\n         [[0.7098, 0.7098, 0.7098],\n          [0.7059, 0.7059, 0.7059],\n          [0.7020, 0.7020, 0.7098],\n          ...,\n          [0.7020, 0.7020, 0.7020],\n          [0.7020, 0.7020, 0.7020],\n          [0.7176, 0.7176, 0.7176]]]])",
+      "anything": [
+        "97",
+        0
+      ]
+    },
+    "class_type": "easy showAnything",
+    "_meta": {
+      "title": "Prompt 4"
+    }
+  },
+  "1609": {
+    "inputs": {
+      "frame_rate": 16,
+      "loop_count": 0,
+      "filename_prefix": "wan22_04_23-31-16",
+      "format": "video/h264-mp4",
+      "pix_fmt": "yuv420p",
+      "crf": 19,
+      "save_metadata": true,
+      "trim_to_audio": false,
+      "pingpong": false,
+      "save_output": true,
+      "images": [
+        "1532",
+        0
+      ]
+    },
+    "class_type": "VHS_VideoCombine",
+    "_meta": {
+      "title": "16FPS"
+    }
+  },
+  "1252:1249": {
+    "inputs": {
+      "samples": [
+        "1252:1604",
+        0
+      ],
+      "vae": [
+        "916",
+        0
+      ]
+    },
+    "class_type": "VAEDecode",
+    "_meta": {
+      "title": "VAE解码"
+    }
+  },
+  "1252:1245": {
+    "inputs": {
+      "text": "色调艳丽，过曝，静态，细节模糊不清，字幕，风格，作品，画作，画面，静止，整体发灰，最差质量，低质量，JPEG压缩残留，丑陋的，残缺的，多余的手指，画得不好的手部，画得不好的脸部，畸形的，毁容的，形态畸形的肢体，手指融合，静止不动的画面，杂乱的背景，三条腿，背景人很多，倒着走",
+      "clip": [
+        "1521",
+        0
+      ]
+    },
+    "class_type": "CLIPTextEncode",
+    "_meta": {
+      "title": "CLIP Text Encode (Negative Prompt)"
+    }
+  },
+  "1252:1278": {
+    "inputs": {
+      "sage_attention": "auto",
+      "allow_compile": false,
+      "model": [
+        "917",
+        0
+      ]
+    },
+    "class_type": "PathchSageAttentionKJ",
+    "_meta": {
+      "title": "Patch Sage Attention KJ"
+    }
+  },
+  "1252:1279": {
+    "inputs": {
+      "enable_fp16_accumulation": true,
+      "model": [
+        "1252:1278",
+        0
+      ]
+    },
+    "class_type": "ModelPatchTorchSettings",
+    "_meta": {
+      "title": "Model Patch Torch Settings"
+    }
+  },
+  "1252:1281": {
+    "inputs": {
+      "sage_attention": "auto",
+      "allow_compile": false,
+      "model": [
+        "918",
+        0
+      ]
+    },
+    "class_type": "PathchSageAttentionKJ",
+    "_meta": {
+      "title": "Patch Sage Attention KJ"
+    }
+  },
+  "1252:1280": {
+    "inputs": {
+      "enable_fp16_accumulation": true,
+      "model": [
+        "1252:1281",
+        0
+      ]
+    },
+    "class_type": "ModelPatchTorchSettings",
+    "_meta": {
+      "title": "Model Patch Torch Settings"
+    }
+  },
+  "1252:1250": {
+    "inputs": {
+      "seed": 241463181973626
+    },
+    "class_type": "Seed (rgthree)",
+    "_meta": {
+      "title": "1-Seed high"
+    }
+  },
+  "1252:1285": {
+    "inputs": {
+      "width": [
+        "1445",
+        0
+      ],
+      "height": [
+        "1445",
+        1
+      ],
+      "length": [
+        "1282",
+        0
+      ],
+      "batch_size": 1,
+      "motion_amplitude": [
+        "604",
+        0
+      ],
+      "positive": [
+        "1252:1258",
+        0
+      ],
+      "negative": [
+        "1252:1245",
+        0
+      ],
+      "vae": [
+        "916",
+        0
+      ],
+      "start_image": [
+        "97",
+        0
+      ]
+    },
+    "class_type": "PainterI2V",
+    "_meta": {
+      "title": "PainterI2V"
+    }
+  },
+  "1252:1258": {
+    "inputs": {
+      "text": [
+        "1252:1299",
+        0
+      ],
+      "clip": [
+        "1521",
+        0
+      ]
+    },
+    "class_type": "CLIPTextEncode",
+    "_meta": {
+      "title": "Positive encode"
+    }
+  },
+  "1252:1299": {
+    "inputs": {
+      "text": "tensor([[[[0.1451, 0.1451, 0.1451],\n          [0.9294, 0.9294, 0.9294],\n          [0.9294, 0.9294, 0.9294],\n          ...,\n          [0.2353, 0.2353, 0.2353],\n          [0.0039, 0.0039, 0.0039],\n          [0.2824, 0.2824, 0.2824]],\n\n         [[0.1451, 0.1451, 0.1451],\n          [0.9255, 0.9255, 0.9255],\n          [0.9412, 0.9412, 0.9412],\n          ...,\n          [0.0000, 0.0000, 0.0000],\n          [0.0000, 0.0000, 0.0000],\n          [0.2784, 0.2784, 0.2784]],\n\n         [[0.1451, 0.1529, 0.1490],\n          [0.9333, 0.9412, 0.9373],\n          [0.9294, 0.9294, 0.9373],\n          ...,\n          [0.3333, 0.3412, 0.3294],\n          [0.0000, 0.0000, 0.0000],\n          [0.2824, 0.2824, 0.2824]],\n\n         ...,\n\n         [[0.7098, 0.7098, 0.7098],\n          [0.7020, 0.7020, 0.7020],\n          [0.7020, 0.7098, 0.7059],\n          ...,\n          [0.6980, 0.6980, 0.7059],\n          [0.7137, 0.7137, 0.7137],\n          [0.7059, 0.7059, 0.7059]],\n\n         [[0.7059, 0.7059, 0.7059],\n          [0.7098, 0.7098, 0.7098],\n          [0.7020, 0.7020, 0.7098],\n          ...,\n          [0.7098, 0.7098, 0.7098],\n          [0.7059, 0.7059, 0.7059],\n          [0.7098, 0.7098, 0.7098]],\n\n         [[0.7098, 0.7098, 0.7098],\n          [0.7059, 0.7059, 0.7059],\n          [0.7020, 0.7020, 0.7098],\n          ...,\n          [0.7020, 0.7020, 0.7020],\n          [0.7020, 0.7020, 0.7020],\n          [0.7176, 0.7176, 0.7176]]]])",
+      "anything": [
+        "1252:1301",
+        0
+      ]
+    },
+    "class_type": "easy showAnything",
+    "_meta": {
+      "title": "Final prompt preview"
+    }
+  },
+  "1252:1300": {
+    "inputs": {
+      "value": ""
+    },
+    "class_type": "PrimitiveStringMultiline",
+    "_meta": {
+      "title": "LoRaS Triggers"
+    }
+  },
+  "1252:1301": {
+    "inputs": {
+      "delimiter": "",
+      "clean_whitespace": "false",
+      "text_a": [
+        "1252:1300",
+        0
+      ],
+      "text_b": [
+        "1592",
+        0
+      ]
+    },
+    "class_type": "Text Concatenate",
+    "_meta": {
+      "title": "Text Concatenate"
+    }
+  },
+  "1252:1284": {
+    "inputs": {
+      "boundary": 0.9,
+      "add_noise": "enable",
+      "noise_seed": [
+        "1252:1250",
+        0
+      ],
+      "steps": [
+        "1283",
+        0
+      ],
+      "cfg_high_noise": 1,
+      "cfg_low_noise": 1,
+      "sampler_name": [
+        "1480",
+        0
+      ],
+      "scheduler": [
+        "1481",
+        0
+      ],
+      "sigma_shift": [
+        "1551",
+        0
+      ],
+      "start_at_step": 0,
+      "end_at_step": 10000,
+      "return_with_leftover_noise": "disable",
+      "model_high_noise": [
+        "174",
+        0
+      ],
+      "model_low_noise": [
+        "175",
+        0
+      ],
+      "positive": [
+        "1252:1285",
+        0
+      ],
+      "negative": [
+        "1252:1285",
+        1
+      ],
+      "latent_image": [
+        "1252:1285",
+        2
+      ]
+    },
+    "class_type": "WanMoeKSamplerAdvanced",
+    "_meta": {
+      "title": "Wan MoE KSampler (Advanced)"
+    }
+  },
+  "1252:1604": {
+    "inputs": {
+      "offload_model": "Text Encoder",
+      "offload_cache": true,
+      "input": [
+        "1252:1284",
+        0
+      ]
+    },
+    "class_type": "VRAMCleanup",
+    "_meta": {
+      "title": "🎈VRAM-Cleanup"
+    }
+  },
+  "1262:1256": {
+    "inputs": {
+      "width": [
+        "1445",
+        0
+      ],
+      "height": [
+        "1445",
+        1
+      ],
+      "length": [
+        "1282",
+        0
+      ],
+      "batch_size": 1,
+      "motion_frames": [
+        "605",
+        0
+      ],
+      "motion_amplitude": [
+        "604",
+        0
+      ],
+      "positive": [
+        "1262:1268",
+        0
+      ],
+      "negative": [
+        "1262:1259",
+        0
+      ],
+      "vae": [
+        "916",
+        0
+      ],
+      "previous_video": [
+        "1262:1260",
+        0
+      ],
+      "initial_reference_image": [
+        "97",
+        0
+      ]
+    },
+    "class_type": "PainterLongVideo",
+    "_meta": {
+      "title": "2-PainterLongVideo"
+    }
+  },
+  "1262:1258": {
+    "inputs": {
+      "samples": [
+        "1262:1605",
+        0
+      ],
+      "vae": [
+        "916",
+        0
+      ]
+    },
+    "class_type": "VAEDecode",
+    "_meta": {
+      "title": "VAE解码"
+    }
+  },
+  "1262:1261": {
+    "inputs": {
+      "indexes": "-1",
+      "err_if_missing": true,
+      "err_if_empty": true,
+      "image": [
+        "1252:1249",
+        0
+      ]
+    },
+    "class_type": "VHS_SelectImages",
+    "_meta": {
+      "title": "Select Images 🎥🅥🅗🅢"
+    }
+  },
+  "1262:1253": {
+    "inputs": {
+      "inputcount": 2,
+      "Update inputs": null,
+      "image_1": [
+        "1252:1249",
+        0
+      ],
+      "image_2": [
+        "1262:1258",
+        0
+      ]
+    },
+    "class_type": "ImageBatchMulti",
+    "_meta": {
+      "title": "Image Batch Multi"
+    }
+  },
+  "1262:1259": {
+    "inputs": {
+      "text": "色调艳丽，过曝，静态，细节模糊不清，字幕，风格，作品，画作，画面，静止，整体发灰，最差质量，低质量，JPEG压缩残留，丑陋的，残缺的，多余的手指，画得不好的手部，画得不好的脸部，畸形的，毁容的，形态畸形的肢体，手指融合，静止不动的画面，杂乱的背景，三条腿，背景人很多，倒着走",
+      "clip": [
+        "1521",
+        0
+      ]
+    },
+    "class_type": "CLIPTextEncode",
+    "_meta": {
+      "title": "CLIP Text Encode (Negative Prompt)"
+    }
+  },
+  "1262:1260": {
+    "inputs": {
+      "upscale_method": "nearest-exact",
+      "scale_by": 2,
+      "image": [
+        "1262:1261",
+        0
+      ]
+    },
+    "class_type": "ImageScaleBy",
+    "_meta": {
+      "title": "缩放图像（比例）"
+    }
+  },
+  "1262:1268": {
+    "inputs": {
+      "text": [
+        "1262:1269",
+        0
+      ],
+      "clip": [
+        "1521",
+        0
+      ]
+    },
+    "class_type": "CLIPTextEncode",
+    "_meta": {
+      "title": "Positive encode"
+    }
+  },
+  "1262:1287": {
+    "inputs": {
+      "value": ""
+    },
+    "class_type": "PrimitiveStringMultiline",
+    "_meta": {
+      "title": "LoRaS Triggers"
+    }
+  },
+  "1262:1288": {
+    "inputs": {
+      "delimiter": "",
+      "clean_whitespace": "false",
+      "text_a": [
+        "1262:1287",
+        0
+      ],
+      "text_b": [
+        "1593",
+        0
+      ]
+    },
+    "class_type": "Text Concatenate",
+    "_meta": {
+      "title": "Text Concatenate"
+    }
+  },
+  "1262:1269": {
+    "inputs": {
+      "text": "tensor([[[[0.1451, 0.1451, 0.1451],\n          [0.9294, 0.9294, 0.9294],\n          [0.9294, 0.9294, 0.9294],\n          ...,\n          [0.2353, 0.2353, 0.2353],\n          [0.0039, 0.0039, 0.0039],\n          [0.2824, 0.2824, 0.2824]],\n\n         [[0.1451, 0.1451, 0.1451],\n          [0.9255, 0.9255, 0.9255],\n          [0.9412, 0.9412, 0.9412],\n          ...,\n          [0.0000, 0.0000, 0.0000],\n          [0.0000, 0.0000, 0.0000],\n          [0.2784, 0.2784, 0.2784]],\n\n         [[0.1451, 0.1529, 0.1490],\n          [0.9333, 0.9412, 0.9373],\n          [0.9294, 0.9294, 0.9373],\n          ...,\n          [0.3333, 0.3412, 0.3294],\n          [0.0000, 0.0000, 0.0000],\n          [0.2824, 0.2824, 0.2824]],\n\n         ...,\n\n         [[0.7098, 0.7098, 0.7098],\n          [0.7020, 0.7020, 0.7020],\n          [0.7020, 0.7098, 0.7059],\n          ...,\n          [0.6980, 0.6980, 0.7059],\n          [0.7137, 0.7137, 0.7137],\n          [0.7059, 0.7059, 0.7059]],\n\n         [[0.7059, 0.7059, 0.7059],\n          [0.7098, 0.7098, 0.7098],\n          [0.7020, 0.7020, 0.7098],\n          ...,\n          [0.7098, 0.7098, 0.7098],\n          [0.7059, 0.7059, 0.7059],\n          [0.7098, 0.7098, 0.7098]],\n\n         [[0.7098, 0.7098, 0.7098],\n          [0.7059, 0.7059, 0.7059],\n          [0.7020, 0.7020, 0.7098],\n          ...,\n          [0.7020, 0.7020, 0.7020],\n          [0.7020, 0.7020, 0.7020],\n          [0.7176, 0.7176, 0.7176]]]])",
+      "anything": [
+        "1262:1288",
+        0
+      ]
+    },
+    "class_type": "easy showAnything",
+    "_meta": {
+      "title": "Final prompt preview"
+    }
+  },
+  "1262:308": {
+    "inputs": {
+      "seed": 728473048418686
+    },
+    "class_type": "Seed (rgthree)",
+    "_meta": {
+      "title": "2-Seed high"
+    }
+  },
+  "1262:1282": {
+    "inputs": {
+      "boundary": 0.9,
+      "add_noise": "enable",
+      "noise_seed": [
+        "1262:308",
+        0
+      ],
+      "steps": [
+        "1283",
+        0
+      ],
+      "cfg_high_noise": 1,
+      "cfg_low_noise": 1,
+      "sampler_name": [
+        "1480",
+        0
+      ],
+      "scheduler": [
+        "1481",
+        0
+      ],
+      "sigma_shift": [
+        "1551",
+        0
+      ],
+      "start_at_step": 0,
+      "end_at_step": 10000,
+      "return_with_leftover_noise": "disable",
+      "model_high_noise": [
+        "179",
+        0
+      ],
+      "model_low_noise": [
+        "181",
+        0
+      ],
+      "positive": [
+        "1262:1256",
+        0
+      ],
+      "negative": [
+        "1262:1256",
+        1
+      ],
+      "latent_image": [
+        "1262:1256",
+        2
+      ]
+    },
+    "class_type": "WanMoeKSamplerAdvanced",
+    "_meta": {
+      "title": "Wan MoE KSampler (Advanced)"
+    }
+  },
+  "1262:1605": {
+    "inputs": {
+      "offload_model": "Text Encoder",
+      "offload_cache": true,
+      "input": [
+        "1262:1282",
+        0
+      ]
+    },
+    "class_type": "VRAMCleanup",
+    "_meta": {
+      "title": "🎈VRAM-Cleanup"
+    }
+  },
+  "1332:1259": {
+    "inputs": {
+      "text": "色调艳丽，过曝，静态，细节模糊不清，字幕，风格，作品，画作，画面，静止，整体发灰，最差质量，低质量，JPEG压缩残留，丑陋的，残缺的，多余的手指，画得不好的手部，画得不好的脸部，畸形的，毁容的，形态畸形的肢体，手指融合，静止不动的画面，杂乱的背景，三条腿，背景人很多，倒着走",
+      "clip": [
+        "1521",
+        0
+      ]
+    },
+    "class_type": "CLIPTextEncode",
+    "_meta": {
+      "title": "CLIP Text Encode (Negative Prompt)"
+    }
+  },
+  "1332:1253": {
+    "inputs": {
+      "inputcount": 2,
+      "Update inputs": null,
+      "image_1": [
+        "1262:1253",
+        0
+      ],
+      "image_2": [
+        "1332:1258",
+        0
+      ]
+    },
+    "class_type": "ImageBatchMulti",
+    "_meta": {
+      "title": "Image Batch Multi"
+    }
+  },
+  "1332:1260": {
+    "inputs": {
+      "upscale_method": "nearest-exact",
+      "scale_by": 2,
+      "image": [
+        "1332:1261",
+        0
+      ]
+    },
+    "class_type": "ImageScaleBy",
+    "_meta": {
+      "title": "缩放图像（比例）"
+    }
+  },
+  "1332:1261": {
+    "inputs": {
+      "indexes": "-1",
+      "err_if_missing": true,
+      "err_if_empty": true,
+      "image": [
+        "1262:1253",
+        0
+      ]
+    },
+    "class_type": "VHS_SelectImages",
+    "_meta": {
+      "title": "Select Images 🎥🅥🅗🅢"
+    }
+  },
+  "1332:1256": {
+    "inputs": {
+      "width": [
+        "1445",
+        0
+      ],
+      "height": [
+        "1445",
+        1
+      ],
+      "length": [
+        "1282",
+        0
+      ],
+      "batch_size": 1,
+      "motion_frames": [
+        "605",
+        0
+      ],
+      "motion_amplitude": [
+        "604",
+        0
+      ],
+      "positive": [
+        "1332:1268",
+        0
+      ],
+      "negative": [
+        "1332:1259",
+        0
+      ],
+      "vae": [
+        "916",
+        0
+      ],
+      "previous_video": [
+        "1332:1260",
+        0
+      ],
+      "initial_reference_image": [
+        "97",
+        0
+      ]
+    },
+    "class_type": "PainterLongVideo",
+    "_meta": {
+      "title": "2-PainterLongVideo"
+    }
+  },
+  "1332:1258": {
+    "inputs": {
+      "samples": [
+        "1332:1606",
+        0
+      ],
+      "vae": [
+        "916",
+        0
+      ]
+    },
+    "class_type": "VAEDecode",
+    "_meta": {
+      "title": "VAE解码"
+    }
+  },
+  "1332:1269": {
+    "inputs": {
+      "text": "tensor([[[[0.1451, 0.1451, 0.1451],\n          [0.9294, 0.9294, 0.9294],\n          [0.9294, 0.9294, 0.9294],\n          ...,\n          [0.2353, 0.2353, 0.2353],\n          [0.0039, 0.0039, 0.0039],\n          [0.2824, 0.2824, 0.2824]],\n\n         [[0.1451, 0.1451, 0.1451],\n          [0.9255, 0.9255, 0.9255],\n          [0.9412, 0.9412, 0.9412],\n          ...,\n          [0.0000, 0.0000, 0.0000],\n          [0.0000, 0.0000, 0.0000],\n          [0.2784, 0.2784, 0.2784]],\n\n         [[0.1451, 0.1529, 0.1490],\n          [0.9333, 0.9412, 0.9373],\n          [0.9294, 0.9294, 0.9373],\n          ...,\n          [0.3333, 0.3412, 0.3294],\n          [0.0000, 0.0000, 0.0000],\n          [0.2824, 0.2824, 0.2824]],\n\n         ...,\n\n         [[0.7098, 0.7098, 0.7098],\n          [0.7020, 0.7020, 0.7020],\n          [0.7020, 0.7098, 0.7059],\n          ...,\n          [0.6980, 0.6980, 0.7059],\n          [0.7137, 0.7137, 0.7137],\n          [0.7059, 0.7059, 0.7059]],\n\n         [[0.7059, 0.7059, 0.7059],\n          [0.7098, 0.7098, 0.7098],\n          [0.7020, 0.7020, 0.7098],\n          ...,\n          [0.7098, 0.7098, 0.7098],\n          [0.7059, 0.7059, 0.7059],\n          [0.7098, 0.7098, 0.7098]],\n\n         [[0.7098, 0.7098, 0.7098],\n          [0.7059, 0.7059, 0.7059],\n          [0.7020, 0.7020, 0.7098],\n          ...,\n          [0.7020, 0.7020, 0.7020],\n          [0.7020, 0.7020, 0.7020],\n          [0.7176, 0.7176, 0.7176]]]])",
+      "anything": [
+        "1332:1284",
+        0
+      ]
+    },
+    "class_type": "easy showAnything",
+    "_meta": {
+      "title": "Final prompt preview"
+    }
+  },
+  "1332:1283": {
+    "inputs": {
+      "value": ""
+    },
+    "class_type": "PrimitiveStringMultiline",
+    "_meta": {
+      "title": "LoRaS Triggers"
+    }
+  },
+  "1332:1268": {
+    "inputs": {
+      "text": [
+        "1332:1269",
+        0
+      ],
+      "clip": [
+        "1521",
+        0
+      ]
+    },
+    "class_type": "CLIPTextEncode",
+    "_meta": {
+      "title": "Positive encode"
+    }
+  },
+  "1332:1284": {
+    "inputs": {
+      "delimiter": "",
+      "clean_whitespace": "false",
+      "text_a": [
+        "1332:1283",
+        0
+      ],
+      "text_b": [
+        "1594",
+        0
+      ]
+    },
+    "class_type": "Text Concatenate",
+    "_meta": {
+      "title": "Text Concatenate"
+    }
+  },
+  "1332:308": {
+    "inputs": {
+      "seed": 581822612982378
+    },
+    "class_type": "Seed (rgthree)",
+    "_meta": {
+      "title": "2-Seed high"
+    }
+  },
+  "1332:1280": {
+    "inputs": {
+      "boundary": 0.9,
+      "add_noise": "enable",
+      "noise_seed": [
+        "1332:308",
+        0
+      ],
+      "steps": [
+        "1283",
+        0
+      ],
+      "cfg_high_noise": 1,
+      "cfg_low_noise": 1,
+      "sampler_name": [
+        "1480",
+        0
+      ],
+      "scheduler": [
+        "1481",
+        0
+      ],
+      "sigma_shift": [
+        "1551",
+        0
+      ],
+      "start_at_step": 0,
+      "end_at_step": 10000,
+      "return_with_leftover_noise": "disable",
+      "model_high_noise": [
+        "182",
+        0
+      ],
+      "model_low_noise": [
+        "180",
+        0
+      ],
+      "positive": [
+        "1332:1256",
+        0
+      ],
+      "negative": [
+        "1332:1256",
+        1
+      ],
+      "latent_image": [
+        "1332:1256",
+        2
+      ]
+    },
+    "class_type": "WanMoeKSamplerAdvanced",
+    "_meta": {
+      "title": "Wan MoE KSampler (Advanced)"
+    }
+  },
+  "1332:1606": {
+    "inputs": {
+      "offload_model": "Text Encoder",
+      "offload_cache": true,
+      "input": [
+        "1332:1280",
+        0
+      ]
+    },
+    "class_type": "VRAMCleanup",
+    "_meta": {
+      "title": "🎈VRAM-Cleanup"
+    }
+  },
+  "1344:1259": {
+    "inputs": {
+      "text": "色调艳丽，过曝，静态，细节模糊不清，字幕，风格，作品，画作，画面，静止，整体发灰，最差质量，低质量，JPEG压缩残留，丑陋的，残缺的，多余的手指，画得不好的手部，画得不好的脸部，畸形的，毁容的，形态畸形的肢体，手指融合，静止不动的画面，杂乱的背景，三条腿，背景人很多，倒着走",
+      "clip": [
+        "1521",
+        0
+      ]
+    },
+    "class_type": "CLIPTextEncode",
+    "_meta": {
+      "title": "CLIP Text Encode (Negative Prompt)"
+    }
+  },
+  "1344:1253": {
+    "inputs": {
+      "inputcount": 2,
+      "Update inputs": null,
+      "image_1": [
+        "1332:1253",
+        0
+      ],
+      "image_2": [
+        "1344:1258",
+        0
+      ]
+    },
+    "class_type": "ImageBatchMulti",
+    "_meta": {
+      "title": "Image Batch Multi"
+    }
+  },
+  "1344:1261": {
+    "inputs": {
+      "indexes": "-1",
+      "err_if_missing": true,
+      "err_if_empty": true,
+      "image": [
+        "1332:1253",
+        0
+      ]
+    },
+    "class_type": "VHS_SelectImages",
+    "_meta": {
+      "title": "Select Images 🎥🅥🅗🅢"
+    }
+  },
+  "1344:1256": {
+    "inputs": {
+      "width": [
+        "1445",
+        0
+      ],
+      "height": [
+        "1445",
+        1
+      ],
+      "length": [
+        "1282",
+        0
+      ],
+      "batch_size": 1,
+      "motion_frames": [
+        "605",
+        0
+      ],
+      "motion_amplitude": [
+        "604",
+        0
+      ],
+      "positive": [
+        "1344:1268",
+        0
+      ],
+      "negative": [
+        "1344:1259",
+        0
+      ],
+      "vae": [
+        "916",
+        0
+      ],
+      "previous_video": [
+        "1344:1260",
+        0
+      ],
+      "initial_reference_image": [
+        "97",
+        0
+      ]
+    },
+    "class_type": "PainterLongVideo",
+    "_meta": {
+      "title": "2-PainterLongVideo"
+    }
+  },
+  "1344:1258": {
+    "inputs": {
+      "samples": [
+        "1344:1607",
+        0
+      ],
+      "vae": [
+        "916",
+        0
+      ]
+    },
+    "class_type": "VAEDecode",
+    "_meta": {
+      "title": "VAE解码"
+    }
+  },
+  "1344:1260": {
+    "inputs": {
+      "upscale_method": "nearest-exact",
+      "scale_by": 2,
+      "image": [
+        "1344:1261",
+        0
+      ]
+    },
+    "class_type": "ImageScaleBy",
+    "_meta": {
+      "title": "缩放图像（比例）"
+    }
+  },
+  "1344:1268": {
+    "inputs": {
+      "text": [
+        "1344:1269",
+        0
+      ],
+      "clip": [
+        "1521",
+        0
+      ]
+    },
+    "class_type": "CLIPTextEncode",
+    "_meta": {
+      "title": "Positive encode"
+    }
+  },
+  "1344:1269": {
+    "inputs": {
+      "text": "tensor([[[[0.1451, 0.1451, 0.1451],\n          [0.9294, 0.9294, 0.9294],\n          [0.9294, 0.9294, 0.9294],\n          ...,\n          [0.2353, 0.2353, 0.2353],\n          [0.0039, 0.0039, 0.0039],\n          [0.2824, 0.2824, 0.2824]],\n\n         [[0.1451, 0.1451, 0.1451],\n          [0.9255, 0.9255, 0.9255],\n          [0.9412, 0.9412, 0.9412],\n          ...,\n          [0.0000, 0.0000, 0.0000],\n          [0.0000, 0.0000, 0.0000],\n          [0.2784, 0.2784, 0.2784]],\n\n         [[0.1451, 0.1529, 0.1490],\n          [0.9333, 0.9412, 0.9373],\n          [0.9294, 0.9294, 0.9373],\n          ...,\n          [0.3333, 0.3412, 0.3294],\n          [0.0000, 0.0000, 0.0000],\n          [0.2824, 0.2824, 0.2824]],\n\n         ...,\n\n         [[0.7098, 0.7098, 0.7098],\n          [0.7020, 0.7020, 0.7020],\n          [0.7020, 0.7098, 0.7059],\n          ...,\n          [0.6980, 0.6980, 0.7059],\n          [0.7137, 0.7137, 0.7137],\n          [0.7059, 0.7059, 0.7059]],\n\n         [[0.7059, 0.7059, 0.7059],\n          [0.7098, 0.7098, 0.7098],\n          [0.7020, 0.7020, 0.7098],\n          ...,\n          [0.7098, 0.7098, 0.7098],\n          [0.7059, 0.7059, 0.7059],\n          [0.7098, 0.7098, 0.7098]],\n\n         [[0.7098, 0.7098, 0.7098],\n          [0.7059, 0.7059, 0.7059],\n          [0.7020, 0.7020, 0.7098],\n          ...,\n          [0.7020, 0.7020, 0.7020],\n          [0.7020, 0.7020, 0.7020],\n          [0.7176, 0.7176, 0.7176]]]])",
+      "anything": [
+        "1344:1284",
+        0
+      ]
+    },
+    "class_type": "easy showAnything",
+    "_meta": {
+      "title": "Final prompt preview"
+    }
+  },
+  "1344:1283": {
+    "inputs": {
+      "value": ""
+    },
+    "class_type": "PrimitiveStringMultiline",
+    "_meta": {
+      "title": "LoRaS Triggers"
+    }
+  },
+  "1344:1284": {
+    "inputs": {
+      "delimiter": "",
+      "clean_whitespace": "false",
+      "text_a": [
+        "1344:1283",
+        0
+      ],
+      "text_b": [
+        "1595",
+        0
+      ]
+    },
+    "class_type": "Text Concatenate",
+    "_meta": {
+      "title": "Text Concatenate"
+    }
+  },
+  "1344:308": {
+    "inputs": {
+      "seed": 988014350468869
+    },
+    "class_type": "Seed (rgthree)",
+    "_meta": {
+      "title": "2-Seed high"
+    }
+  },
+  "1344:1280": {
+    "inputs": {
+      "boundary": 0.9,
+      "add_noise": "enable",
+      "noise_seed": [
+        "1344:308",
+        0
+      ],
+      "steps": [
+        "1283",
+        0
+      ],
+      "cfg_high_noise": 1,
+      "cfg_low_noise": 1,
+      "sampler_name": [
+        "1480",
+        0
+      ],
+      "scheduler": [
+        "1481",
+        0
+      ],
+      "sigma_shift": [
+        "1551",
+        0
+      ],
+      "start_at_step": 0,
+      "end_at_step": 10000,
+      "return_with_leftover_noise": "disable",
+      "model_high_noise": [
+        "1040",
+        0
+      ],
+      "model_low_noise": [
+        "1037",
+        0
+      ],
+      "positive": [
+        "1344:1256",
+        0
+      ],
+      "negative": [
+        "1344:1256",
+        1
+      ],
+      "latent_image": [
+        "1344:1256",
+        2
+      ]
+    },
+    "class_type": "WanMoeKSamplerAdvanced",
+    "_meta": {
+      "title": "Wan MoE KSampler (Advanced)"
+    }
+  },
+  "1344:1607": {
+    "inputs": {
+      "offload_model": "Full Cleanup",
+      "offload_cache": true,
+      "input": [
+        "1344:1280",
+        0
+      ]
+    },
+    "class_type": "VRAMCleanup",
+    "_meta": {
+      "title": "🎈VRAM-Cleanup"
+    }
+  }
+}
