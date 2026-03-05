@@ -208,7 +208,17 @@ def _find_lora_file(base_name: str, variant: str) -> Optional[str]:
 def _inject_loras(workflow: dict, loras: list[LoraInput], model_node_ids: list[str]) -> dict:
     if not loras:
         return workflow
-    max_id = max(int(k) for k in workflow.keys())
+    # Find max numeric ID (handle both pure numbers and "prefix:number" format)
+    max_id = 0
+    for k in workflow.keys():
+        # Extract numeric part from IDs like "1252:1299" or "917"
+        if ':' in k:
+            parts = k.split(':')
+            for part in parts:
+                if part.isdigit():
+                    max_id = max(max_id, int(part))
+        elif k.isdigit():
+            max_id = max(max_id, int(k))
 
     for model_node_id in model_node_ids:
         # Determine if this is a HIGH or LOW model node
@@ -318,7 +328,16 @@ def _inject_upscale(workflow: dict) -> dict:
         logger.warning("VHS_VideoCombine images input unexpected, skipping upscale")
         return workflow
 
-    max_id = max(int(k) for k in workflow.keys())
+    # Find max numeric ID (handle both pure numbers and "prefix:number" format)
+    max_id = 0
+    for k in workflow.keys():
+        if ':' in k:
+            # Extract all numeric parts from IDs like "1252:1299"
+            for part in k.split(':'):
+                if part.isdigit():
+                    max_id = max(max_id, int(part))
+        elif k.isdigit():
+            max_id = max(max_id, int(k))
 
     # Add UpscaleModelLoader
     loader_id = str(max_id + 1)
@@ -554,7 +573,16 @@ def _inject_story_loras(workflow: dict, loras: list[LoraInput]) -> dict:
         logger.warning("No UNETLoader nodes found for story LoRA injection")
         return workflow
 
-    max_id = max(int(k) for k in workflow.keys())
+    # Find max numeric ID (handle both pure numbers and "prefix:number" format)
+    max_id = 0
+    for k in workflow.keys():
+        if ':' in k:
+            # Extract all numeric parts from IDs like "1252:1299"
+            for part in k.split(':'):
+                if part.isdigit():
+                    max_id = max(max_id, int(part))
+        elif k.isdigit():
+            max_id = max(max_id, int(k))
 
     for variant, unet_nid in unet_nodes.items():
         # Build a chain of Power Lora Loader nodes
@@ -776,9 +804,7 @@ def build_merged_story_workflow(
 ) -> dict:
     """Build a single merged ComfyUI workflow containing N story segments.
 
-    All segments share model loader nodes (UNETLoader HIGH/LOW, VAELoader, CLIPLoader).
-    Segment 0 uses PainterI2V; segments 1+ use PainterLongVideo with previous_video
-    connected to the prior segment's VAEDecode output (no LoadImage needed for continuation).
+    Fully aligned with original WAN2.2-I2V-AutoPromptStory.json (82 nodes).
     """
     if loras:
         loras = [l if isinstance(l, LoraInput) else LoraInput(**l) for l in loras]
@@ -795,49 +821,193 @@ def build_merged_story_workflow(
 
     workflow: dict = {}
 
-    # ── Shared nodes (fixed IDs 1-4) ──
-    workflow["1"] = {
+    # ═══════════════════════════════════════════════════════════════════════════
+    # GLOBAL SHARED NODES (IDs 1-20)
+    # ═══════════════════════════════════════════════════════════════════════════
+
+    # Node 1: UNETLoader HIGH
+    workflow["917"] = {
         "class_type": "UNETLoader",
         "inputs": {
             "unet_name": model_info["high"],
-            "weight_dtype": "fp8_e4m3fn_fast",
+            "weight_dtype": "default",
         },
         "_meta": {"title": "Load Diffusion Model HIGH"},
     }
-    workflow["2"] = {
+
+    # Node 2: UNETLoader LOW
+    workflow["918"] = {
         "class_type": "UNETLoader",
         "inputs": {
             "unet_name": model_info["low"],
-            "weight_dtype": "fp8_e4m3fn_fast",
+            "weight_dtype": "default",
         },
         "_meta": {"title": "Load Diffusion Model LOW"},
     }
-    workflow["3"] = {
+
+    # Node 3: VAELoader
+    workflow["916"] = {
         "class_type": "VAELoader",
         "inputs": {
             "vae_name": "wan_2.1_vae.safetensors",
         },
-        "_meta": {"title": "Load VAE"},
+        "_meta": {"title": "加载VAE"},
     }
-    workflow["4"] = {
+
+    # Node 4: CLIPLoader
+    workflow["1521"] = {
         "class_type": "CLIPLoader",
         "inputs": {
             "clip_name": clip_file,
             "type": "wan",
-            "device": "cpu",
+            "device": "default",
         },
-        "_meta": {"title": "Load CLIP/T5"},
+        "_meta": {"title": "加载CLIP"},
     }
 
-    # Model node IDs for sampler references (may be rewired by LoRA injection)
-    model_high_ref = ["1", 0]
-    model_low_ref = ["2", 0]
+    # Node 5: PathchSageAttentionKJ HIGH
+    workflow["1252:1278"] = {
+        "class_type": "PathchSageAttentionKJ",
+        "inputs": {
+            "sage_attention": "auto",
+            "allow_compile": False,
+            "model": ["917", 0],
+        },
+        "_meta": {"title": "Patch Sage Attention KJ"},
+    }
 
-    # ── Per-segment nodes ──
-    # Node ID scheme: segment_index * 100 + offset (seg0: 10-19, seg1: 110-119, ...)
+    # Node 6: PathchSageAttentionKJ LOW
+    workflow["1252:1281"] = {
+        "class_type": "PathchSageAttentionKJ",
+        "inputs": {
+            "sage_attention": "auto",
+            "allow_compile": False,
+            "model": ["918", 0],
+        },
+        "_meta": {"title": "Patch Sage Attention KJ"},
+    }
+
+    # Node 7: ModelPatchTorchSettings HIGH
+    workflow["1252:1279"] = {
+        "class_type": "ModelPatchTorchSettings",
+        "inputs": {
+            "enable_fp16_accumulation": True,
+            "model": ["1252:1278", 0],
+        },
+        "_meta": {"title": "Model Patch Torch Settings"},
+    }
+
+    # Node 8: ModelPatchTorchSettings LOW
+    workflow["1252:1280"] = {
+        "class_type": "ModelPatchTorchSettings",
+        "inputs": {
+            "enable_fp16_accumulation": True,
+            "model": ["1252:1281", 0],
+        },
+        "_meta": {"title": "Model Patch Torch Settings"},
+    }
+
+    # Node 9: LoadImage (seg0 only)
+    workflow["97"] = {
+        "class_type": "LoadImage",
+        "inputs": {"image": image_filename},
+        "_meta": {"title": "加载图像"},
+    }
+
+    # Node 10: mxSlider (Length)
+    workflow["1282"] = {
+        "class_type": "mxSlider",
+        "inputs": {
+            "Xi": segments[0].get("num_frames", 81),
+            "Xf": segments[0].get("num_frames", 81),
+            "isfloatX": 0,
+        },
+        "_meta": {"title": "Lenght"},
+    }
+
+    # Node 11: mxSlider (Steps)
+    workflow["1283"] = {
+        "class_type": "mxSlider",
+        "inputs": {
+            "Xi": steps,
+            "Xf": steps,
+            "isfloatX": 0,
+        },
+        "_meta": {"title": "Steps"},
+    }
+
+    # Node 12: FloatConstant (motion amplitude)
+    workflow["604"] = {
+        "class_type": "FloatConstant",
+        "inputs": {"value": motion_amplitude},
+        "_meta": {"title": "motion amplitude"},
+    }
+
+    # Node 13: INTConstant (motion_frames)
+    workflow["605"] = {
+        "class_type": "INTConstant",
+        "inputs": {"value": motion_frames},
+        "_meta": {"title": "motion_frames"},
+    }
+
+    # Node 14: PrimitiveFloat (Sigma Shift)
+    workflow["1551"] = {
+        "class_type": "PrimitiveFloat",
+        "inputs": {"value": shift},
+        "_meta": {"title": "Sigma Shift"},
+    }
+
+    # Node 15: SamplerSelector
+    workflow["1480"] = {
+        "class_type": "SamplerSelector",
+        "inputs": {"sampler_name": "euler"},
+        "_meta": {"title": "Sampler Selector"},
+    }
+
+    # Node 16: SchedulerSelector
+    workflow["1481"] = {
+        "class_type": "SchedulerSelector",
+        "inputs": {"scheduler": "simple"},
+        "_meta": {"title": "Scheduler Selector"},
+    }
+
+    # Node 17: FindPerfectResolution
+    workflow["1445"] = {
+        "class_type": "FindPerfectResolution",
+        "inputs": {
+            "desired_width": width,
+            "desired_height": height,
+            "divisible_by": 16,
+            "upscale": False,
+            "upscale_method": "lanczos",
+            "small_image_mode": "none",
+            "pad_color": "#000000",
+            "image": ["97", 0],
+        },
+        "_meta": {"title": "Find Perfect Resolution"},
+    }
+
+    # ═══════════════════════════════════════════════════════════════════════════
+    # PER-SEGMENT NODES
+    # ═══════════════════════════════════════════════════════════════════════════
+
+    # Segment node ID mapping (matching original workflow):
+    # Segment 0: prefix "1252:"
+    # Segment 1: prefix "1262:"
+    # Segment 2: prefix "1332:"
+    # Segment 3: prefix "1344:"
+
+    segment_prefixes = ["1252:", "1262:", "1332:", "1344:"]
+    prompt_show_ids = ["1592", "1593", "1594", "1595"]  # easy showAnything for input prompts
+    lora_high_ids = ["174", "179", "182", "1040"]  # Power Lora Loader HIGH
+    lora_low_ids = ["175", "181", "180", "1037"]   # Power Lora Loader LOW
+
     for seg_idx, seg in enumerate(segments):
-        base = seg_idx * 100 + 10
+        if seg_idx >= 4:
+            logger.warning(f"Skipping segment {seg_idx}: only 4 segments supported in original workflow")
+            break
 
+        prefix = segment_prefixes[seg_idx]
         prompt = seg.get("prompt", "")
         negative_prompt = seg.get("negative_prompt", "")
         num_frames = seg.get("num_frames", 81)
@@ -855,191 +1025,353 @@ def build_merged_story_workflow(
         else:
             final_prompt = prompt
 
-        # Node offsets within each segment block:
-        # +0: LoadImage (seg0 only)
-        # +1: CLIPTextEncode (positive)
-        # +2: CLIPTextEncode (negative)
-        # +3: PainterI2V or PainterLongVideo
-        # +4: (unused, was VRAMCleanup pre-sample)
-        # +5: Seed
-        # +6: WanMoeKSamplerAdvanced
-        # +7: (unused, was VRAMCleanup post-sample)
-        # +8: VAEDecode
-        # +9: VHS_VideoCombine
-
-        n_load_image = str(base + 0)
-        n_clip_pos = str(base + 1)
-        n_clip_neg = str(base + 2)
-        n_painter = str(base + 3)
-        n_vram_pre = str(base + 4)
-        n_seed = str(base + 5)
-        n_sampler = str(base + 6)
-        n_vram_post = str(base + 7)
-        n_vae_decode = str(base + 8)
-        n_video_combine = str(base + 9)
-
-        # CLIPTextEncode (positive)
-        workflow[n_clip_pos] = {
-            "class_type": "CLIPTextEncode",
+        # ─────────────────────────────────────────────────────────────────────
+        # Input prompt display (easy showAnything)
+        # ─────────────────────────────────────────────────────────────────────
+        workflow[prompt_show_ids[seg_idx]] = {
+            "class_type": "easy showAnything",
             "inputs": {
                 "text": final_prompt,
-                "clip": ["4", 0],
+                "anything": ["97", 0],
             },
-            "_meta": {"title": f"CLIP Text Encode (Positive) seg{seg_idx}"},
+            "_meta": {"title": f"Prompt {seg_idx + 1}"},
         }
 
-        # CLIPTextEncode (negative)
-        workflow[n_clip_neg] = {
+        # ─────────────────────────────────────────────────────────────────────
+        # Power Lora Loader (HIGH and LOW)
+        # ─────────────────────────────────────────────────────────────────────
+        workflow[lora_high_ids[seg_idx]] = {
+            "class_type": "Power Lora Loader (rgthree)",
+            "inputs": {
+                "PowerLoraLoaderHeaderWidget": {"type": "PowerLoraLoaderHeaderWidget"},
+                "➕ Add Lora": "",
+                "model": ["1252:1279", 0],  # Connect to shared ModelPatchTorchSettings HIGH
+            },
+            "_meta": {"title": f"{seg_idx + 1}LORA HIGH"},
+        }
+
+        workflow[lora_low_ids[seg_idx]] = {
+            "class_type": "Power Lora Loader (rgthree)",
+            "inputs": {
+                "PowerLoraLoaderHeaderWidget": {"type": "PowerLoraLoaderHeaderWidget"},
+                "➕ Add Lora": "",
+                "model": ["1252:1280", 0],  # Connect to shared ModelPatchTorchSettings LOW
+            },
+            "_meta": {"title": f"{seg_idx + 1}LORA LOW"},
+        }
+
+        # ─────────────────────────────────────────────────────────────────────
+        # LoRaS Triggers (PrimitiveStringMultiline)
+        # ─────────────────────────────────────────────────────────────────────
+        workflow[f"{prefix}1300" if seg_idx == 0 else f"{prefix}1287" if seg_idx == 1 else f"{prefix}1283"] = {
+            "class_type": "PrimitiveStringMultiline",
+            "inputs": {"value": ""},
+            "_meta": {"title": "LoRaS Triggers"},
+        }
+
+        # ─────────────────────────────────────────────────────────────────────
+        # Text Concatenate (LoRaS Triggers + Prompt)
+        # ─────────────────────────────────────────────────────────────────────
+        lora_trigger_id = f"{prefix}1300" if seg_idx == 0 else f"{prefix}1287" if seg_idx == 1 else f"{prefix}1283"
+        text_concat_id = f"{prefix}1301" if seg_idx == 0 else f"{prefix}1288" if seg_idx == 1 else f"{prefix}1284"
+
+        workflow[text_concat_id] = {
+            "class_type": "Text Concatenate",
+            "inputs": {
+                "delimiter": "",
+                "clean_whitespace": "false",
+                "text_a": [lora_trigger_id, 0],
+                "text_b": [prompt_show_ids[seg_idx], 0],
+            },
+            "_meta": {"title": "Text Concatenate"},
+        }
+
+        # ─────────────────────────────────────────────────────────────────────
+        # Final prompt preview (easy showAnything)
+        # ─────────────────────────────────────────────────────────────────────
+        final_preview_id = f"{prefix}1299" if seg_idx == 0 else f"{prefix}1269"
+
+        workflow[final_preview_id] = {
+            "class_type": "easy showAnything",
+            "inputs": {
+                "text": final_prompt,
+                "anything": [text_concat_id, 0],
+            },
+            "_meta": {"title": "Final prompt preview"},
+        }
+
+        # ─────────────────────────────────────────────────────────────────────
+        # CLIPTextEncode (Positive)
+        # ─────────────────────────────────────────────────────────────────────
+        clip_pos_id = f"{prefix}1258" if seg_idx == 0 else f"{prefix}1268"
+
+        workflow[clip_pos_id] = {
+            "class_type": "CLIPTextEncode",
+            "inputs": {
+                "text": [final_preview_id, 0],
+                "clip": ["1521", 0],
+            },
+            "_meta": {"title": "Positive encode"},
+        }
+
+        # ─────────────────────────────────────────────────────────────────────
+        # CLIPTextEncode (Negative)
+        # ─────────────────────────────────────────────────────────────────────
+        clip_neg_id = f"{prefix}1245" if seg_idx == 0 else f"{prefix}1259"
+
+        workflow[clip_neg_id] = {
             "class_type": "CLIPTextEncode",
             "inputs": {
                 "text": negative_prompt,
-                "clip": ["4", 0],
+                "clip": ["1521", 0],
             },
-            "_meta": {"title": f"CLIP Text Encode (Negative) seg{seg_idx}"},
+            "_meta": {"title": "CLIP Text Encode (Negative Prompt)"},
         }
 
-        if seg_idx == 0:
-            # ── Segment 0: PainterI2V ──
-            workflow[n_load_image] = {
-                "class_type": "LoadImage",
-                "inputs": {"image": image_filename},
-                "_meta": {"title": "Load Start Image"},
-            }
-
-            workflow[n_painter] = {
-                "class_type": "PainterI2V",
-                "inputs": {
-                    "width": width,
-                    "height": height,
-                    "length": num_frames,
-                    "batch_size": 1,
-                    "motion_amplitude": motion_amplitude,
-                    "positive": [n_clip_pos, 0],
-                    "negative": [n_clip_neg, 0],
-                    "vae": ["3", 0],
-                    "start_image": [n_load_image, 0],
-                },
-                "_meta": {"title": "PainterI2V seg0"},
-            }
-        else:
-            # ── Segment 1+: PainterLongVideo ──
-            # previous_video = prior segment's VAEDecode output (IMAGE tensor)
-            prev_vae_decode = str((seg_idx - 1) * 100 + 10 + 8)
-
-            workflow[n_painter] = {
-                "class_type": "PainterLongVideo",
-                "inputs": {
-                    "width": width,
-                    "height": height,
-                    "length": num_frames,
-                    "batch_size": 1,
-                    "motion_frames": motion_frames,
-                    "motion_amplitude": motion_amplitude,
-                    "positive": [n_clip_pos, 0],
-                    "negative": [n_clip_neg, 0],
-                    "vae": ["3", 0],
-                    "previous_video": [prev_vae_decode, 0],
-                    "initial_reference_image": ["10", 0],  # seg0 LoadImage = identity anchor
-                },
-                "_meta": {"title": f"PainterLongVideo seg{seg_idx}"},
-            }
-
-        # No VRAMCleanup - keep models loaded for all segments to maximize speed
-        painter_latent_ref = [n_painter, 2]
-
+        # ─────────────────────────────────────────────────────────────────────
         # Seed
-        workflow[n_seed] = {
+        # ─────────────────────────────────────────────────────────────────────
+        seed_id = f"{prefix}1250" if seg_idx == 0 else f"{prefix}308"
+
+        workflow[seed_id] = {
             "class_type": "Seed (rgthree)",
             "inputs": {"seed": seed},
-            "_meta": {"title": f"Seed seg{seg_idx}"},
+            "_meta": {"title": f"{seg_idx + 1}-Seed high"},
         }
 
+        # ─────────────────────────────────────────────────────────────────────
+        # PainterI2V (seg0) or PainterLongVideo (seg1+)
+        # ─────────────────────────────────────────────────────────────────────
+        if seg_idx == 0:
+            painter_id = f"{prefix}1285"
+            workflow[painter_id] = {
+                "class_type": "PainterI2V",
+                "inputs": {
+                    "width": ["1445", 0],
+                    "height": ["1445", 1],
+                    "length": ["1282", 0],
+                    "batch_size": 1,
+                    "motion_amplitude": ["604", 0],
+                    "positive": [clip_pos_id, 0],
+                    "negative": [clip_neg_id, 0],
+                    "vae": ["916", 0],
+                    "start_image": ["97", 0],
+                },
+                "_meta": {"title": "PainterI2V"},
+            }
+        else:
+            painter_id = f"{prefix}1256"
+            # Get previous segment's scaled image
+            prev_prefix = segment_prefixes[seg_idx - 1]
+            prev_scale_id = f"{prefix}1260"
+
+            workflow[painter_id] = {
+                "class_type": "PainterLongVideo",
+                "inputs": {
+                    "width": ["1445", 0],
+                    "height": ["1445", 1],
+                    "length": ["1282", 0],
+                    "batch_size": 1,
+                    "motion_frames": ["605", 0],
+                    "motion_amplitude": ["604", 0],
+                    "positive": [clip_pos_id, 0],
+                    "negative": [clip_neg_id, 0],
+                    "vae": ["916", 0],
+                    "previous_video": [prev_scale_id, 0],
+                    "initial_reference_image": ["97", 0],
+                },
+                "_meta": {"title": "2-PainterLongVideo"},
+            }
+
+        # ─────────────────────────────────────────────────────────────────────
         # WanMoeKSamplerAdvanced
-        workflow[n_sampler] = {
+        # ─────────────────────────────────────────────────────────────────────
+        sampler_id = f"{prefix}1284" if seg_idx == 0 else f"{prefix}1282" if seg_idx == 1 else f"{prefix}1280"
+
+        workflow[sampler_id] = {
             "class_type": "WanMoeKSamplerAdvanced",
             "inputs": {
                 "boundary": boundary,
                 "add_noise": "enable",
-                "noise_seed": [n_seed, 0],
-                "steps": steps,
+                "noise_seed": [seed_id, 0],
+                "steps": ["1283", 0],
                 "cfg_high_noise": cfg,
                 "cfg_low_noise": cfg,
-                "sampler_name": "euler",
-                "scheduler": "simple",
-                "sigma_shift": shift,
+                "sampler_name": ["1480", 0],
+                "scheduler": ["1481", 0],
+                "sigma_shift": ["1551", 0],
                 "start_at_step": 0,
                 "end_at_step": 10000,
                 "return_with_leftover_noise": "disable",
-                "model_high_noise": list(model_high_ref),
-                "model_low_noise": list(model_low_ref),
-                "positive": [n_painter, 0],
-                "negative": [n_painter, 1],
-                "latent_image": list(painter_latent_ref),
+                "model_high_noise": [lora_high_ids[seg_idx], 0],
+                "model_low_noise": [lora_low_ids[seg_idx], 0],
+                "positive": [painter_id, 0],
+                "negative": [painter_id, 1],
+                "latent_image": [painter_id, 2],
             },
-            "_meta": {"title": f"WanMoeKSampler seg{seg_idx}"},
+            "_meta": {"title": "Wan MoE KSampler (Advanced)"},
         }
 
-        # VAEDecode — directly from sampler
-        workflow[n_vae_decode] = {
+        # ─────────────────────────────────────────────────────────────────────
+        # VRAMCleanup
+        # ─────────────────────────────────────────────────────────────────────
+        vram_id = f"{prefix}1604" if seg_idx == 0 else f"{prefix}1605" if seg_idx == 1 else f"{prefix}1606" if seg_idx == 2 else f"{prefix}1607"
+
+        # Last segment uses "Full Cleanup", others use "Text Encoder"
+        offload_model = "Full Cleanup" if seg_idx == len(segments) - 1 else "Text Encoder"
+
+        workflow[vram_id] = {
+            "class_type": "VRAMCleanup",
+            "inputs": {
+                "offload_model": offload_model,
+                "offload_cache": True,
+                "input": [sampler_id, 0],
+            },
+            "_meta": {"title": "🎈VRAM-Cleanup"},
+        }
+
+        # ─────────────────────────────────────────────────────────────────────
+        # VAEDecode
+        # ─────────────────────────────────────────────────────────────────────
+        vae_decode_id = f"{prefix}1249" if seg_idx == 0 else f"{prefix}1258"
+
+        workflow[vae_decode_id] = {
             "class_type": "VAEDecode",
             "inputs": {
-                "samples": [n_sampler, 0],
-                "vae": ["3", 0],
+                "samples": [vram_id, 0],
+                "vae": ["916", 0],
             },
-            "_meta": {"title": f"VAE Decode seg{seg_idx}"},
+            "_meta": {"title": "VAE解码"},
         }
 
-        # VHS_VideoCombine — each segment produces a video file with unique prefix
-        workflow[n_video_combine] = {
-            "class_type": "VHS_VideoCombine",
-            "inputs": {
-                "frame_rate": fps,
-                "loop_count": 0,
-                "filename_prefix": f"story_seg_{seg_idx}",
-                "format": "video/h264-mp4",
-                "pix_fmt": "yuv420p",
-                "crf": 19,
-                "save_metadata": True,
-                "trim_to_audio": False,
-                "pingpong": False,
-                "save_output": True,
-                "images": [n_vae_decode, 0],
-            },
-            "_meta": {"title": f"Video Combine seg{seg_idx}"},
-        }
+        # ─────────────────────────────────────────────────────────────────────
+        # VHS_SelectImages (select last frame for next segment)
+        # ─────────────────────────────────────────────────────────────────────
+        if seg_idx < len(segments) - 1:
+            select_id = f"{segment_prefixes[seg_idx + 1]}1261"
 
-    # Inject LoRAs via Power Lora Loader on shared UNET nodes
+            workflow[select_id] = {
+                "class_type": "VHS_SelectImages",
+                "inputs": {
+                    "indexes": "-1",
+                    "err_if_missing": True,
+                    "err_if_empty": True,
+                    "image": [vae_decode_id, 0],
+                },
+                "_meta": {"title": "Select Images 🎥🅥🅗🅢"},
+            }
+
+            # ─────────────────────────────────────────────────────────────────
+            # ImageScaleBy (2x upscale for next segment)
+            # ─────────────────────────────────────────────────────────────────
+            scale_id = f"{segment_prefixes[seg_idx + 1]}1260"
+
+            workflow[scale_id] = {
+                "class_type": "ImageScaleBy",
+                "inputs": {
+                    "upscale_method": "nearest-exact",
+                    "scale_by": 2,
+                    "image": [select_id, 0],
+                },
+                "_meta": {"title": "缩放图像（比例）"},
+            }
+
+        # ─────────────────────────────────────────────────────────────────────
+        # ImageBatchMulti (merge with previous segments)
+        # ─────────────────────────────────────────────────────────────────────
+        if seg_idx > 0:
+            batch_id = f"{prefix}1253"
+            prev_batch_id = f"{segment_prefixes[seg_idx - 1]}1253" if seg_idx > 1 else "1252:1249"
+
+            workflow[batch_id] = {
+                "class_type": "ImageBatchMulti",
+                "inputs": {
+                    "inputcount": 2,
+                    "Update inputs": None,
+                    "image_1": [prev_batch_id, 0],
+                    "image_2": [vae_decode_id, 0],
+                },
+                "_meta": {"title": "Image Batch Multi"},
+            }
+
+    # ═══════════════════════════════════════════════════════════════════════════
+    # FINAL OUTPUT NODES
+    # ═══════════════════════════════════════════════════════════════════════════
+
+    # Get the final merged image (last ImageBatchMulti or first VAEDecode if only 1 segment)
+    if len(segments) > 1:
+        final_image_ref = [f"{segment_prefixes[len(segments) - 1]}1253", 0]
+    else:
+        final_image_ref = ["1252:1249", 0]
+
+    # ColorMatch
+    workflow["1546"] = {
+        "class_type": "ColorMatch",
+        "inputs": {
+            "method": "mkl",
+            "strength": 0.4,
+            "multithread": True,
+            "image_ref": ["97", 0],
+            "image_target": final_image_ref,
+        },
+        "_meta": {"title": "Color Match"},
+    }
+
+    # ImageScaleBy (1x, no scaling, just for consistency)
+    workflow["1532"] = {
+        "class_type": "ImageScaleBy",
+        "inputs": {
+            "upscale_method": "nearest-exact",
+            "scale_by": 1,
+            "image": ["1546", 0],
+        },
+        "_meta": {"title": "缩放图像（比例）"},
+    }
+
+    # VHS_VideoCombine (16FPS intermediate output)
+    workflow["1609"] = {
+        "class_type": "VHS_VideoCombine",
+        "inputs": {
+            "frame_rate": fps,
+            "loop_count": 0,
+            "filename_prefix": "wan22_04_23-31-16",
+            "format": "video/h264-mp4",
+            "pix_fmt": "yuv420p",
+            "crf": 19,
+            "save_metadata": True,
+            "trim_to_audio": False,
+            "pingpong": False,
+            "save_output": True,
+            "images": ["1532", 0],
+        },
+        "_meta": {"title": "16FPS"},
+    }
+
+    # VHS_VideoCombine (Final Video)
+    workflow["1547"] = {
+        "class_type": "VHS_VideoCombine",
+        "inputs": {
+            "frame_rate": fps,
+            "loop_count": 0,
+            "filename_prefix": "wan22_04_23-31-16",
+            "format": "video/h264-mp4",
+            "pix_fmt": "yuv420p",
+            "crf": 19,
+            "save_metadata": False,
+            "trim_to_audio": False,
+            "pingpong": False,
+            "save_output": False,
+            "images": ["1546", 0],
+        },
+        "_meta": {"title": "Final Video"},
+    }
+
+    # Inject LoRAs via Power Lora Loader
     if loras:
         workflow = _inject_story_loras(workflow, loras)
 
-    # Inject upscale on each segment if enabled
-    if upscale:
-        max_id = max(int(k) for k in workflow.keys())
-        upscale_loader_id = None
-        for seg_idx in range(len(segments)):
-            base = seg_idx * 100 + 10
-            n_vae_decode = str(base + 8)
-            n_video_combine = str(base + 9)
+    logger.info(f"Built fully aligned story workflow with {len(workflow)} nodes for {len(segments)} segments")
 
-            if upscale_loader_id is None:
-                max_id += 1
-                upscale_loader_id = str(max_id)
-                workflow[upscale_loader_id] = {
-                    "class_type": "UpscaleModelLoader",
-                    "inputs": {"model_name": UPSCALE_MODEL},
-                }
-
-            max_id += 1
-            upscale_id = str(max_id)
-            workflow[upscale_id] = {
-                "class_type": "ImageUpscaleWithModelBatched",
-                "inputs": {
-                    "upscale_model": [upscale_loader_id, 0],
-                    "images": [n_vae_decode, 0],
-                    "per_batch": 4,
-                },
-            }
-            workflow[n_video_combine]["inputs"]["images"] = [upscale_id, 0]
-
-    logger.info("Built merged story workflow with %d segments, %d nodes", len(segments), len(workflow))
     return workflow
+
+

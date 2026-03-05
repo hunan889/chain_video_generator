@@ -72,7 +72,20 @@ class ComfyUIClient:
             return []
         outputs = history.get("outputs", {})
         files = []
-        for node_id, node_output in sorted(outputs.items(), key=lambda x: int(x[0])):
+
+        # Sort by node_id, handling both pure numbers and "prefix:number" format
+        def sort_key(item):
+            node_id = item[0]
+            if ':' in node_id:
+                # Extract max numeric part from IDs like "1252:1299"
+                parts = [int(p) for p in node_id.split(':') if p.isdigit()]
+                return max(parts) if parts else 0
+            elif node_id.isdigit():
+                return int(node_id)
+            else:
+                return 0
+
+        for node_id, node_output in sorted(outputs.items(), key=sort_key):
             for f in node_output.get("gifs", []) + node_output.get("videos", []):
                 f["_node_id"] = node_id
                 files.append(f)
