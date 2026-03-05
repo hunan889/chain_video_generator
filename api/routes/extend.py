@@ -140,6 +140,8 @@ async def generate_chain(
 
     # Handle optional starting image
     image_filename = ""
+    initial_ref_filename = ""
+
     if image:
         image_data = await image.read()
         if image_data:
@@ -149,8 +151,54 @@ async def generate_chain(
                 upload_result = await client.upload_image(image_data, local_name)
                 image_filename = upload_result.get("name", local_name)
 
-    # Handle optional initial reference image (for Story Mode identity consistency)
-    initial_ref_filename = ""
+    # Handle Story Mode continuation from parent chain/video
+    if req.parent_chain_id or req.parent_video_url:
+        from api.services.ffmpeg_utils import extract_last_frame, extract_first_frame
+
+        # Get parent video URL
+        parent_video_url = req.parent_video_url
+        if req.parent_chain_id and not parent_video_url:
+            parent_chain = await task_manager.redis.hgetall(f"chain:{req.parent_chain_id}")
+            parent_video_url = parent_chain.get("final_video_url")
+            if not parent_video_url:
+                raise HTTPException(400, f"Parent chain {req.parent_chain_id} has no video output")
+
+        if not parent_video_url:
+            raise HTTPException(400, "parent_video_url is required when parent_chain_id has no video")
+
+        # Download parent video
+        parent_video_path = await storage.get_video_path_from_url(parent_video_url)
+        if not parent_video_path or not parent_video_path.exists():
+            raise HTTPException(400, "Parent video file not found")
+
+        # Extract last frame as starting image (for continuation)
+        last_frame_path = await extract_last_frame(parent_video_path)
+        last_frame_data = last_frame_path.read_bytes()
+        client = task_manager.clients.get(req.model.value)
+        if client and await client.is_alive():
+            upload_result = await client.upload_image(last_frame_data, last_frame_path.name)
+            image_filename = upload_result.get("name", last_frame_path.name)
+
+        # Extract first frame as initial reference (for identity consistency)
+        if req.story_mode and not initial_reference_image:
+            # Check if user provided initial_reference_url
+            if req.initial_reference_url:
+                initial_ref_path = await storage.get_video_path_from_url(req.initial_reference_url)
+                if initial_ref_path and initial_ref_path.exists():
+                    initial_ref_data = initial_ref_path.read_bytes()
+                else:
+                    raise HTTPException(400, "Initial reference image not found")
+            else:
+                # Extract first frame from parent video
+                first_frame_path = await extract_first_frame(parent_video_path)
+                initial_ref_data = first_frame_path.read_bytes()
+
+            if client and await client.is_alive():
+                local_name = f"initial_ref_{req.parent_chain_id or 'parent'}.png"
+                upload_result = await client.upload_image(initial_ref_data, local_name)
+                initial_ref_filename = upload_result.get("name", local_name)
+
+    # Handle optional initial reference image upload (for Story Mode identity consistency)
     if initial_reference_image:
         initial_ref_data = await initial_reference_image.read()
         if initial_ref_data:

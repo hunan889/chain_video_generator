@@ -242,6 +242,11 @@ class AutoChainRequest(BaseModel):
     total_duration: Optional[float] = Field(default=None, ge=4.0, le=120.0)
     segment_duration: Optional[float] = Field(default=3.3, ge=1.0, le=10.0)
 
+    # Story Mode continuation: reference existing video for consistency
+    parent_chain_id: Optional[str] = Field(default=None, description="Parent chain ID to continue from (for Story Mode)")
+    parent_video_url: Optional[str] = Field(default=None, description="Parent video URL to extract last frame from")
+    initial_reference_url: Optional[str] = Field(default=None, description="Initial reference image URL for identity consistency")
+
     # Shared parameters
     negative_prompt: str = Field(default="", max_length=2000)
     model: ModelType = ModelType.A14B
