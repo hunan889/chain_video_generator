@@ -111,6 +111,7 @@ h1{text-align:center;color:#7c83ff;margin-bottom:24px;font-size:1.6em}
 <div class="tab" data-tab="dlora">下载 LoRA</div>
 <div class="tab" data-tab="story">Story 视频</div>
 <div class="tab" data-tab="civitai">CivitAI</div>
+<div class="tab" data-tab="tts">TTS 语音</div>
 </div>
 <!-- T2V Panel -->
 <div class="panel active" id="panel-t2v">
@@ -249,7 +250,7 @@ h1{text-align:center;color:#7c83ff;margin-bottom:24px;font-size:1.6em}
 </div>
 <div class="row">
 <div class="field"><label>FPS</label><input type="number" id="chain-fps" value="24"></div>
-<div class="field"><label>Steps</label><input type="number" id="chain-steps" value="20"></div>
+<div class="field"><label>Steps</label><input type="number" id="chain-steps" value="5"></div>
 <div class="field"><label>CFG</label><input type="number" id="chain-cfg" value="6.0" step="0.5"></div>
 <div class="field"><label>Shift</label><input type="number" id="chain-shift" value="5.0" step="0.5"></div>
 </div>
@@ -265,6 +266,7 @@ h1{text-align:center;color:#7c83ff;margin-bottom:24px;font-size:1.6em}
 <div class="field" id="chain-story-motion-frames-field" style="display:none"><label>Motion Frames</label><input type="number" id="chain-story-motion-frames" value="5" min="1" max="73" step="1"></div>
 <div class="field" id="chain-story-boundary-field" style="display:none"><label>Boundary</label><input type="number" id="chain-story-boundary" value="0.9" min="0" max="1" step="0.05"></div>
 <div class="field" id="chain-story-clip-field" style="display:none"><label>CLIP 预设</label><select id="chain-story-clip"><option value="nsfw">NSFW</option><option value="default">Default</option></select></div>
+<div class="field" id="chain-story-match-ratio-field" style="display:none"><label><input type="checkbox" id="chain-story-match-ratio" style="accent-color:#7c83ff;width:16px;height:16px;vertical-align:middle;margin-right:6px">适配图片比例</label></div>
 </div>
 <div class="row">
 <div class="field"><label>过渡方式</label><select id="chain-transition"><option value="none">直接拼接</option><option value="crossfade">交叉淡入淡出</option></select></div>
@@ -276,6 +278,20 @@ h1{text-align:center;color:#7c83ff;margin-bottom:24px;font-size:1.6em}
 <div class="field" style="flex:3"><label>负向提示词（全局）</label>
 <input id="chain-neg" placeholder="(optional)" value=""></div>
 <div class="field" style="min-width:auto;flex:none"><label><input type="checkbox" id="chain-upscale" style="accent-color:#7c83ff;width:16px;height:16px;vertical-align:middle;margin-right:6px">超分辨率 (2x upscale)</label></div>
+</div>
+<!-- Post-processing: Upscale / Frame Interpolation / MMAudio -->
+<div class="row" id="chain-postproc-row" style="display:none">
+<div class="field" style="min-width:auto;flex:none"><label><input type="checkbox" id="chain-enable-upscale" onchange="togglePostProc()" style="accent-color:#7c83ff;width:16px;height:16px;vertical-align:middle;margin-right:6px">TRT 超分</label></div>
+<div class="field" id="chain-upscale-resize-field" style="display:none;min-width:80px"><label>倍率</label><select id="chain-upscale-resize"><option value="1.5x">1.5x</option><option value="2x" selected>2x</option><option value="3x">3x</option><option value="4x">4x</option></select></div>
+<div class="field" style="min-width:auto;flex:none"><label><input type="checkbox" id="chain-enable-interpolation" onchange="togglePostProc()" style="accent-color:#7c83ff;width:16px;height:16px;vertical-align:middle;margin-right:6px">RIFE 插帧</label></div>
+<div class="field" id="chain-interpolation-mult-field" style="display:none;min-width:80px"><label>倍率</label><select id="chain-interpolation-multiplier"><option value="2" selected>2x</option><option value="3">3x</option><option value="4">4x</option></select></div>
+<div class="field" style="min-width:auto;flex:none"><label><input type="checkbox" id="chain-enable-mmaudio" onchange="togglePostProc()" style="accent-color:#7c83ff;width:16px;height:16px;vertical-align:middle;margin-right:6px">MMAudio 配音</label></div>
+</div>
+<div class="row" id="chain-mmaudio-row" style="display:none">
+<div class="field" style="flex:2"><label>音频提示词</label><input id="chain-mmaudio-prompt" placeholder="描述想要的音效 (可选)"></div>
+<div class="field" style="flex:2"><label>音频负向提示词</label><input id="chain-mmaudio-neg" placeholder="不需要的声音 (可选)"></div>
+<div class="field" style="min-width:70px"><label>Steps</label><input type="number" id="chain-mmaudio-steps" value="25" min="1" max="100"></div>
+<div class="field" style="min-width:70px"><label>CFG</label><input type="number" id="chain-mmaudio-cfg" value="4.5" min="0" max="20" step="0.5"></div>
 </div>
 </div>
 
@@ -462,6 +478,54 @@ h1{text-align:center;color:#7c83ff;margin-bottom:24px;font-size:1.6em}
 <div id="civitai-dl-status" style="margin-top:12px"></div>
 </div>
 
+<div class="panel" id="panel-tts">
+<div class="row">
+<div class="field" style="flex:3"><label>文字内容</label>
+<textarea id="tts-text" rows="4" placeholder="输入要合成的文字...&#10;支持情感标记: [laugh] [breath] [break]">你好，我是AI语音助手，很高兴为你服务。</textarea></div>
+</div>
+<div class="row">
+<div class="field"><label>音色种子 (相同数字=相同音色)</label><input type="number" id="tts-seed" value="42" min="0" max="99999"></div>
+<div class="field"><label>温度 (越低越稳定)</label><input type="number" id="tts-temperature" value="0.3" min="0.01" max="1.0" step="0.05"></div>
+<div class="field"><label>Top-P</label><input type="number" id="tts-top-p" value="0.7" min="0.1" max="1.0" step="0.05"></div>
+<div class="field"><label>Top-K</label><input type="number" id="tts-top-k" value="20" min="1" max="100"></div>
+<div class="field"><label>语速 (0慢~9快)</label><input type="number" id="tts-speed" value="5" min="0" max="9" step="1"></div>
+<div class="field"><label>口语化 (0正式~9随意)</label><input type="number" id="tts-oral" value="0" min="0" max="9" step="1"></div>
+<div class="field"><label>笑声 (0无~2多)</label><input type="number" id="tts-laugh" value="0" min="0" max="2" step="1"></div>
+<div class="field"><label>停顿 (0少~7多)</label><input type="number" id="tts-pause" value="3" min="0" max="7" step="1"></div>
+</div>
+<div class="row">
+<div style="display:flex;gap:10px;align-items:center">
+<button class="btn" onclick="generateTTS()">生成语音</button>
+<button class="btn btn-sm" style="background:#333" onclick="randomTTSSeed()">随机音色</button>
+<span id="tts-status" style="font-size:13px;color:#aaa"></span>
+</div>
+</div>
+<div id="tts-result" style="margin-top:16px;display:none">
+<div style="background:#0a0a23;padding:16px;border-radius:8px;border:1px solid #333">
+<div style="font-size:13px;color:#aaa;margin-bottom:8px">生成结果: <span id="tts-duration" style="color:#7c83ff"></span></div>
+<audio id="tts-audio" controls style="width:100%"></audio>
+<div style="margin-top:8px;font-size:12px;color:#666">文件: <a id="tts-download" href="#" target="_blank" style="color:#7c83ff"></a></div>
+</div>
+</div>
+<div style="margin-top:16px;padding:12px;background:#0a0a23;border-radius:8px;border:1px solid #333">
+<div style="font-size:13px;color:#7c83ff;margin-bottom:8px">参数说明</div>
+<div style="font-size:12px;color:#888;line-height:1.8">
+- <b>音色种子</b>: 相同数字 = 相同音色，换一个数字就是另一个人的声音<br>
+- <b>语速</b>: 0=非常慢 → 5=正常 → 9=非常快<br>
+- <b>口语化</b>: 0=正式播报风格 → 9=口语随意、带语气词(嗯、啊、呢)<br>
+- <b>笑声</b>: 0=不笑 → 2=自动在合适位置插入笑声<br>
+- <b>停顿</b>: 0=语速连贯 → 7=频繁停顿/喘息(含 [uv_break] 呼吸声)<br>
+- <b>温度</b>: 越低越稳定可预测，越高越随机自然
+</div>
+<div style="font-size:12px;color:#aaa;margin-top:8px;padding:8px;background:#111;border-radius:4px">
+<b>NSFW 场景建议</b>: 口语化=7~9 + 停顿=5~7 + 笑声=1~2，模型会自动插入呼吸声([uv_break])和喘息效果
+</div>
+<div style="font-size:11px;color:#666;margin-top:6px">
+注: ChatTTS 的情感效果由模型自动控制插入位置，不支持手动在文字中插入标签。音色效果因种子而异，建议多试几个种子。
+</div>
+</div>
+</div>
+
 <!-- Prompt Optimize Modal -->
 <div id="prompt-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:999;display:none;align-items:center;justify-content:center">
 <div style="background:#16213e;border:1px solid #444;border-radius:12px;padding:24px;max-width:700px;width:90%;max-height:80vh;overflow-y:auto">
@@ -551,13 +615,13 @@ function framesToDuration(frames, fps) {
 const FORM_FIELDS = {
   t2v: ['t2v-prompt','t2v-neg','t2v-model','t2v-preset','t2v-t5preset','t2v-w','t2v-h','t2v-duration','t2v-fps','t2v-steps','t2v-cfg','t2v-shift','t2v-seed','t2v-sched'],
   i2v: ['i2v-prompt','i2v-neg','i2v-model','i2v-preset','i2v-t5preset','i2v-w','i2v-h','i2v-duration','i2v-fps','i2v-steps','i2v-cfg','i2v-shift','i2v-seed','i2v-sched','i2v-noise','i2v-motion','i2v-colormatch','i2v-colormatch-method','i2v-resize'],
-  chain: ['chain-prompt','chain-neg','chain-model','chain-preset','chain-t5preset','chain-w','chain-h','chain-total','chain-seg','chain-fps','chain-steps','chain-cfg','chain-shift','chain-seed','chain-sched','chain-noise','chain-motion','chain-transition','chain-colormatch','chain-colormatch-method','chain-resize','chain-story-motion-frames','chain-story-boundary','chain-story-clip'],
+  chain: ['chain-prompt','chain-neg','chain-model','chain-preset','chain-t5preset','chain-w','chain-h','chain-total','chain-seg','chain-fps','chain-steps','chain-cfg','chain-shift','chain-seed','chain-sched','chain-noise','chain-motion','chain-transition','chain-colormatch','chain-colormatch-method','chain-resize','chain-story-motion-frames','chain-story-boundary','chain-story-clip','chain-upscale-resize','chain-interpolation-multiplier','chain-mmaudio-prompt','chain-mmaudio-neg','chain-mmaudio-steps','chain-mmaudio-cfg'],
   story: ['story-shift','story-motion','story-motion-frames','story-seed','story-seg-1-prompt','story-seg-1-duration','story-seg-2-prompt','story-seg-2-duration','story-seg-3-prompt','story-seg-3-duration','story-seg-4-prompt','story-seg-4-duration']
 };
 const CHECKBOX_FIELDS = {
   t2v: ['t2v-auto-lora','t2v-auto-prompt'],
   i2v: ['i2v-auto-lora','i2v-auto-prompt'],
-  chain: ['chain-auto-lora','chain-auto-prompt','chain-auto-continue','chain-upscale','chain-story-mode'],
+  chain: ['chain-auto-lora','chain-auto-prompt','chain-auto-continue','chain-upscale','chain-story-mode','chain-story-match-ratio','chain-enable-upscale','chain-enable-interpolation','chain-enable-mmaudio'],
   story: []
 };
 function saveFormParams(prefix) {
@@ -966,31 +1030,29 @@ function renderHistory() {
   const list = document.getElementById('history-list');
   let html = '';
 
+  // Helper: check if chain is story mode
+  const isStoryChain = c => c.params && c.params.story_mode;
+
   // Filter chains
   let filteredChains = allHistoryChains;
   if (currentHistoryFilter === 'chain') {
+    filteredChains = allHistoryChains.filter(c => !isStoryChain(c));
+  } else if (currentHistoryFilter === 'story') {
+    filteredChains = allHistoryChains.filter(c => isStoryChain(c));
+  } else if (currentHistoryFilter === 'all') {
     filteredChains = allHistoryChains;
-  } else if (currentHistoryFilter !== 'all') {
+  } else {
     filteredChains = [];
   }
 
   // Filter tasks
   let filteredTasks = allHistoryTasks;
-  if (currentHistoryFilter !== 'all' && currentHistoryFilter !== 'chain') {
-    filteredTasks = allHistoryTasks.filter(t => {
-      if (currentHistoryFilter === 'story') {
-        // Story tasks are T2V mode but created via workflow API
-        return t.mode === 't2v' && t.params && t.params.workflow_name;
-      }
-      return t.mode === currentHistoryFilter;
-    });
-  } else if (currentHistoryFilter === 'all') {
-    // Exclude story tasks from "all" view (they'll be in story tab)
-    filteredTasks = allHistoryTasks.filter(t => {
-      return !(t.mode === 't2v' && t.params && t.params.workflow_name);
-    });
-  } else if (currentHistoryFilter === 'chain') {
+  if (currentHistoryFilter === 'all') {
+    filteredTasks = allHistoryTasks;
+  } else if (currentHistoryFilter === 'chain' || currentHistoryFilter === 'story') {
     filteredTasks = [];
+  } else {
+    filteredTasks = allHistoryTasks.filter(t => t.mode === currentHistoryFilter);
   }
 
   // Render chains
@@ -1074,17 +1136,19 @@ function renderHistory() {
               segmentsHtml += `</div>`;
               segmentsHtml += `</div>`;
             }
-
-            segmentsHtml += `</div>`;
           }
+          segmentsHtml += `</div>`;
         });
         segmentsHtml += `</div>`;
         extra += `<div style="margin-top:6px"><button class="btn btn-sm" style="background:#1a3a4a;font-size:11px;padding:3px 10px" onclick="toggleSegments('${c.chain_id}')">查看各段详情</button></div>`;
       }
 
       const chainCancelBtn = (c.status === 'running' || c.status === 'queued') ? `<button class="btn btn-sm" style="margin-left:8px;background:#4a1a1a;font-size:11px;padding:3px 10px" onclick="cancelChain('${c.chain_id}')">取消</button>` : '';
-      return `<div class="task-card" style="border-color:#7c83ff55">
-        <div class="task-header"><span><b style="color:#7c83ff">长视频</b> <span style="color:#888;font-size:12px">${c.total_segments}段</span> <span style="color:#666;font-size:11px">${timeStr}</span>${durStr ? ` <span style="color:#4ade80;font-size:11px">⏱${durStr}</span>` : ''} <span class="task-id">${c.chain_id.substring(0,8)}</span>${chainCancelBtn}</span>
+      const isStory = c.params && c.params.story_mode;
+      const chainTypeLabel = isStory ? `<b style="color:#9d4edd">Story</b>` : `<b style="color:#7c83ff">长视频</b>`;
+      const chainBorderColor = isStory ? '#9d4edd55' : '#7c83ff55';
+      return `<div class="task-card" style="border-color:${chainBorderColor}">
+        <div class="task-header"><span>${chainTypeLabel} <span style="color:#888;font-size:12px">${c.total_segments}段</span> <span style="color:#666;font-size:11px">${timeStr}</span>${durStr ? ` <span style="color:#4ade80;font-size:11px">⏱${durStr}</span>` : ''} <span class="task-id">${c.chain_id.substring(0,8)}</span>${chainCancelBtn}</span>
           <span class="status ${statusCls}">${statusText}</span></div>
         ${extra}${segmentsHtml}</div>`;
     }).join('');
@@ -1101,17 +1165,12 @@ function renderHistory() {
       const timeStr = t.created_at ? new Date(t.created_at*1000).toLocaleString('zh-CN',{month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'}) : '';
       const durStr = t.created_at ? formatDuration(t.created_at, t.completed_at) : '';
 
-      // Check if it's a story task
+      // Check if it's a story task (legacy workflow-based)
       const isStory = t.params && t.params.workflow_name;
       const taskTypeLabel = isStory ? `<b style="color:#9d4edd">STORY</b>` : `<b>${modeLabel}</b>`;
 
       let extra = '';
       if (promptText) extra += `<div style="font-size:12px;color:#aaa;margin:4px 0;white-space:pre-wrap;word-break:break-all">${promptText}</div>`;
-
-      // Show workflow name for story tasks
-      if (isStory) {
-        extra += `<div style="font-size:11px;color:#9d4edd;margin-bottom:2px">Workflow: ${t.params.workflow_name}</div>`;
-      }
 
       if (t.params && t.params.ai_loras && t.params.ai_loras.length) {
         extra += `<div style="font-size:11px;color:#7c83ff;margin-bottom:2px">AI LoRA: ${t.params.ai_loras.map(l=>l.name+'('+l.strength+')').join(', ')}</div>`;
@@ -1864,6 +1923,7 @@ restoreFormParams('chain');
 // Restore story mode UI state after form params are restored (don't overwrite saved values)
 if (document.getElementById('chain-story-mode').checked) {
   toggleStoryMode(false);
+  togglePostProc();
 }
 
 // Restore cached chain image from localStorage
@@ -2011,6 +2071,9 @@ function toggleStoryMode(setDefaults) {
   document.getElementById('chain-story-motion-frames-field').style.display = isStory ? '' : 'none';
   document.getElementById('chain-story-boundary-field').style.display = isStory ? '' : 'none';
   document.getElementById('chain-story-clip-field').style.display = isStory ? '' : 'none';
+  document.getElementById('chain-story-match-ratio-field').style.display = isStory ? '' : 'none';
+  document.getElementById('chain-postproc-row').style.display = isStory ? '' : 'none';
+  if (!isStory) document.getElementById('chain-mmaudio-row').style.display = 'none';
   // Hide fields not applicable to story mode
   const noiseField = document.getElementById('chain-noise').closest('.field');
   const colormatchField = document.getElementById('chain-colormatch').closest('.field');
@@ -2018,15 +2081,28 @@ function toggleStoryMode(setDefaults) {
   if (noiseField) noiseField.style.display = isStory ? 'none' : '';
   if (colormatchField) colormatchField.style.display = isStory ? 'none' : '';
   if (colormatchMethodField) colormatchMethodField.style.display = isStory ? 'none' : '';
-  // When story mode is toggled on by user, set recommended defaults
-  if (isStory && setDefaults) {
-    document.getElementById('chain-shift').value = '8.0';
-    document.getElementById('chain-cfg').value = '1.0';
+  // Hide old PyTorch upscale in Story mode (use TRT upscale instead)
+  const oldUpscaleField = document.getElementById('chain-upscale').closest('.field');
+  if (oldUpscaleField) oldUpscaleField.style.display = isStory ? 'none' : '';
+  // Always enforce Story mode defaults when enabled (overrides localStorage)
+  if (isStory) {
     document.getElementById('chain-steps').value = '5';
-    document.getElementById('chain-sched').value = 'euler';
-    document.getElementById('chain-motion').value = '1.15';
     document.getElementById('chain-fps').value = '16';
+    // Only set other defaults on first toggle (not on localStorage restore)
+    if (setDefaults) {
+      document.getElementById('chain-shift').value = '8.0';
+      document.getElementById('chain-cfg').value = '1.0';
+      document.getElementById('chain-sched').value = 'euler';
+      document.getElementById('chain-motion').value = '1.15';
+    }
   }
+}
+
+// Toggle post-processing sub-options visibility
+function togglePostProc() {
+  document.getElementById('chain-upscale-resize-field').style.display = document.getElementById('chain-enable-upscale').checked ? '' : 'none';
+  document.getElementById('chain-interpolation-mult-field').style.display = document.getElementById('chain-enable-interpolation').checked ? '' : 'none';
+  document.getElementById('chain-mmaudio-row').style.display = document.getElementById('chain-enable-mmaudio').checked ? '' : 'none';
 }
 
 // Toggle collapsible sections
@@ -2429,12 +2505,13 @@ async function generateSingleSegment(segId) {
       const prevSegment = allSegments[currentIndex - 1];
       const prevSegId = prevSegment.dataset.segmentId;
       const prevLastFrameUrl = window[`seg_${prevSegId}_last_frame_url`];
+      const prevVideoUrl = window[`seg_${prevSegId}_video_url`];
 
-      console.log(`[generateSingleSegment] Story Mode segment 2+: prevSegId=${prevSegId}, prevLastFrameUrl=${prevLastFrameUrl}`);
+      console.log(`[generateSingleSegment] Story Mode segment 2+: prevSegId=${prevSegId}, prevLastFrameUrl=${prevLastFrameUrl}, prevVideoUrl=${prevVideoUrl}`);
       console.log(`[generateSingleSegment] All window seg variables:`, Object.keys(window).filter(k => k.startsWith('seg_')));
 
-      if (!prevLastFrameUrl) {
-        statusBox.innerHTML = `<div style="color:#f87171;font-size:13px">错误：上一段（分段 ${prevSegId}）尚未生成或最后一帧未提取，请先生成上一段</div>`;
+      if (!prevVideoUrl) {
+        statusBox.innerHTML = `<div style="color:#f87171;font-size:13px">错误：上一段（分段 ${prevSegId}）尚未生成视频，请先生成上一段</div>`;
         return;
       }
 
@@ -2487,20 +2564,24 @@ async function generateSingleSegment(segId) {
         motion_frames: parseInt(document.getElementById('chain-story-motion-frames').value),
         boundary: parseFloat(document.getElementById('chain-story-boundary').value),
         clip_preset: document.getElementById('chain-story-clip').value,
+        match_image_ratio: document.getElementById('chain-story-match-ratio').checked,
+        enable_upscale: document.getElementById('chain-enable-upscale').checked,
+        upscale_model: '4x-UltraSharp',
+        upscale_resize: document.getElementById('chain-upscale-resize').value,
+        enable_interpolation: document.getElementById('chain-enable-interpolation').checked,
+        interpolation_multiplier: parseInt(document.getElementById('chain-interpolation-multiplier').value),
+        interpolation_profile: 'small',
+        enable_mmaudio: document.getElementById('chain-enable-mmaudio').checked,
+        mmaudio_prompt: document.getElementById('chain-mmaudio-prompt').value,
+        mmaudio_negative_prompt: document.getElementById('chain-mmaudio-neg').value,
+        mmaudio_steps: parseInt(document.getElementById('chain-mmaudio-steps').value),
+        mmaudio_cfg: parseFloat(document.getElementById('chain-mmaudio-cfg').value),
         auto_continue: false,
-        transition: 'none'
+        transition: 'none',
+        parent_video_url: prevVideoUrl || null
       };
 
       const fd = new FormData();
-
-      // Add previous segment's last frame
-      try {
-        const imgBlob = await fetch(prevLastFrameUrl).then(r => r.blob());
-        fd.append('image', imgBlob, 'last_frame.png');
-      } catch(e) {
-        statusBox.innerHTML = `<div style="color:#f87171;font-size:13px">获取上一段最后一帧失败: ${e.message}</div>`;
-        return;
-      }
 
       // Add initial reference image for identity consistency
       fd.append('initial_reference_image', initialRefImage, 'initial_ref.png');
@@ -2511,9 +2592,63 @@ async function generateSingleSegment(segId) {
 
     } else if (currentIndex === 0) {
       // First segment
-      console.log(`[generateSingleSegment] First segment, chainSelectedFile=${chainSelectedFile ? 'exists' : 'null'}`);
-      if (chainSelectedFile) {
-        // Use I2V with uploaded image
+      console.log(`[generateSingleSegment] First segment, chainSelectedFile=${chainSelectedFile ? 'exists' : 'null'}, isStoryMode=${isStoryMode}`);
+      if (isStoryMode && chainSelectedFile) {
+        // Story Mode: use Chain API even for first segment (enables post-processing pipeline)
+        endpoint = BASE + '/api/v1/generate/chain';
+
+        const chainParams = {
+          segments: [{
+            prompt: prompt,
+            duration: duration
+          }],
+          model: params.model,
+          model_preset: params.model_preset,
+          t5_preset: params.t5_preset,
+          width: params.width,
+          height: params.height,
+          fps: params.fps,
+          steps: params.steps,
+          cfg: params.cfg,
+          shift: params.shift,
+          seed: params.seed,
+          scheduler: params.scheduler,
+          loras: params.loras,
+          upscale: params.upscale,
+          story_mode: true,
+          motion_frames: parseInt(document.getElementById('chain-story-motion-frames').value),
+          boundary: parseFloat(document.getElementById('chain-story-boundary').value),
+          clip_preset: document.getElementById('chain-story-clip').value,
+          match_image_ratio: document.getElementById('chain-story-match-ratio').checked,
+          enable_upscale: document.getElementById('chain-enable-upscale').checked,
+          upscale_model: '4x-UltraSharp',
+          upscale_resize: document.getElementById('chain-upscale-resize').value,
+          enable_interpolation: document.getElementById('chain-enable-interpolation').checked,
+          interpolation_multiplier: parseInt(document.getElementById('chain-interpolation-multiplier').value),
+          interpolation_profile: 'small',
+          enable_mmaudio: document.getElementById('chain-enable-mmaudio').checked,
+          mmaudio_prompt: document.getElementById('chain-mmaudio-prompt').value,
+          mmaudio_negative_prompt: document.getElementById('chain-mmaudio-neg').value,
+          mmaudio_steps: parseInt(document.getElementById('chain-mmaudio-steps').value),
+          mmaudio_cfg: parseFloat(document.getElementById('chain-mmaudio-cfg').value),
+          auto_continue: false,
+          transition: 'none',
+        };
+
+        const fd = new FormData();
+        fd.append('image', chainSelectedFile);
+        fd.append('params', JSON.stringify(chainParams));
+        requestBody = fd;
+
+        // Cache initial reference image for Story Mode
+        const reader = new FileReader();
+        reader.onload = (e) => {
+          localStorage.setItem('chain_initial_ref_image', e.target.result);
+        };
+        reader.readAsDataURL(chainSelectedFile);
+
+      } else if (chainSelectedFile) {
+        // Non-Story Mode: Use I2V with uploaded image
         endpoint = BASE + '/api/v1/generate/i2v';
         params.noise_aug_strength = parseFloat(document.getElementById('chain-noise').value);
         params.motion_amplitude = parseFloat(document.getElementById('chain-motion').value);
@@ -2521,27 +2656,10 @@ async function generateSingleSegment(segId) {
         params.color_match_method = document.getElementById('chain-colormatch-method').value;
         params.resize_mode = document.getElementById('chain-resize').value;
 
-        // Add Story Mode parameters if enabled
-        if (isStoryMode) {
-          params.story_mode = true;
-          params.motion_frames = parseInt(document.getElementById('chain-story-motion-frames').value);
-          params.boundary = parseFloat(document.getElementById('chain-story-boundary').value);
-          params.clip_preset = document.getElementById('chain-story-clip').value;
-        }
-
         const fd = new FormData();
         fd.append('image', chainSelectedFile);
         fd.append('params', JSON.stringify(params));
         requestBody = fd;
-
-        // Cache initial reference image for Story Mode
-        if (isStoryMode) {
-          const reader = new FileReader();
-          reader.onload = (e) => {
-            localStorage.setItem('chain_initial_ref_image', e.target.result);
-          };
-          reader.readAsDataURL(chainSelectedFile);
-        }
       } else {
         // T2V without image
         headers['Content-Type'] = 'application/json';
@@ -3329,6 +3447,18 @@ async function submitChain() {
     motion_frames: parseInt(document.getElementById('chain-story-motion-frames').value),
     boundary: parseFloat(document.getElementById('chain-story-boundary').value),
     clip_preset: document.getElementById('chain-story-clip').value,
+    match_image_ratio: document.getElementById('chain-story-match-ratio').checked,
+    enable_upscale: document.getElementById('chain-enable-upscale').checked,
+    upscale_model: '4x-UltraSharp',
+    upscale_resize: document.getElementById('chain-upscale-resize').value,
+    enable_interpolation: document.getElementById('chain-enable-interpolation').checked,
+    interpolation_multiplier: parseInt(document.getElementById('chain-interpolation-multiplier').value),
+    interpolation_profile: 'small',
+    enable_mmaudio: document.getElementById('chain-enable-mmaudio').checked,
+    mmaudio_prompt: document.getElementById('chain-mmaudio-prompt').value,
+    mmaudio_negative_prompt: document.getElementById('chain-mmaudio-neg').value,
+    mmaudio_steps: parseInt(document.getElementById('chain-mmaudio-steps').value),
+    mmaudio_cfg: parseFloat(document.getElementById('chain-mmaudio-cfg').value),
   };
   saveFormParams('chain');
   const fd = new FormData();
@@ -3609,6 +3739,52 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 });
+
+// ═══════════════════════════════════════════════════════════════
+// TTS Functions
+// ═══════════════════════════════════════════════════════════════
+function randomTTSSeed() {
+  document.getElementById('tts-seed').value = Math.floor(Math.random() * 99999);
+}
+
+async function generateTTS() {
+  const text = document.getElementById('tts-text').value.trim();
+  if (!text) { alert('请输入文字内容'); return; }
+  const statusEl = document.getElementById('tts-status');
+  const resultEl = document.getElementById('tts-result');
+  statusEl.textContent = '生成中...';
+  statusEl.style.color = '#f0c040';
+  resultEl.style.display = 'none';
+  try {
+    const res = await fetch('/api/v1/tts', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({
+        text: text,
+        seed: parseInt(document.getElementById('tts-seed').value) || null,
+        temperature: parseFloat(document.getElementById('tts-temperature').value) || 0.3,
+        top_p: parseFloat(document.getElementById('tts-top-p').value) || 0.7,
+        top_k: parseInt(document.getElementById('tts-top-k').value) || 20,
+        speed: parseInt(document.getElementById('tts-speed').value) || 5,
+        oral: parseInt(document.getElementById('tts-oral').value) || 0,
+        laugh: parseInt(document.getElementById('tts-laugh').value) || 0,
+        pause: parseInt(document.getElementById('tts-pause').value) || 3,
+      }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.detail || 'TTS failed');
+    document.getElementById('tts-audio').src = data.audio_file;
+    document.getElementById('tts-duration').textContent = data.duration + 's';
+    document.getElementById('tts-download').href = data.audio_file;
+    document.getElementById('tts-download').textContent = data.filename;
+    resultEl.style.display = 'block';
+    statusEl.textContent = '生成完成';
+    statusEl.style.color = '#4caf50';
+  } catch (e) {
+    statusEl.textContent = '失败: ' + e.message;
+    statusEl.style.color = '#f44336';
+  }
+}
 
 </script>
 </body>

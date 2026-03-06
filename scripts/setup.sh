@@ -62,22 +62,53 @@ echo "--- Installing ComfyUI custom nodes ---"
 mkdir -p "$COMFYUI_DIR/custom_nodes"
 cd "$COMFYUI_DIR/custom_nodes"
 
-for repo in \
-    "https://github.com/kijai/ComfyUI-WanVideoWrapper.git" \
-    "https://github.com/pollockjj/ComfyUI-MultiGPU.git" \
-    "https://github.com/Kosinkadink/ComfyUI-VideoHelperSuite.git"; do
+# Core nodes (video generation pipeline)
+CORE_NODES=(
+    "https://github.com/kijai/ComfyUI-WanVideoWrapper.git"
+    "https://github.com/Kosinkadink/ComfyUI-VideoHelperSuite.git"
+    "https://github.com/princepainter/ComfyUI-PainterI2V.git"
+    "https://github.com/princepainter/ComfyUI-PainterLongVideo.git"
+    "https://github.com/stduhpf/ComfyUI-WanMoeKSampler.git"
+    "https://github.com/LAOGOU-666/Comfyui-Memory_Cleanup.git"
+    "https://github.com/rgthree/rgthree-comfy.git"
+    "https://github.com/ashtar1984/comfyui-find-perfect-resolution.git"
+    "https://github.com/ComfyAssets/ComfyUI_Selectors"
+    "https://github.com/kijai/ComfyUI-KJNodes.git"
+)
+
+# TensorRT acceleration nodes (upscale + frame interpolation)
+TRT_NODES=(
+    "https://github.com/huchukato/ComfyUI-RIFE-TensorRT-Auto.git"
+    "https://github.com/yuvraj108c/ComfyUI-Upscaler-Tensorrt"
+)
+
+# Optional utility nodes
+UTIL_NODES=(
+    "https://github.com/pollockjj/ComfyUI-MultiGPU.git"
+    "https://github.com/ltdrdata/ComfyUI-Manager.git"
+    "https://github.com/city96/ComfyUI-GGUF.git"
+    "https://github.com/WASasquatch/was-node-suite-comfyui.git"
+    "https://github.com/yolain/ComfyUI-Easy-Use.git"
+    "https://github.com/kijai/ComfyUI-MMAudio.git"
+    "https://github.com/1038lab/ComfyUI-QwenVL.git"
+)
+
+for repo in "${CORE_NODES[@]}" "${TRT_NODES[@]}" "${UTIL_NODES[@]}"; do
     dir=$(basename "$repo" .git)
     if [ ! -d "$dir" ]; then
-        git clone "$repo"
+        echo "Cloning $dir ..."
+        git clone --depth 1 "$repo"
     else
         echo "[SKIP] $dir already exists"
     fi
 done
 
 # Install node dependencies
-for req in ComfyUI-WanVideoWrapper/requirements.txt ComfyUI-VideoHelperSuite/requirements.txt; do
-    if [ -f "$req" ]; then
-        "$COMFYUI_DIR/venv/bin/pip" install -q -r "$req"
+echo "--- Installing custom node dependencies ---"
+for dir in */; do
+    if [ -f "$dir/requirements.txt" ]; then
+        echo "  Installing deps for $dir"
+        "$COMFYUI_DIR/venv/bin/pip" install -q -r "$dir/requirements.txt" 2>/dev/null || true
     fi
 done
 

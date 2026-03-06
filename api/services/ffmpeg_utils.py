@@ -41,6 +41,27 @@ async def extract_last_frame(video_path: Path) -> Path:
     return output
 
 
+async def extract_last_n_frames_video(video_path: Path, n_frames: int = 5, fps: int = 16) -> Path:
+    """Extract the last N frames from a video as a short mp4 clip."""
+    output = UPLOADS_DIR / f"last{n_frames}f_{uuid.uuid4().hex}.mp4"
+    duration = n_frames / fps + 0.1  # small buffer
+    cmd = [
+        "ffmpeg", "-y", "-sseof", f"-{duration}",
+        "-i", str(video_path),
+        "-frames:v", str(n_frames),
+        "-c:v", "libx264", "-pix_fmt", "yuv420p", "-crf", "15",
+        "-an", str(output),
+    ]
+    proc = await asyncio.create_subprocess_exec(
+        *cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
+    )
+    _, stderr = await proc.communicate()
+    if proc.returncode != 0 or not output.exists():
+        raise RuntimeError(f"ffmpeg extract_last_n_frames failed: {stderr.decode()[-500:]}")
+    logger.info("Extracted last %d frames: %s -> %s", n_frames, video_path.name, output.name)
+    return output
+
+
 async def concat_videos(video_paths: list[Path], fps: int = 24, transition: str = "none") -> Path:
     """Concatenate multiple videos. Supports 'none' (direct) or 'crossfade' transition."""
     if len(video_paths) == 1:

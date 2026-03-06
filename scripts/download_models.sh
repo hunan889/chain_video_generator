@@ -112,11 +112,76 @@ echo "--- VAE 2.1 (0.3GB, for A14B) ---"
 download "${HF_BASE}/Wan2_1_VAE_bf16.safetensors" \
     "${MODELS_DIR}/vae/Wan2_1_VAE_bf16.safetensors"
 
+# NSFW model presets (fp8 quantized)
+HF_NSFW_FP8="https://huggingface.co/NSFW-API/NSFW-WAN2.2-I2V-A14B-FP8/resolve/main"
+echo "--- NSFW A14B HIGH fp8 (14.3GB) ---"
+download "${HF_NSFW_FP8}/wan22EnhancedNSFWSVICamera_nsfwV2FP8H.safetensors" \
+    "${MODELS_DIR}/diffusion_models/wan22EnhancedNSFWSVICamera_nsfwV2FP8H.safetensors"
+
+echo "--- NSFW A14B LOW fp8 (14.3GB) ---"
+download "${HF_NSFW_FP8}/wan22EnhancedNSFWSVICamera_nsfwV2FP8L.safetensors" \
+    "${MODELS_DIR}/diffusion_models/wan22EnhancedNSFWSVICamera_nsfwV2FP8L.safetensors"
+
+# CLIP model for Story Mode
+HF_NSFW_CLIP="https://huggingface.co/NSFW-API/NSFW-WAN-CLIP/resolve/main"
+echo "--- NSFW CLIP (2.4GB) ---"
+download "${HF_NSFW_CLIP}/nsfw_wan_clip_bf16.safetensors" \
+    "${MODELS_DIR}/clip/nsfw_wan_clip_bf16.safetensors"
+
+# ── MMAudio models ──────────────────────────────────────────────────
+echo ""
+echo "=== Downloading MMAudio Models ==="
+MMAUDIO_DIR="${MODELS_DIR}/mmaudio"
+mkdir -p "$MMAUDIO_DIR"
+
+HF_MMAUDIO_NSFW="https://huggingface.co/phazei/NSFW_MMaudio/resolve/main"
+HF_MMAUDIO="https://huggingface.co/Kijai/MMAudio_safetensors/resolve/main"
+
+echo "--- MMAudio main model (2.0GB) ---"
+download "${HF_MMAUDIO_NSFW}/mmaudio_large_44k_nsfw_gold_8.5k_final_fp16.safetensors" \
+    "${MMAUDIO_DIR}/mmaudio_large_44k_nsfw_gold_8.5k_final_fp16.safetensors"
+
+echo "--- MMAudio VAE (583MB) ---"
+download "${HF_MMAUDIO}/mmaudio_vae_44k_fp16.safetensors" \
+    "${MMAUDIO_DIR}/mmaudio_vae_44k_fp16.safetensors"
+
+echo "--- MMAudio Synchformer (453MB) ---"
+download "${HF_MMAUDIO}/mmaudio_synchformer_fp16.safetensors" \
+    "${MMAUDIO_DIR}/mmaudio_synchformer_fp16.safetensors"
+
+echo "--- MMAudio CLIP (1.9GB) ---"
+download "${HF_MMAUDIO}/apple_DFN5B-CLIP-ViT-H-14-384_fp16.safetensors" \
+    "${MMAUDIO_DIR}/apple_DFN5B-CLIP-ViT-H-14-384_fp16.safetensors"
+
+# Pre-download BigVGAN vocoder (auto-downloaded by MMAudio on first run)
+echo "--- BigVGAN vocoder (pre-cache) ---"
+if "$PYTHON" -c "from huggingface_hub import snapshot_download; snapshot_download('nvidia/bigvgan_v2_44khz_128band_512x')" 2>/dev/null; then
+    echo "[OK] BigVGAN vocoder cached"
+else
+    echo "[WARN] BigVGAN pre-download failed (will download on first MMAudio run)"
+fi
+
+# ── Upscale model ───────────────────────────────────────────────────
+echo ""
+echo "=== Downloading Upscale Model ==="
+UPSCALE_DIR="${MODELS_DIR}/upscale_models"
+mkdir -p "$UPSCALE_DIR"
+
+echo "--- 4x-UltraSharp (67MB) ---"
+download "https://huggingface.co/Kim2091/UltraSharp/resolve/main/4x-UltraSharp.pth" \
+    "${UPSCALE_DIR}/4x-UltraSharp.pth"
+
 echo ""
 echo "=== Download complete ==="
 echo "--- Diffusion models ---"
-ls -lh ${MODELS_DIR}/diffusion_models/Wan2_2*.safetensors 2>/dev/null || echo "(none)"
+ls -lh ${MODELS_DIR}/diffusion_models/Wan2_2*.safetensors ${MODELS_DIR}/diffusion_models/wan22*.safetensors 2>/dev/null || echo "(none)"
 echo "--- Text encoders ---"
 ls -lh ${MODELS_DIR}/text_encoders/*umt5*.safetensors 2>/dev/null || echo "(none)"
+echo "--- CLIP ---"
+ls -lh ${MODELS_DIR}/clip/*.safetensors 2>/dev/null || echo "(none)"
 echo "--- VAE ---"
 ls -lh ${MODELS_DIR}/vae/Wan2_*.safetensors 2>/dev/null || echo "(none)"
+echo "--- MMAudio ---"
+ls -lh ${MMAUDIO_DIR}/*.safetensors 2>/dev/null || echo "(none)"
+echo "--- Upscale ---"
+ls -lh ${UPSCALE_DIR}/*.pth 2>/dev/null || echo "(none)"

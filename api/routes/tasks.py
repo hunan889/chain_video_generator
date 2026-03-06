@@ -38,6 +38,15 @@ async def cancel_task(task_id: str, _=Depends(verify_api_key)):
 async def get_result(filename: str):
     ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
 
+    # Check if it's an audio file
+    if ext in ("wav", "mp3", "ogg", "flac"):
+        from api.config import UPLOADS_DIR
+        path = UPLOADS_DIR / filename
+        if not path.exists():
+            raise HTTPException(404, "File not found")
+        media_types = {"wav": "audio/wav", "mp3": "audio/mpeg", "ogg": "audio/ogg", "flac": "audio/flac"}
+        return FileResponse(path, media_type=media_types.get(ext, "audio/wav"), filename=filename)
+
     # Check if it's an image file
     if ext in ("png", "jpg", "jpeg", "gif", "webp"):
         from api.config import UPLOADS_DIR

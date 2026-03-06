@@ -59,7 +59,9 @@ class ComfyUIClient:
             elif "videos" in node_output:
                 for f in node_output["videos"]:
                     files.append(f)
-        return files
+        # Prefer "output" type files over "temp" (preview) files
+        output_files = [f for f in files if f.get("type") == "output"]
+        return output_files if output_files else files
 
     async def get_output_files_ordered(self, prompt_id: str) -> list[dict]:
         """Get output files ordered by node_id (for merged workflows).
@@ -87,6 +89,9 @@ class ComfyUIClient:
 
         for node_id, node_output in sorted(outputs.items(), key=sort_key):
             for f in node_output.get("gifs", []) + node_output.get("videos", []):
+                # Skip temp files (intermediate results) — only collect output files
+                if f.get("type") == "temp":
+                    continue
                 f["_node_id"] = node_id
                 files.append(f)
         return files
@@ -107,6 +112,18 @@ class ComfyUIClient:
         async with session.post(f"{self.base_url}/upload/image", data=form) as resp:
             if resp.status != 200:
                 raise RuntimeError(f"Failed to upload image")
+            return await resp.json()
+
+    async def upload_video(self, video_data: bytes, filename: str) -> dict:
+        """Upload a video file to ComfyUI input directory (for VHS_LoadVideo)."""
+        session = await self._get_session()
+        form = aiohttp.FormData()
+        content_type = "video/mp4" if filename.endswith(".mp4") else "application/octet-stream"
+        form.add_field("image", video_data, filename=filename, content_type=content_type)
+        form.add_field("overwrite", "true")
+        async with session.post(f"{self.base_url}/upload/image", data=form) as resp:
+            if resp.status != 200:
+                raise RuntimeError(f"Failed to upload video: {await resp.text()}")
             return await resp.json()
 
     async def interrupt(self):

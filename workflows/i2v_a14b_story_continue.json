@@ -19,10 +19,9 @@
   },
   "20": {
     "inputs": {
-      "vae_name": "wan_2.1_vae.safetensors",
-      "device": "cuda:0"
+      "vae_name": "wan_2.1_vae.safetensors"
     },
-    "class_type": "VAELoaderMultiGPU",
+    "class_type": "VAELoader",
     "_meta": {
       "title": "Load VAE"
     }
@@ -30,10 +29,9 @@
   "30": {
     "inputs": {
       "unet_name": "wan22EnhancedNSFWSVICamera_nsfwV2FP8H.safetensors",
-      "weight_dtype": "fp8_e4m3fn_fast",
-      "device": "cuda:0"
+      "weight_dtype": "fp8_e4m3fn_fast"
     },
-    "class_type": "UNETLoaderMultiGPU",
+    "class_type": "UNETLoader",
     "_meta": {
       "title": "Load Diffusion Model HIGH"
     }
@@ -41,10 +39,9 @@
   "31": {
     "inputs": {
       "unet_name": "wan22EnhancedNSFWSVICamera_nsfwV2FP8L.safetensors",
-      "weight_dtype": "fp8_e4m3fn_fast",
-      "device": "cuda:3"
+      "weight_dtype": "fp8_e4m3fn_fast"
     },
-    "class_type": "UNETLoaderMultiGPU",
+    "class_type": "UNETLoader",
     "_meta": {
       "title": "Load Diffusion Model LOW"
     }
@@ -52,10 +49,9 @@
   "40": {
     "inputs": {
       "clip_name": "nsfw_wan_umt5-xxl_fp8_scaled.safetensors",
-      "type": "wan",
-      "device": "cuda:3"
+      "type": "wan"
     },
-    "class_type": "CLIPLoaderMultiGPU",
+    "class_type": "CLIPLoader",
     "_meta": {
       "title": "Load CLIP"
     }
@@ -100,6 +96,20 @@
       "title": "Upscale Previous Frame"
     }
   },
+  "58": {
+    "inputs": {
+      "offload_model": true,
+      "offload_cache": true,
+      "anything": [
+        "51",
+        0
+      ]
+    },
+    "class_type": "VRAMCleanup",
+    "_meta": {
+      "title": "Pre-PainterLongVideo VRAM Cleanup (free UNET for VAE encode)"
+    }
+  },
   "60": {
     "inputs": {
       "width": 480,
@@ -113,7 +123,7 @@
         0
       ],
       "negative": [
-        "51",
+        "58",
         0
       ],
       "vae": [

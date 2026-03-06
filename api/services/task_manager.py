@@ -9,10 +9,16 @@ from api.config import REDIS_URL, COMFYUI_URLS, VIDEO_BASE_URL, TASK_EXPIRY, COS
 from api.models.enums import TaskStatus, ModelType, GenerateMode
 from api.models.schemas import GenerateRequest, GenerateI2VRequest
 from api.services.comfyui_client import ComfyUIClient
-from api.services.workflow_builder import build_workflow, build_story_workflow, build_merged_story_workflow
+from api.services.workflow_builder import build_workflow, build_story_workflow, build_merged_story_workflow, _inject_story_postproc
 from api.services import storage
 
 logger = logging.getLogger(__name__)
+
+
+class _HistoryReady(Exception):
+    """Internal signal: ComfyUI history has outputs ready."""
+    def __init__(self, history: dict):
+        self.history = history
 
 
 class TaskManager:
@@ -405,9 +411,7 @@ class TaskManager:
                                 last_history_check = now
                                 history = await client.get_history(prompt_id)
                                 if history:
-                                    if history.get("outputs") and any(history["outputs"].values()):
-                                        logger.info("Task %s: completion detected via history check (during binary msgs)", task_id)
-                                        return history
+                                    self._check_history_result(history, task_id, "binary msgs")
                             continue
                         data = json.loads(msg)
                         msg_type = data.get("type")
@@ -430,26 +434,26 @@ class TaskManager:
                             if d.get("prompt_id") == prompt_id and d.get("node") is None:
                                 logger.info("Task %s: completion signal received via WebSocket", task_id)
                                 return await client.get_history(prompt_id)
+                        elif msg_type in ("execution_error", "execution_interrupted"):
+                            if d.get("prompt_id") == prompt_id:
+                                err_msg = d.get("exception_message", "ComfyUI execution error").strip()
+                                logger.error("Task %s: %s received via WebSocket: %s", task_id, msg_type, err_msg)
+                                raise RuntimeError(err_msg)
                         # Periodically check history for completion (every 30s)
                         now = asyncio.get_event_loop().time()
                         if now - last_history_check >= 30:
                             last_history_check = now
                             history = await client.get_history(prompt_id)
                             if history:
-                                if history.get("outputs") and any(history["outputs"].values()):
-                                    logger.info("Task %s: completion detected via periodic history check", task_id)
-                                    return history
+                                self._check_history_result(history, task_id, "periodic")
                     except asyncio.TimeoutError:
                         # No message for 10s — check history
                         history = await client.get_history(prompt_id)
                         if history:
-                            if history.get("outputs") and any(history["outputs"].values()):
-                                logger.info("Task %s: completion detected via idle history check", task_id)
-                                return history
-                            status = history.get("status", {})
-                            if status.get("status_str") == "error":
-                                raise RuntimeError(self._extract_error(status))
+                            self._check_history_result(history, task_id, "idle")
                         continue
+        except _HistoryReady as hr:
+            return hr.history
         except Exception as e:
             if isinstance(e, RuntimeError):
                 raise
@@ -460,12 +464,10 @@ class TaskManager:
         while asyncio.get_event_loop().time() < deadline:
             history = await client.get_history(prompt_id)
             if history:
-                if history.get("outputs") and any(history["outputs"].values()):
-                    logger.info("Task %s: completion detected via polling fallback", task_id)
-                    return history
-                status = history.get("status", {})
-                if status.get("status_str") == "error":
-                    raise RuntimeError(self._extract_error(status))
+                try:
+                    self._check_history_result(history, task_id, "polling")
+                except _HistoryReady as hr:
+                    return hr.history
             await asyncio.sleep(3)
         raise TimeoutError(f"Prompt {prompt_id} timed out after {timeout}s")
 
@@ -837,6 +839,18 @@ class TaskManager:
             fps=seg0.get("fps", 16),
             upscale=seg0.get("upscale", False),
             loras=seg0.get("loras"),
+            match_image_ratio=seg0.get("match_image_ratio", False),
+            enable_upscale=seg0.get("enable_upscale", False),
+            upscale_model=seg0.get("upscale_model", "4x-UltraSharp"),
+            upscale_resize=seg0.get("upscale_resize", "2x"),
+            enable_interpolation=seg0.get("enable_interpolation", False),
+            interpolation_multiplier=seg0.get("interpolation_multiplier", 2),
+            interpolation_profile=seg0.get("interpolation_profile", "small"),
+            enable_mmaudio=seg0.get("enable_mmaudio", False),
+            mmaudio_prompt=seg0.get("mmaudio_prompt", ""),
+            mmaudio_negative_prompt=seg0.get("mmaudio_negative_prompt", ""),
+            mmaudio_steps=seg0.get("mmaudio_steps", 25),
+            mmaudio_cfg=seg0.get("mmaudio_cfg", 4.5),
         )
 
         # Create a single task for the entire merged workflow
@@ -858,7 +872,8 @@ class TaskManager:
         if not video_path:
             raise RuntimeError(f"Merged story workflow (task {task_id}) failed")
 
-        # Collect all segment video outputs ordered by node_id
+        # With ImageBatchMulti optimization, merged workflow now outputs only 1 video
+        # (all segments merged in ComfyUI, no need for external ffmpeg concat)
         task_data = await self.redis.hgetall(f"task:{task_id}")
         prompt_id = task_data.get("prompt_id", "")
         if not prompt_id:
@@ -866,50 +881,77 @@ class TaskManager:
 
         output_files = await client.get_output_files_ordered(prompt_id)
         if not output_files:
+            # Post-processing nodes may have failed (e.g. RIFE TRT), but the task
+            # itself may have completed with a video from the preview node.
+            # Fall back to the task's already-saved video_url if available.
+            task_video_url = task_data.get("video_url", "")
+            if task_video_url:
+                logger.warning("Chain %s: no output files from final node, using task video_url fallback", chain_id)
+                await self.redis.hset(f"chain:{chain_id}", mapping={
+                    "status": "completed",
+                    "completed_segments": str(total),
+                    "final_video_url": task_video_url,
+                    "completed_at": str(int(time.time())),
+                    "segment_task_ids": json.dumps(task_ids),
+                })
+                logger.info("Chain %s (merged story, fallback) completed: %s", chain_id, task_video_url)
+                return
             raise RuntimeError("No output files from merged story workflow")
 
         logger.info("Chain %s: merged workflow produced %d output files", chain_id, len(output_files))
 
-        # Download each segment video and save locally
-        video_paths = []
-        segment_filenames = []
-        for f in output_files:
+        await self.redis.hset(f"chain:{chain_id}", "completed_segments", str(total))
+
+        # The optimized workflow outputs a single merged video (from node 510)
+        # No need to concatenate multiple videos anymore
+        if len(output_files) == 1:
+            # Single merged video - use it directly
+            f = output_files[0]
             data = await client.download_file(
                 f["filename"], f.get("subfolder", ""), f.get("type", "output"),
             )
             ext = f["filename"].rsplit(".", 1)[-1] if "." in f["filename"] else "mp4"
             result = await storage.save_video(data, ext)
-            seg_url = result if COS_ENABLED else f"{VIDEO_BASE_URL}/{result}"
-            seg_path = await storage.get_video_path_from_url(seg_url)
-            if seg_path and seg_path.exists():
-                video_paths.append(seg_path)
-                segment_filenames.append(seg_path.name)
-            logger.info("Chain %s: downloaded segment video from node %s: %s",
-                        chain_id, f.get("_node_id", "?"), f["filename"])
-
-        await self.redis.hset(f"chain:{chain_id}", "completed_segments", str(total))
-
-        # Concatenate all segment videos
-        if len(video_paths) > 1:
-            fps = seg0.get("fps", 16)
-            transition = seg0.get("transition", "none")
-            final_path = await concat_videos(video_paths, fps, transition=transition)
-            final_data = final_path.read_bytes()
-            ext = final_path.suffix.lstrip(".")
-            result = await storage.save_video(final_data, ext)
             final_url = result if COS_ENABLED else f"{VIDEO_BASE_URL}/{result}"
-            if final_path.name not in segment_filenames:
-                storage.cleanup_local(final_path.name)
-        elif video_paths:
-            task_result = await self.get_task(task_id)
-            final_url = task_result.get("video_url", "") if task_result else ""
+            logger.info("Chain %s: using single merged video: %s", chain_id, f["filename"])
         else:
-            raise RuntimeError("No segment videos downloaded from merged workflow")
+            # Fallback: multiple videos (old behavior, shouldn't happen with optimization)
+            logger.warning("Chain %s: got %d videos, expected 1 (falling back to concat)",
+                          chain_id, len(output_files))
+            video_paths = []
+            segment_filenames = []
+            for f in output_files:
+                data = await client.download_file(
+                    f["filename"], f.get("subfolder", ""), f.get("type", "output"),
+                )
+                ext = f["filename"].rsplit(".", 1)[-1] if "." in f["filename"] else "mp4"
+                result = await storage.save_video(data, ext)
+                seg_url = result if COS_ENABLED else f"{VIDEO_BASE_URL}/{result}"
+                seg_path = await storage.get_video_path_from_url(seg_url)
+                if seg_path and seg_path.exists():
+                    video_paths.append(seg_path)
+                    segment_filenames.append(seg_path.name)
 
-        # Clean up local segment files
-        if COS_ENABLED:
-            for fn in segment_filenames:
-                storage.cleanup_local(fn)
+            if len(video_paths) > 1:
+                fps = seg0.get("fps", 16)
+                transition = seg0.get("transition", "none")
+                final_path = await concat_videos(video_paths, fps, transition=transition)
+                final_data = final_path.read_bytes()
+                ext = final_path.suffix.lstrip(".")
+                result = await storage.save_video(final_data, ext)
+                final_url = result if COS_ENABLED else f"{VIDEO_BASE_URL}/{result}"
+                if final_path.name not in segment_filenames:
+                    storage.cleanup_local(final_path.name)
+            elif video_paths:
+                task_result = await self.get_task(task_id)
+                final_url = task_result.get("video_url", "") if task_result else ""
+            else:
+                raise RuntimeError("No segment videos downloaded from merged workflow")
+
+            # Clean up local segment files
+            if COS_ENABLED:
+                for fn in segment_filenames:
+                    storage.cleanup_local(fn)
 
         await self.redis.hset(f"chain:{chain_id}", mapping={
             "status": "completed",
@@ -927,12 +969,14 @@ class TaskManager:
         initial_ref_filename: str,
     ) -> dict:
         """Build a story workflow for segment i (PainterI2V or PainterLongVideo)."""
-        from api.services.ffmpeg_utils import extract_last_frame
+        from api.services.ffmpeg_utils import extract_last_frame, extract_last_n_frames_video
         import base64
 
         seg["segment_index"] = i
         seg["target_prompt"] = segment_prompts[i] if i < len(segment_prompts) else seg["prompt"]
         seg["story_mode"] = True
+
+        prev_video_filename = ""
 
         # VLM prompt continuation for seg2+ (same as standard chain)
         if i > 0 and video_paths and auto_continue:
@@ -955,26 +999,57 @@ class TaskManager:
             seg["final_prompt"] = new_prompt
             logger.info("Chain %s seg %d (story): VLM prompt: %s", chain_id, i, new_prompt[:100])
 
-            # Upload last frame as previous_video input
-            upload_result = await client.upload_image(frame_data, frame_path.name)
-            prev_frame_filename = upload_result.get("name", frame_path.name)
+            # Extract last N frames as short video for motion reference
+            motion_frames = seg.get("motion_frames", 5)
+            fps = seg.get("fps", 16)
+            short_video_path = await extract_last_n_frames_video(video_paths[-1], motion_frames, fps)
+            video_data = short_video_path.read_bytes()
+            upload_result = await client.upload_video(video_data, short_video_path.name)
+            prev_video_filename = upload_result.get("name", short_video_path.name)
         elif i > 0 and video_paths:
-            # No VLM but still need previous frame for story continuation
+            # No VLM but still need previous video for story continuation
             seg["final_prompt"] = seg["prompt"]
-            frame_path = await extract_last_frame(video_paths[-1])
-            frame_data = frame_path.read_bytes()
-            upload_result = await client.upload_image(frame_data, frame_path.name)
-            prev_frame_filename = upload_result.get("name", frame_path.name)
+            motion_frames = seg.get("motion_frames", 5)
+            fps = seg.get("fps", 16)
+            short_video_path = await extract_last_n_frames_video(video_paths[-1], motion_frames, fps)
+            video_data = short_video_path.read_bytes()
+            upload_result = await client.upload_video(video_data, short_video_path.name)
+            prev_video_filename = upload_result.get("name", short_video_path.name)
         else:
             seg["final_prompt"] = seg["prompt"]
-            prev_frame_filename = ""
 
-        if i == 0:
+        # Check if this segment has a parent video (continuation from previous chain)
+        parent_video_fn = seg.get("parent_video_filename", "")
+
+        if i == 0 and parent_video_fn:
+            # First segment but continuing from parent video: use PainterLongVideo
+            logger.info("Chain %s seg 0: continuation from parent video %s", chain_id, parent_video_fn)
+            workflow = build_story_workflow(
+                is_first_segment=False,
+                prompt=seg["prompt"],
+                negative_prompt=seg.get("negative_prompt", ""),
+                width=seg["width"], height=seg["height"],
+                num_frames=seg["num_frames"],
+                seed=seg.get("seed"),
+                shift=seg.get("shift", 8.0),
+                cfg=seg.get("cfg", 1.0),
+                steps=seg.get("steps", 20),
+                motion_amplitude=seg.get("motion_amplitude", 1.15),
+                motion_frames=seg.get("motion_frames", 5),
+                boundary=seg.get("boundary", 0.9),
+                video_filename=parent_video_fn,
+                initial_ref_filename=initial_ref_filename,
+                model_preset=seg.get("model_preset", "nsfw_v2"),
+                clip_preset=seg.get("clip_preset", "nsfw"),
+                fps=seg.get("fps", 16),
+                upscale=seg.get("upscale", False),
+                loras=seg.get("loras", []),
+            )
+        elif i == 0:
             # First segment: PainterI2V
             image_filename = seg.get("image_filename", "")
             if not image_filename:
                 # No start image — fall back to standard T2V for first segment
-                # (story mode requires an image; we'll use T2V then extract first frame)
                 logger.info("Chain %s: story mode seg 0 has no image, using T2V fallback", chain_id)
                 from api.models.enums import GenerateMode
                 workflow = build_workflow(
@@ -1014,7 +1089,7 @@ class TaskManager:
                 loras=seg.get("loras", []),
             )
         else:
-            # Continuation segment: PainterLongVideo
+            # Continuation segment: PainterLongVideo with full video reference
             workflow = build_story_workflow(
                 is_first_segment=False,
                 prompt=seg["prompt"],
@@ -1028,7 +1103,7 @@ class TaskManager:
                 motion_amplitude=seg.get("motion_amplitude", 1.15),
                 motion_frames=seg.get("motion_frames", 5),
                 boundary=seg.get("boundary", 0.9),
-                image_filename=prev_frame_filename,
+                video_filename=prev_video_filename,
                 initial_ref_filename=initial_ref_filename,
                 model_preset=seg.get("model_preset", "nsfw_v2"),
                 clip_preset=seg.get("clip_preset", "nsfw"),
@@ -1036,6 +1111,10 @@ class TaskManager:
                 upscale=seg.get("upscale", False),
                 loras=seg.get("loras", []),
             )
+
+        # Inject post-processing nodes (upscale, RIFE, MMAudio) into single-segment story workflow
+        if seg.get("enable_upscale") or seg.get("enable_interpolation") or seg.get("enable_mmaudio"):
+            workflow = _inject_story_postproc(workflow, seg)
 
         return workflow
 
@@ -1054,6 +1133,24 @@ class TaskManager:
                 return None
             await asyncio.sleep(3)
         return None
+
+    def _check_history_result(self, history: dict, task_id: str, source: str):
+        """Check ComfyUI history and return/raise appropriately.
+
+        Returns history if outputs are available.
+        Raises RuntimeError on error or success-with-empty-outputs.
+        Does nothing if execution is still in progress.
+        """
+        if history.get("outputs") and any(history["outputs"].values()):
+            logger.info("Task %s: completion detected via %s history check", task_id, source)
+            raise _HistoryReady(history)
+        status = history.get("status", {})
+        status_str = status.get("status_str", "")
+        if status_str == "error":
+            raise RuntimeError(self._extract_error(status))
+        if status.get("completed"):
+            # ComfyUI finished (success) but produced no outputs
+            raise RuntimeError("ComfyUI execution completed but produced no output files")
 
     @staticmethod
     def _extract_error(status: dict) -> str:

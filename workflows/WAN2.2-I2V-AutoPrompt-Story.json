@@ -9221,7 +9221,7 @@
               "ue_properties": {
                 "version": "7.0.1",
                 "widget_ue_connectable": {
-                  "enable_fp16_accumulation": true
+                  "enable_fp16_accumulation": false
                 }
               }
             },
@@ -9316,7 +9316,7 @@
               "ue_properties": {
                 "version": "7.0.1",
                 "widget_ue_connectable": {
-                  "enable_fp16_accumulation": true
+                  "enable_fp16_accumulation": false
                 }
               }
             },

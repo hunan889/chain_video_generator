@@ -275,6 +275,24 @@ class AutoChainRequest(BaseModel):
     motion_frames: int = Field(default=5, ge=1, le=73, description="Motion reference frames for story mode")
     boundary: float = Field(default=0.9, ge=0.0, le=1.0, description="Boundary for WanMoeKSampler in story mode")
     clip_preset: str = Field(default="", description="CLIP preset for story mode (e.g. 'nsfw', 'default')")
+    match_image_ratio: bool = Field(default=False, description="Auto-adjust resolution to match input image aspect ratio (ignores width/height)")
+
+    # Post-processing: Upscale
+    enable_upscale: bool = Field(default=False, description="Enable TensorRT upscale")
+    upscale_model: str = Field(default="4x-UltraSharp", description="Upscale model name")
+    upscale_resize: str = Field(default="2x", description="Upscale resize target: 1.5x/2x/3x/4x")
+
+    # Post-processing: Frame interpolation
+    enable_interpolation: bool = Field(default=False, description="Enable RIFE TensorRT frame interpolation")
+    interpolation_multiplier: int = Field(default=2, ge=2, le=4, description="Frame rate multiplier")
+    interpolation_profile: str = Field(default="small", description="RIFE TRT profile: small/large")
+
+    # Post-processing: MMAudio
+    enable_mmaudio: bool = Field(default=False, description="Enable MMAudio video-to-audio")
+    mmaudio_prompt: str = Field(default="", max_length=500, description="Audio generation prompt")
+    mmaudio_negative_prompt: str = Field(default="", max_length=500, description="Audio negative prompt")
+    mmaudio_steps: int = Field(default=25, ge=1, le=100, description="MMAudio sampling steps")
+    mmaudio_cfg: float = Field(default=4.5, ge=0.0, le=20.0, description="MMAudio CFG scale")
 
     @field_validator("transition")
     @classmethod

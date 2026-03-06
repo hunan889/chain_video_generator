@@ -152,8 +152,9 @@ async def generate_chain(
                 image_filename = upload_result.get("name", local_name)
 
     # Handle Story Mode continuation from parent chain/video
+    parent_video_comfy_filename = ""
     if req.parent_chain_id or req.parent_video_url:
-        from api.services.ffmpeg_utils import extract_last_frame, extract_first_frame
+        from api.services.ffmpeg_utils import extract_first_frame
 
         # Get parent video URL
         parent_video_url = req.parent_video_url
@@ -171,13 +172,18 @@ async def generate_chain(
         if not parent_video_path or not parent_video_path.exists():
             raise HTTPException(400, "Parent video file not found")
 
-        # Extract last frame as starting image (for continuation)
-        last_frame_path = await extract_last_frame(parent_video_path)
-        last_frame_data = last_frame_path.read_bytes()
+        # Extract last N frames as short video for motion reference
+        from api.services.ffmpeg_utils import extract_last_n_frames_video
+        motion_frames = req.motion_frames if req.motion_frames else 5
+        fps = req.fps if req.fps else 16
+        short_video_path = await extract_last_n_frames_video(parent_video_path, motion_frames, fps)
+
         client = task_manager.clients.get(req.model.value)
         if client and await client.is_alive():
-            upload_result = await client.upload_image(last_frame_data, last_frame_path.name)
-            image_filename = upload_result.get("name", last_frame_path.name)
+            video_data = short_video_path.read_bytes()
+            upload_result = await client.upload_video(video_data, short_video_path.name)
+            parent_video_comfy_filename = upload_result.get("name", short_video_path.name)
+            logger.info("Uploaded parent video (last %d frames) to ComfyUI: %s", motion_frames, parent_video_comfy_filename)
 
         # Extract first frame as initial reference (for identity consistency)
         if req.story_mode and not initial_reference_image:
@@ -249,9 +255,24 @@ async def generate_chain(
                 "motion_frames": req.motion_frames,
                 "boundary": req.boundary,
                 "clip_preset": req.clip_preset,
+                "match_image_ratio": req.match_image_ratio,
+                "enable_upscale": req.enable_upscale,
+                "upscale_model": req.upscale_model,
+                "upscale_resize": req.upscale_resize,
+                "enable_interpolation": req.enable_interpolation,
+                "interpolation_multiplier": req.interpolation_multiplier,
+                "interpolation_profile": req.interpolation_profile,
+                "enable_mmaudio": req.enable_mmaudio,
+                "mmaudio_prompt": req.mmaudio_prompt,
+                "mmaudio_negative_prompt": req.mmaudio_negative_prompt,
+                "mmaudio_steps": req.mmaudio_steps,
+                "mmaudio_cfg": req.mmaudio_cfg,
             }
             if i == 0 and image_filename:
                 seg["image_filename"] = image_filename
+            # Add parent video filename for Story Mode continuation (multi-frame reference)
+            if i == 0 and parent_video_comfy_filename:
+                seg["parent_video_filename"] = parent_video_comfy_filename
             # Add initial reference image for Story Mode (all segments)
             if initial_ref_filename:
                 seg["initial_ref_filename"] = initial_ref_filename
@@ -263,6 +284,7 @@ async def generate_chain(
             "segment_durations": segment_durations,
             "total_duration": total_duration,
             "num_segments": num_segments,
+            "story_mode": req.story_mode,
         })
         await task_manager.run_chain(chain_id, segments)
 
@@ -330,9 +352,23 @@ async def generate_chain(
             "motion_frames": req.motion_frames,
             "boundary": req.boundary,
             "clip_preset": req.clip_preset,
+            "match_image_ratio": req.match_image_ratio,
+            "enable_upscale": req.enable_upscale,
+            "upscale_model": req.upscale_model,
+            "upscale_resize": req.upscale_resize,
+            "enable_interpolation": req.enable_interpolation,
+            "interpolation_multiplier": req.interpolation_multiplier,
+            "interpolation_profile": req.interpolation_profile,
+            "enable_mmaudio": req.enable_mmaudio,
+            "mmaudio_prompt": req.mmaudio_prompt,
+            "mmaudio_negative_prompt": req.mmaudio_negative_prompt,
+            "mmaudio_steps": req.mmaudio_steps,
+            "mmaudio_cfg": req.mmaudio_cfg,
         }
         if i == 0 and image_filename:
             seg["image_filename"] = image_filename
+        if i == 0 and parent_video_comfy_filename:
+            seg["parent_video_filename"] = parent_video_comfy_filename
         segments.append(seg)
 
     chain_id = await task_manager.create_chain(num_segments, {
@@ -344,6 +380,7 @@ async def generate_chain(
         "total_duration": req.total_duration,
         "segment_duration": req.segment_duration,
         "num_segments": num_segments,
+        "story_mode": req.story_mode,
     })
     await task_manager.run_chain(chain_id, segments)
 

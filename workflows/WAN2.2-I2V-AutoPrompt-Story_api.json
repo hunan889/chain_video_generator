@@ -392,8 +392,8 @@
   },
   "1581:1564": {
     "inputs": {
-      "model_name": "Qwen3-VL-8B-Instruct-c_abliterated-v3.Q8_0.gguf",
-      "device": "auto",
+      "model_name": "Qwen3VL-8B-Instruct-Q8_0.gguf",
+      "device": "cpu",
       "preset_prompt": "\ud83d\udcd6 Wan 2.2 NSFW I2V Story",
       "custom_prompt": "",
       "max_tokens": 1536,
@@ -403,7 +403,7 @@
       "frame_count": 16,
       "ctx": 65536,
       "n_batch": 512,
-      "gpu_layers": -1,
+      "gpu_layers": 0,
       "image_max_tokens": 4096,
       "top_k": 0,
       "pool_size": 4194304,

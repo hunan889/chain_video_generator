@@ -652,6 +652,7 @@ def build_story_workflow(
     boundary: float = 0.9,
     image_filename: str = "",
     initial_ref_filename: str = "",
+    video_filename: str = "",
     model_preset: str = "nsfw_v2",
     clip_preset: str = "nsfw",
     fps: int = 16,
@@ -728,6 +729,7 @@ def build_story_workflow(
             if num_frames > 0:
                 inputs["length"] = num_frames
             inputs["motion_amplitude"] = motion_amplitude
+            inputs["clip_vision_output"] = ["cv_encode", 0]
 
         # PainterLongVideo — continuation segment
         elif ct == "PainterLongVideo":
@@ -737,6 +739,7 @@ def build_story_workflow(
                 inputs["length"] = num_frames
             inputs["motion_frames"] = motion_frames
             inputs["motion_amplitude"] = motion_amplitude
+            inputs["clip_vision_output"] = ["cv_encode", 0]
 
         # WanMoeKSamplerAdvanced — sampling params
         elif ct == "WanMoeKSamplerAdvanced":
@@ -763,15 +766,72 @@ def build_story_workflow(
             else:
                 # Continuation: two LoadImages
                 if "previous" in title or "frame" in title:
-                    inputs["image"] = image_filename
+                    if video_filename:
+                        pass  # Will be replaced with VHS_LoadVideo below
+                    else:
+                        inputs["image"] = image_filename
                 elif "initial" in title or "reference" in title:
                     inputs["image"] = initial_ref_filename
                 else:
                     # Fallback: node "10" is previous, node "11" is reference
                     if node_id == "10":
-                        inputs["image"] = image_filename
+                        if video_filename:
+                            pass  # Will be replaced with VHS_LoadVideo below
+                        else:
+                            inputs["image"] = image_filename
                     elif node_id == "11":
                         inputs["image"] = initial_ref_filename
+
+    # For continuation with video: replace LoadImage+ImageScaleBy with VHS_LoadVideo
+    if not is_first_segment and video_filename:
+        # Remove old LoadImage node "10" and ImageScaleBy node "55"
+        workflow.pop("10", None)
+        workflow.pop("55", None)
+
+        # Add VHS_LoadVideo node to load previous video (pre-trimmed to last N frames)
+        workflow["10"] = {
+            "class_type": "VHS_LoadVideo",
+            "inputs": {
+                "video": video_filename,
+                "force_rate": 0,
+                "custom_width": 0,
+                "custom_height": 0,
+                "frame_load_cap": 0,
+                "skip_first_frames": 0,
+                "select_every_nth": 1,
+            },
+            "_meta": {"title": "Load Previous Video"},
+        }
+
+        # Rewire PainterLongVideo.previous_video to point directly to VHS_LoadVideo
+        for nid, node in workflow.items():
+            if node.get("class_type") == "PainterLongVideo":
+                node["inputs"]["previous_video"] = ["10", 0]
+
+    # CLIP Vision: load model + encode reference image for character consistency
+    # Find the LoadImage node for reference image
+    ref_image_node = "11" if not is_first_segment else None
+    # For first segment, find any LoadImage node
+    if is_first_segment:
+        for nid, node in workflow.items():
+            if node.get("class_type") == "LoadImage":
+                ref_image_node = nid
+                break
+    if ref_image_node:
+        workflow["cv_loader"] = {
+            "class_type": "CLIPVisionLoader",
+            "inputs": {"clip_name": "clip_vision_h.safetensors"},
+            "_meta": {"title": "Load CLIP Vision"},
+        }
+        workflow["cv_encode"] = {
+            "class_type": "CLIPVisionEncode",
+            "inputs": {
+                "clip_vision": ["cv_loader", 0],
+                "image": [ref_image_node, 0],
+                "crop": "center",
+            },
+            "_meta": {"title": "CLIP Vision Encode"},
+        }
 
     # Inject LoRAs via Power Lora Loader (rgthree)
     if loras:
@@ -785,13 +845,158 @@ def build_story_workflow(
     return workflow
 
 
+def _inject_story_postproc(workflow: dict, seg: dict) -> dict:
+    """Inject post-processing nodes (TRT upscale, RIFE, MMAudio) into a single-segment story workflow.
+
+    Finds the VHS_VideoCombine node and inserts post-processing between its image source and it.
+    """
+    # Find VHS_VideoCombine (final output)
+    combine_id = None
+    for nid, node in workflow.items():
+        if node.get("class_type") == "VHS_VideoCombine" and node.get("inputs", {}).get("save_output", True):
+            combine_id = nid
+            break
+    if not combine_id:
+        for nid, node in workflow.items():
+            if node.get("class_type") == "VHS_VideoCombine":
+                combine_id = nid
+                break
+    if not combine_id:
+        logger.warning("No VHS_VideoCombine found, skipping post-processing injection")
+        return workflow
+
+    current_image_ref = workflow[combine_id]["inputs"].get("images")
+    if not isinstance(current_image_ref, list):
+        logger.warning("VHS_VideoCombine images input unexpected, skipping post-processing")
+        return workflow
+
+    fps = seg.get("fps", 16)
+    output_fps = fps
+
+    # VRAMCleanup before post-processing: offload models to free VRAM for TRT engines
+    if seg.get("enable_upscale") or seg.get("enable_interpolation"):
+        workflow["pp_vram_cleanup"] = {
+            "class_type": "VRAMCleanup",
+            "inputs": {
+                "offload_model": True,
+                "offload_cache": True,
+                "anything": current_image_ref,
+            },
+            "_meta": {"title": "VRAM Cleanup (pre-postproc)"},
+        }
+        current_image_ref = ["pp_vram_cleanup", 0]
+
+    # TRT Upscale
+    if seg.get("enable_upscale"):
+        workflow["pp_upscale_loader"] = {
+            "class_type": "LoadUpscalerTensorrtModel",
+            "inputs": {
+                "model": seg.get("upscale_model", "4x-UltraSharp"),
+                "precision": "fp16",
+            },
+            "_meta": {"title": "Load Upscaler TRT"},
+        }
+        workflow["pp_upscale"] = {
+            "class_type": "UpscalerTensorrt",
+            "inputs": {
+                "images": current_image_ref,
+                "upscaler_trt_model": ["pp_upscale_loader", 0],
+                "resize_to": seg.get("upscale_resize", "2x"),
+                "resize_width": 1024,
+                "resize_height": 1024,
+            },
+            "_meta": {"title": "Upscaler TensorRT"},
+        }
+        current_image_ref = ["pp_upscale", 0]
+
+    # RIFE Frame Interpolation
+    multiplier = seg.get("interpolation_multiplier", 2)
+    if seg.get("enable_interpolation") and multiplier > 1:
+        output_fps = fps * multiplier
+        rife_profile = "large" if seg.get("enable_upscale") else seg.get("interpolation_profile", "small")
+        workflow["pp_rife_loader"] = {
+            "class_type": "AutoLoadRifeTensorrtModel",
+            "inputs": {
+                "model": "rife49_ensemble_True_scale_1_sim",
+                "precision": "fp16",
+                "resolution_profile": rife_profile,
+            },
+            "_meta": {"title": "Load RIFE TRT"},
+        }
+        workflow["pp_rife"] = {
+            "class_type": "AutoRifeTensorrt",
+            "inputs": {
+                "frames": current_image_ref,
+                "rife_trt_model": ["pp_rife_loader", 0],
+                "clear_cache_after_n_frames": 100,
+                "multiplier": multiplier,
+                "keep_model_loaded": False,
+            },
+            "_meta": {"title": f"RIFE {output_fps}FPS"},
+        }
+        current_image_ref = ["pp_rife", 0]
+
+    # MMAudio
+    audio_ref = None
+    if seg.get("enable_mmaudio"):
+        workflow["pp_mma_model"] = {
+            "class_type": "MMAudioModelLoader",
+            "inputs": {
+                "mmaudio_model": "mmaudio_large_44k_nsfw_gold_8.5k_final_fp16.safetensors",
+                "base_precision": "fp16",
+            },
+            "_meta": {"title": "MMAudio Model"},
+        }
+        workflow["pp_mma_features"] = {
+            "class_type": "MMAudioFeatureUtilsLoader",
+            "inputs": {
+                "vae_model": "mmaudio_vae_44k_fp16.safetensors",
+                "synchformer_model": "mmaudio_synchformer_fp16.safetensors",
+                "clip_model": "apple_DFN5B-CLIP-ViT-H-14-384_fp16.safetensors",
+                "mode": "44k",
+                "precision": "fp16",
+            },
+            "_meta": {"title": "MMAudio Features"},
+        }
+        num_frames = seg.get("num_frames", 81)
+        audio_duration = num_frames / fps
+        workflow["pp_mma_sampler"] = {
+            "class_type": "MMAudioSampler",
+            "inputs": {
+                "mmaudio_model": ["pp_mma_model", 0],
+                "feature_utils": ["pp_mma_features", 0],
+                "duration": audio_duration,
+                "steps": seg.get("mmaudio_steps", 25),
+                "cfg": seg.get("mmaudio_cfg", 4.5),
+                "seed": random.randint(0, 1125899906842624),
+                "prompt": seg.get("mmaudio_prompt", ""),
+                "negative_prompt": seg.get("mmaudio_negative_prompt", ""),
+                "mask_away_clip": False,
+                "force_offload": True,
+                "images": current_image_ref,
+                "source_fps": float(fps),
+            },
+            "_meta": {"title": "MMAudio Sampler"},
+        }
+        audio_ref = ["pp_mma_sampler", 0]
+
+    # Rewire VHS_VideoCombine
+    workflow[combine_id]["inputs"]["images"] = current_image_ref
+    workflow[combine_id]["inputs"]["frame_rate"] = output_fps
+    if audio_ref:
+        workflow[combine_id]["inputs"]["audio"] = audio_ref
+        workflow[combine_id]["inputs"]["trim_to_audio"] = True
+
+    return workflow
+
+
 def build_merged_story_workflow(
     segments: list[dict],
     width: int,
     height: int,
     shift: float,
     cfg: float,
-    steps: int = 20,
+    steps: int = 5,
     motion_amplitude: float = 1.15,
     motion_frames: int = 5,
     boundary: float = 0.9,
@@ -801,6 +1006,18 @@ def build_merged_story_workflow(
     fps: int = 16,
     upscale: bool = False,
     loras: Optional[list[LoraInput]] = None,
+    match_image_ratio: bool = False,
+    enable_upscale: bool = False,
+    upscale_model: str = "4x-UltraSharp",
+    upscale_resize: str = "2x",
+    enable_interpolation: bool = False,
+    interpolation_multiplier: int = 2,
+    interpolation_profile: str = "small",
+    enable_mmaudio: bool = False,
+    mmaudio_prompt: str = "",
+    mmaudio_negative_prompt: str = "",
+    mmaudio_steps: int = 25,
+    mmaudio_cfg: float = 4.5,
 ) -> dict:
     """Build a single merged ComfyUI workflow containing N story segments.
 
@@ -914,6 +1131,22 @@ def build_merged_story_workflow(
         "_meta": {"title": "加载图像"},
     }
 
+    # CLIP Vision: load model + encode reference image for character consistency
+    workflow["cv_loader"] = {
+        "class_type": "CLIPVisionLoader",
+        "inputs": {"clip_name": "clip_vision_h.safetensors"},
+        "_meta": {"title": "Load CLIP Vision"},
+    }
+    workflow["cv_encode"] = {
+        "class_type": "CLIPVisionEncode",
+        "inputs": {
+            "clip_vision": ["cv_loader", 0],
+            "image": ["97", 0],
+            "crop": "center",
+        },
+        "_meta": {"title": "CLIP Vision Encode"},
+    }
+
     # Node 10: mxSlider (Length)
     workflow["1282"] = {
         "class_type": "mxSlider",
@@ -971,43 +1204,52 @@ def build_merged_story_workflow(
         "_meta": {"title": "Scheduler Selector"},
     }
 
-    # Node 17: FindPerfectResolution
-    workflow["1445"] = {
-        "class_type": "FindPerfectResolution",
-        "inputs": {
-            "desired_width": width,
-            "desired_height": height,
-            "divisible_by": 16,
-            "upscale": False,
-            "upscale_method": "lanczos",
-            "small_image_mode": "none",
-            "pad_color": "#000000",
-            "image": ["97", 0],
-        },
-        "_meta": {"title": "Find Perfect Resolution"},
-    }
+    # Width/height: either from FindPerfectResolution or direct values
+    if match_image_ratio:
+        workflow["1445"] = {
+            "class_type": "FindPerfectResolution",
+            "inputs": {
+                "desired_width": width,
+                "desired_height": height,
+                "divisible_by": 16,
+                "upscale": False,
+                "upscale_method": "lanczos",
+                "small_image_mode": "none",
+                "pad_color": "#000000",
+                "image": ["97", 0],
+            },
+            "_meta": {"title": "Find Perfect Resolution"},
+        }
+        painter_width = ["1445", 0]
+        painter_height = ["1445", 1]
+    else:
+        painter_width = width
+        painter_height = height
 
     # ═══════════════════════════════════════════════════════════════════════════
-    # PER-SEGMENT NODES
+    # PER-SEGMENT NODES (dynamic: supports N segments)
     # ═══════════════════════════════════════════════════════════════════════════
 
-    # Segment node ID mapping (matching original workflow):
-    # Segment 0: prefix "1252:"
-    # Segment 1: prefix "1262:"
-    # Segment 2: prefix "1332:"
-    # Segment 3: prefix "1344:"
-
-    segment_prefixes = ["1252:", "1262:", "1332:", "1344:"]
-    prompt_show_ids = ["1592", "1593", "1594", "1595"]  # easy showAnything for input prompts
-    lora_high_ids = ["174", "179", "182", "1040"]  # Power Lora Loader HIGH
-    lora_low_ids = ["175", "181", "180", "1037"]   # Power Lora Loader LOW
+    # Generate unique node IDs per segment using "s{idx}_" prefix
+    seg_node_ids = []  # list of dicts with node IDs per segment
 
     for seg_idx, seg in enumerate(segments):
-        if seg_idx >= 4:
-            logger.warning(f"Skipping segment {seg_idx}: only 4 segments supported in original workflow")
-            break
+        p = f"s{seg_idx}_"  # unique prefix per segment
+        ids = {
+            "lora_high": f"{p}lora_h",
+            "lora_low": f"{p}lora_l",
+            "clip_pos": f"{p}clip_pos",
+            "clip_neg": f"{p}clip_neg",
+            "seed": f"{p}seed",
+            "pre_vram": f"{p}pre_vram",
+            "painter": f"{p}painter",
+            "sampler": f"{p}sampler",
+            "vram": f"{p}vram",
+            "vae_decode": f"{p}vae_dec",
+            "batch": f"{p}batch",
+        }
+        seg_node_ids.append(ids)
 
-        prefix = segment_prefixes[seg_idx]
         prompt = seg.get("prompt", "")
         negative_prompt = seg.get("negative_prompt", "")
         num_frames = seg.get("num_frames", 81)
@@ -1025,175 +1267,102 @@ def build_merged_story_workflow(
         else:
             final_prompt = prompt
 
-        # ─────────────────────────────────────────────────────────────────────
-        # Input prompt display (easy showAnything)
-        # ─────────────────────────────────────────────────────────────────────
-        workflow[prompt_show_ids[seg_idx]] = {
-            "class_type": "easy showAnything",
-            "inputs": {
-                "text": final_prompt,
-                "anything": ["97", 0],
-            },
-            "_meta": {"title": f"Prompt {seg_idx + 1}"},
-        }
-
-        # ─────────────────────────────────────────────────────────────────────
-        # Power Lora Loader (HIGH and LOW)
-        # ─────────────────────────────────────────────────────────────────────
-        workflow[lora_high_ids[seg_idx]] = {
+        # Power Lora Loader (HIGH and LOW) — connect to ModelPatchTorchSettings
+        workflow[ids["lora_high"]] = {
             "class_type": "Power Lora Loader (rgthree)",
             "inputs": {
                 "PowerLoraLoaderHeaderWidget": {"type": "PowerLoraLoaderHeaderWidget"},
                 "➕ Add Lora": "",
-                "model": ["1252:1279", 0],  # Connect to shared ModelPatchTorchSettings HIGH
+                "model": ["1252:1279", 0],
             },
             "_meta": {"title": f"{seg_idx + 1}LORA HIGH"},
         }
-
-        workflow[lora_low_ids[seg_idx]] = {
+        workflow[ids["lora_low"]] = {
             "class_type": "Power Lora Loader (rgthree)",
             "inputs": {
                 "PowerLoraLoaderHeaderWidget": {"type": "PowerLoraLoaderHeaderWidget"},
                 "➕ Add Lora": "",
-                "model": ["1252:1280", 0],  # Connect to shared ModelPatchTorchSettings LOW
+                "model": ["1252:1280", 0],
             },
             "_meta": {"title": f"{seg_idx + 1}LORA LOW"},
         }
 
-        # ─────────────────────────────────────────────────────────────────────
-        # LoRaS Triggers (PrimitiveStringMultiline)
-        # ─────────────────────────────────────────────────────────────────────
-        workflow[f"{prefix}1300" if seg_idx == 0 else f"{prefix}1287" if seg_idx == 1 else f"{prefix}1283"] = {
-            "class_type": "PrimitiveStringMultiline",
-            "inputs": {"value": ""},
-            "_meta": {"title": "LoRaS Triggers"},
-        }
-
-        # ─────────────────────────────────────────────────────────────────────
-        # Text Concatenate (LoRaS Triggers + Prompt)
-        # ─────────────────────────────────────────────────────────────────────
-        lora_trigger_id = f"{prefix}1300" if seg_idx == 0 else f"{prefix}1287" if seg_idx == 1 else f"{prefix}1283"
-        text_concat_id = f"{prefix}1301" if seg_idx == 0 else f"{prefix}1288" if seg_idx == 1 else f"{prefix}1284"
-
-        workflow[text_concat_id] = {
-            "class_type": "Text Concatenate",
-            "inputs": {
-                "delimiter": "",
-                "clean_whitespace": "false",
-                "text_a": [lora_trigger_id, 0],
-                "text_b": [prompt_show_ids[seg_idx], 0],
-            },
-            "_meta": {"title": "Text Concatenate"},
-        }
-
-        # ─────────────────────────────────────────────────────────────────────
-        # Final prompt preview (easy showAnything)
-        # ─────────────────────────────────────────────────────────────────────
-        final_preview_id = f"{prefix}1299" if seg_idx == 0 else f"{prefix}1269"
-
-        workflow[final_preview_id] = {
-            "class_type": "easy showAnything",
-            "inputs": {
-                "text": final_prompt,
-                "anything": [text_concat_id, 0],
-            },
-            "_meta": {"title": "Final prompt preview"},
-        }
-
-        # ─────────────────────────────────────────────────────────────────────
-        # CLIPTextEncode (Positive)
-        # ─────────────────────────────────────────────────────────────────────
-        clip_pos_id = f"{prefix}1258" if seg_idx == 0 else f"{prefix}1268"
-
-        workflow[clip_pos_id] = {
+        # CLIPTextEncode (Positive / Negative)
+        workflow[ids["clip_pos"]] = {
             "class_type": "CLIPTextEncode",
-            "inputs": {
-                "text": [final_preview_id, 0],
-                "clip": ["1521", 0],
-            },
+            "inputs": {"text": final_prompt, "clip": ["1521", 0]},
             "_meta": {"title": "Positive encode"},
         }
-
-        # ─────────────────────────────────────────────────────────────────────
-        # CLIPTextEncode (Negative)
-        # ─────────────────────────────────────────────────────────────────────
-        clip_neg_id = f"{prefix}1245" if seg_idx == 0 else f"{prefix}1259"
-
-        workflow[clip_neg_id] = {
+        workflow[ids["clip_neg"]] = {
             "class_type": "CLIPTextEncode",
-            "inputs": {
-                "text": negative_prompt,
-                "clip": ["1521", 0],
-            },
+            "inputs": {"text": negative_prompt, "clip": ["1521", 0]},
             "_meta": {"title": "CLIP Text Encode (Negative Prompt)"},
         }
 
-        # ─────────────────────────────────────────────────────────────────────
         # Seed
-        # ─────────────────────────────────────────────────────────────────────
-        seed_id = f"{prefix}1250" if seg_idx == 0 else f"{prefix}308"
-
-        workflow[seed_id] = {
+        workflow[ids["seed"]] = {
             "class_type": "Seed (rgthree)",
             "inputs": {"seed": seed},
-            "_meta": {"title": f"{seg_idx + 1}-Seed high"},
+            "_meta": {"title": f"{seg_idx + 1}-Seed"},
         }
 
-        # ─────────────────────────────────────────────────────────────────────
+        # Pre-Painter VRAMCleanup
+        workflow[ids["pre_vram"]] = {
+            "class_type": "VRAMCleanup",
+            "inputs": {
+                "offload_model": True,
+                "offload_cache": True,
+                "anything": [ids["clip_neg"], 0],
+            },
+            "_meta": {"title": f"Pre-Painter VRAM Cleanup seg{seg_idx}"},
+        }
+
         # PainterI2V (seg0) or PainterLongVideo (seg1+)
-        # ─────────────────────────────────────────────────────────────────────
         if seg_idx == 0:
-            painter_id = f"{prefix}1285"
-            workflow[painter_id] = {
+            workflow[ids["painter"]] = {
                 "class_type": "PainterI2V",
                 "inputs": {
-                    "width": ["1445", 0],
-                    "height": ["1445", 1],
+                    "width": painter_width,
+                    "height": painter_height,
                     "length": ["1282", 0],
                     "batch_size": 1,
                     "motion_amplitude": ["604", 0],
-                    "positive": [clip_pos_id, 0],
-                    "negative": [clip_neg_id, 0],
+                    "positive": [ids["clip_pos"], 0],
+                    "negative": [ids["pre_vram"], 0],
                     "vae": ["916", 0],
                     "start_image": ["97", 0],
+                    "clip_vision_output": ["cv_encode", 0],
                 },
                 "_meta": {"title": "PainterI2V"},
             }
         else:
-            painter_id = f"{prefix}1256"
-            # Get previous segment's scaled image
-            prev_prefix = segment_prefixes[seg_idx - 1]
-            prev_scale_id = f"{prefix}1260"
-
-            workflow[painter_id] = {
+            prev_ids = seg_node_ids[seg_idx - 1]
+            workflow[ids["painter"]] = {
                 "class_type": "PainterLongVideo",
                 "inputs": {
-                    "width": ["1445", 0],
-                    "height": ["1445", 1],
+                    "width": painter_width,
+                    "height": painter_height,
                     "length": ["1282", 0],
                     "batch_size": 1,
                     "motion_frames": ["605", 0],
                     "motion_amplitude": ["604", 0],
-                    "positive": [clip_pos_id, 0],
-                    "negative": [clip_neg_id, 0],
+                    "positive": [ids["clip_pos"], 0],
+                    "negative": [ids["pre_vram"], 0],
                     "vae": ["916", 0],
-                    "previous_video": [prev_scale_id, 0],
+                    "previous_video": [prev_ids["vae_decode"], 0],
                     "initial_reference_image": ["97", 0],
+                    "clip_vision_output": ["cv_encode", 0],
                 },
-                "_meta": {"title": "2-PainterLongVideo"},
+                "_meta": {"title": f"{seg_idx + 1}-PainterLongVideo"},
             }
 
-        # ─────────────────────────────────────────────────────────────────────
         # WanMoeKSamplerAdvanced
-        # ─────────────────────────────────────────────────────────────────────
-        sampler_id = f"{prefix}1284" if seg_idx == 0 else f"{prefix}1282" if seg_idx == 1 else f"{prefix}1280"
-
-        workflow[sampler_id] = {
+        workflow[ids["sampler"]] = {
             "class_type": "WanMoeKSamplerAdvanced",
             "inputs": {
                 "boundary": boundary,
                 "add_noise": "enable",
-                "noise_seed": [seed_id, 0],
+                "noise_seed": [ids["seed"], 0],
                 "steps": ["1283", 0],
                 "cfg_high_noise": cfg,
                 "cfg_low_noise": cfg,
@@ -1203,95 +1372,50 @@ def build_merged_story_workflow(
                 "start_at_step": 0,
                 "end_at_step": 10000,
                 "return_with_leftover_noise": "disable",
-                "model_high_noise": [lora_high_ids[seg_idx], 0],
-                "model_low_noise": [lora_low_ids[seg_idx], 0],
-                "positive": [painter_id, 0],
-                "negative": [painter_id, 1],
-                "latent_image": [painter_id, 2],
+                "model_high_noise": [ids["lora_high"], 0],
+                "model_low_noise": [ids["lora_low"], 0],
+                "positive": [ids["painter"], 0],
+                "negative": [ids["painter"], 1],
+                "latent_image": [ids["painter"], 2],
             },
-            "_meta": {"title": "Wan MoE KSampler (Advanced)"},
+            "_meta": {"title": f"Wan MoE KSampler seg{seg_idx}"},
         }
 
-        # ─────────────────────────────────────────────────────────────────────
-        # VRAMCleanup
-        # ─────────────────────────────────────────────────────────────────────
-        vram_id = f"{prefix}1604" if seg_idx == 0 else f"{prefix}1605" if seg_idx == 1 else f"{prefix}1606" if seg_idx == 2 else f"{prefix}1607"
-
-        # Last segment uses "Full Cleanup", others use "Text Encoder"
-        offload_model = "Full Cleanup" if seg_idx == len(segments) - 1 else "Text Encoder"
-
-        workflow[vram_id] = {
+        # VRAMCleanup (post-sampler)
+        workflow[ids["vram"]] = {
             "class_type": "VRAMCleanup",
             "inputs": {
-                "offload_model": offload_model,
+                "offload_model": True,
                 "offload_cache": True,
-                "input": [sampler_id, 0],
+                "anything": [ids["sampler"], 0],
             },
-            "_meta": {"title": "🎈VRAM-Cleanup"},
+            "_meta": {"title": f"VRAM-Cleanup seg{seg_idx}"},
         }
 
-        # ─────────────────────────────────────────────────────────────────────
         # VAEDecode
-        # ─────────────────────────────────────────────────────────────────────
-        vae_decode_id = f"{prefix}1249" if seg_idx == 0 else f"{prefix}1258"
-
-        workflow[vae_decode_id] = {
+        workflow[ids["vae_decode"]] = {
             "class_type": "VAEDecode",
             "inputs": {
-                "samples": [vram_id, 0],
+                "samples": [ids["vram"], 0],
                 "vae": ["916", 0],
             },
-            "_meta": {"title": "VAE解码"},
+            "_meta": {"title": f"VAE解码 seg{seg_idx}"},
         }
 
-        # ─────────────────────────────────────────────────────────────────────
-        # VHS_SelectImages (select last frame for next segment)
-        # ─────────────────────────────────────────────────────────────────────
-        if seg_idx < len(segments) - 1:
-            select_id = f"{segment_prefixes[seg_idx + 1]}1261"
-
-            workflow[select_id] = {
-                "class_type": "VHS_SelectImages",
-                "inputs": {
-                    "indexes": "-1",
-                    "err_if_missing": True,
-                    "err_if_empty": True,
-                    "image": [vae_decode_id, 0],
-                },
-                "_meta": {"title": "Select Images 🎥🅥🅗🅢"},
-            }
-
-            # ─────────────────────────────────────────────────────────────────
-            # ImageScaleBy (2x upscale for next segment)
-            # ─────────────────────────────────────────────────────────────────
-            scale_id = f"{segment_prefixes[seg_idx + 1]}1260"
-
-            workflow[scale_id] = {
-                "class_type": "ImageScaleBy",
-                "inputs": {
-                    "upscale_method": "nearest-exact",
-                    "scale_by": 2,
-                    "image": [select_id, 0],
-                },
-                "_meta": {"title": "缩放图像（比例）"},
-            }
-
-        # ─────────────────────────────────────────────────────────────────────
         # ImageBatchMulti (merge with previous segments)
-        # ─────────────────────────────────────────────────────────────────────
         if seg_idx > 0:
-            batch_id = f"{prefix}1253"
-            prev_batch_id = f"{segment_prefixes[seg_idx - 1]}1253" if seg_idx > 1 else "1252:1249"
-
-            workflow[batch_id] = {
+            prev_ids = seg_node_ids[seg_idx - 1]
+            # seg1 merges with seg0's vae_decode; seg2+ merges with prev batch
+            prev_image_ref = prev_ids["vae_decode"] if seg_idx == 1 else prev_ids["batch"]
+            workflow[ids["batch"]] = {
                 "class_type": "ImageBatchMulti",
                 "inputs": {
                     "inputcount": 2,
                     "Update inputs": None,
-                    "image_1": [prev_batch_id, 0],
-                    "image_2": [vae_decode_id, 0],
+                    "image_1": [prev_image_ref, 0],
+                    "image_2": [ids["vae_decode"], 0],
                 },
-                "_meta": {"title": "Image Batch Multi"},
+                "_meta": {"title": f"Image Batch Multi seg{seg_idx}"},
             }
 
     # ═══════════════════════════════════════════════════════════════════════════
@@ -1299,10 +1423,11 @@ def build_merged_story_workflow(
     # ═══════════════════════════════════════════════════════════════════════════
 
     # Get the final merged image (last ImageBatchMulti or first VAEDecode if only 1 segment)
+    last_ids = seg_node_ids[-1]
     if len(segments) > 1:
-        final_image_ref = [f"{segment_prefixes[len(segments) - 1]}1253", 0]
+        final_image_ref = [last_ids["batch"], 0]
     else:
-        final_image_ref = ["1252:1249", 0]
+        final_image_ref = [last_ids["vae_decode"], 0]
 
     # ColorMatch
     workflow["1546"] = {
@@ -1317,53 +1442,141 @@ def build_merged_story_workflow(
         "_meta": {"title": "Color Match"},
     }
 
-    # ImageScaleBy (1x, no scaling, just for consistency)
-    workflow["1532"] = {
-        "class_type": "ImageScaleBy",
-        "inputs": {
-            "upscale_method": "nearest-exact",
-            "scale_by": 1,
-            "image": ["1546", 0],
-        },
-        "_meta": {"title": "缩放图像（比例）"},
-    }
+    # Track current image source through the post-processing chain
+    current_image_ref = ["1546", 0]
 
-    # VHS_VideoCombine (16FPS intermediate output)
+    # VRAMCleanup before post-processing: offload models to free VRAM for TRT engines
+    if enable_upscale or enable_interpolation:
+        workflow["pp_vram_cleanup"] = {
+            "class_type": "VRAMCleanup",
+            "inputs": {
+                "offload_model": True,
+                "offload_cache": True,
+                "anything": current_image_ref,
+            },
+            "_meta": {"title": "VRAM Cleanup (pre-postproc)"},
+        }
+        current_image_ref = ["pp_vram_cleanup", 0]
+
+    # ── Optional: TensorRT Upscale ───────────────────────────────────────
+    if enable_upscale:
+        workflow["pp_upscale_loader"] = {
+            "class_type": "LoadUpscalerTensorrtModel",
+            "inputs": {
+                "model": upscale_model,
+                "precision": "fp16",
+            },
+            "_meta": {"title": "Load Upscaler TRT"},
+        }
+        workflow["pp_upscale"] = {
+            "class_type": "UpscalerTensorrt",
+            "inputs": {
+                "images": current_image_ref,
+                "upscaler_trt_model": ["pp_upscale_loader", 0],
+                "resize_to": upscale_resize,
+                "resize_width": 1024,
+                "resize_height": 1024,
+            },
+            "_meta": {"title": "Upscaler TensorRT"},
+        }
+        current_image_ref = ["pp_upscale", 0]
+
+    # ── Optional: RIFE TensorRT Frame Interpolation ──────────────────────
+    output_fps = fps
+    if enable_interpolation and interpolation_multiplier > 1:
+        output_fps = fps * interpolation_multiplier
+        # Auto-select RIFE profile: use "large" if upscaled (dimensions > 1080px)
+        rife_profile = interpolation_profile
+        if enable_upscale:
+            rife_profile = "large"
+        workflow["pp_rife_loader"] = {
+            "class_type": "AutoLoadRifeTensorrtModel",
+            "inputs": {
+                "model": "rife49_ensemble_True_scale_1_sim",
+                "precision": "fp16",
+                "resolution_profile": rife_profile,
+            },
+            "_meta": {"title": "Load RIFE TRT"},
+        }
+        workflow["pp_rife"] = {
+            "class_type": "AutoRifeTensorrt",
+            "inputs": {
+                "frames": current_image_ref,
+                "rife_trt_model": ["pp_rife_loader", 0],
+                "clear_cache_after_n_frames": 100,
+                "multiplier": interpolation_multiplier,
+                "keep_model_loaded": False,
+            },
+            "_meta": {"title": f"RIFE {output_fps}FPS"},
+        }
+        current_image_ref = ["pp_rife", 0]
+
+    # ── Optional: MMAudio ────────────────────────────────────────────────
+    audio_ref = None
+    if enable_mmaudio:
+        workflow["pp_mma_model"] = {
+            "class_type": "MMAudioModelLoader",
+            "inputs": {
+                "mmaudio_model": "mmaudio_large_44k_nsfw_gold_8.5k_final_fp16.safetensors",
+                "base_precision": "fp16",
+            },
+            "_meta": {"title": "MMAudio Model"},
+        }
+        workflow["pp_mma_features"] = {
+            "class_type": "MMAudioFeatureUtilsLoader",
+            "inputs": {
+                "vae_model": "mmaudio_vae_44k_fp16.safetensors",
+                "synchformer_model": "mmaudio_synchformer_fp16.safetensors",
+                "clip_model": "apple_DFN5B-CLIP-ViT-H-14-384_fp16.safetensors",
+                "mode": "44k",
+                "precision": "fp16",
+            },
+            "_meta": {"title": "MMAudio Features"},
+        }
+        # Calculate video duration for MMAudio
+        total_frames = sum(seg.get("num_frames", 81) for seg in segments)
+        audio_duration = total_frames / fps
+        workflow["pp_mma_sampler"] = {
+            "class_type": "MMAudioSampler",
+            "inputs": {
+                "mmaudio_model": ["pp_mma_model", 0],
+                "feature_utils": ["pp_mma_features", 0],
+                "duration": audio_duration,
+                "steps": mmaudio_steps,
+                "cfg": mmaudio_cfg,
+                "seed": random.randint(0, 1125899906842624),
+                "prompt": mmaudio_prompt,
+                "negative_prompt": mmaudio_negative_prompt,
+                "mask_away_clip": False,
+                "force_offload": True,
+                "images": current_image_ref,
+                "source_fps": float(fps),
+            },
+            "_meta": {"title": "MMAudio Sampler"},
+        }
+        audio_ref = ["pp_mma_sampler", 0]
+
+    # ── Final output: VHS_VideoCombine ───────────────────────────────────
+    final_output_inputs = {
+        "frame_rate": output_fps,
+        "loop_count": 0,
+        "filename_prefix": "wan22_story",
+        "format": "video/h264-mp4",
+        "pix_fmt": "yuv420p",
+        "crf": 19,
+        "save_metadata": True,
+        "trim_to_audio": bool(audio_ref),
+        "pingpong": False,
+        "save_output": True,
+        "images": current_image_ref,
+    }
+    if audio_ref:
+        final_output_inputs["audio"] = audio_ref
+
     workflow["1609"] = {
         "class_type": "VHS_VideoCombine",
-        "inputs": {
-            "frame_rate": fps,
-            "loop_count": 0,
-            "filename_prefix": "wan22_04_23-31-16",
-            "format": "video/h264-mp4",
-            "pix_fmt": "yuv420p",
-            "crf": 19,
-            "save_metadata": True,
-            "trim_to_audio": False,
-            "pingpong": False,
-            "save_output": True,
-            "images": ["1532", 0],
-        },
-        "_meta": {"title": "16FPS"},
-    }
-
-    # VHS_VideoCombine (Final Video)
-    workflow["1547"] = {
-        "class_type": "VHS_VideoCombine",
-        "inputs": {
-            "frame_rate": fps,
-            "loop_count": 0,
-            "filename_prefix": "wan22_04_23-31-16",
-            "format": "video/h264-mp4",
-            "pix_fmt": "yuv420p",
-            "crf": 19,
-            "save_metadata": False,
-            "trim_to_audio": False,
-            "pingpong": False,
-            "save_output": False,
-            "images": ["1546", 0],
-        },
-        "_meta": {"title": "Final Video"},
+        "inputs": final_output_inputs,
+        "_meta": {"title": f"Final Output {output_fps}FPS"},
     }
 
     # Inject LoRAs via Power Lora Loader
