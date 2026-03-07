@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Wan2.2 Video Generator</title>
+<title>AI Studio</title>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:#1a1a2e;color:#e0e0e0;min-height:100vh}
@@ -94,15 +94,30 @@ h1{text-align:center;color:#7c83ff;margin-bottom:24px;font-size:1.6em}
 .query-subtab{background:#16213e;border:1px solid #444;padding:6px 16px;font-size:12px}
 .query-subtab.active{background:#0f3460;border-color:#7c83ff;color:#7c83ff}
 .query-subtab:hover{background:#1a3a4a}
+.main-tabs{display:flex;gap:0;margin-bottom:24px}
+.main-tab{flex:1;padding:14px 0;text-align:center;background:#0a0a23;border:2px solid #333;cursor:pointer;color:#888;font-size:16px;font-weight:600;transition:all .2s}
+.main-tab:first-child{border-radius:10px 0 0 10px}
+.main-tab:last-child{border-radius:0 10px 10px 0}
+.main-tab.active{background:#0f3460;border-color:#7c83ff;color:#fff}
+.main-tab:hover:not(.active){background:#16213e}
+.main-section{display:none}
+.main-section.active{display:block}
+.img-result{margin-top:16px;text-align:center}
+.img-result img{max-width:100%;max-height:500px;border-radius:8px;border:1px solid #444}
 </style>
 </head>
 <body>
 <div class="container">
-<h1>Wan2.2 Video Generator</h1>
+<h1>AI Studio</h1>
 <div class="api-key-bar">
 <label>API Key:</label>
 <input type="password" id="apiKey" value="wan22-default-key-change-me" placeholder="Enter API Key">
 </div>
+<div class="main-tabs">
+<div class="main-tab active" data-main="video">视频生成</div>
+<div class="main-tab" data-main="image">图片生成</div>
+</div>
+<div class="main-section active" id="section-video">
 <div class="tabs">
 <div class="tab active" data-tab="t2v">T2V 文字生成视频</div>
 <div class="tab" data-tab="i2v">I2V 图片生成视频</div>
@@ -622,6 +637,103 @@ h1{text-align:center;color:#7c83ff;margin-bottom:24px;font-size:1.6em}
 
 <div id="pp-status" style="margin-top:16px"></div>
 </div>
+</div><!-- end section-video -->
+
+<!-- Image Generation Section -->
+<div class="main-section" id="section-image">
+<div class="tabs">
+<div class="tab active" data-imgtab="t2i">文生图</div>
+<div class="tab" data-imgtab="i2i">图片编辑</div>
+<div class="tab" data-imgtab="multiref">多参考合照</div>
+</div>
+
+<!-- T2I Panel -->
+<div class="panel active" id="imgpanel-t2i">
+<div class="row"><div class="field" style="flex:3"><label>提示词 (Prompt)</label>
+<textarea id="img-prompt" placeholder="Describe the image you want to generate..." style="min-height:100px"></textarea>
+</div></div>
+<div class="row">
+<div class="field"><label>尺寸预设</label>
+<select id="img-size" onchange="onImgSizeChange()">
+<option value="2048x2048">2K 方形 (2048×2048)</option>
+<option value="2048x1024">2K 横版 (2048×1024)</option>
+<option value="1024x2048">2K 竖版 (1024×2048)</option>
+<option value="1920x1080">1080P 横版 (1920×1080)</option>
+<option value="1080x1920">1080P 竖版 (1080×1920)</option>
+<option value="custom">自定义</option>
+</select></div>
+<div class="field" id="img-custom-size" style="display:none"><label>自定义尺寸 (宽x高)</label>
+<input type="text" id="img-custom" value="2048x2048" placeholder="例如: 1920x1080"></div>
+<div class="field"><label>Seed (-1=随机)</label>
+<input type="number" id="img-seed" value="-1"></div>
+</div>
+<div class="btn-row"><button class="btn" onclick="submitImage()">生成图片</button></div>
+<div id="img-status" style="margin-top:12px;font-size:13px;color:#aaa"></div>
+<div class="img-result" id="img-result"></div>
+</div>
+
+<!-- I2I Panel -->
+<div class="panel" id="imgpanel-i2i">
+<div class="row">
+<div class="field" style="flex:1;max-width:300px"><label>上传参考图</label>
+<div class="upload-area" id="i2i-upload-area">
+<img id="i2i-img-preview" style="display:none">
+<span id="i2i-upload-text">点击或拖拽上传图片</span>
+<input type="file" id="i2i-file" accept="image/*">
+</div></div>
+<div class="field" style="flex:2"><label>编辑提示词 (描述你想要的修改)</label>
+<textarea id="i2i-prompt" placeholder="例如: Transform into anime style / 把背景改成海边日落 / 给人物换上红色裙子" style="min-height:120px"></textarea>
+</div></div>
+<div class="row">
+<div class="field"><label>输出尺寸</label>
+<select id="i2i-size">
+<option value="adaptive">自适应 (跟随原图)</option>
+<option value="2048x2048">2K 方形 (2048×2048)</option>
+<option value="2048x1024">2K 横版 (2048×1024)</option>
+<option value="1024x2048">2K 竖版 (1024×2048)</option>
+<option value="1920x1080">1080P 横版 (1920×1080)</option>
+<option value="1080x1920">1080P 竖版 (1080×1920)</option>
+</select></div>
+<div class="field"><label>Seed (-1=随机)</label>
+<input type="number" id="i2i-seed" value="-1"></div>
+</div>
+<div class="btn-row"><button class="btn" onclick="submitI2I()">开始编辑</button></div>
+<div id="i2i-status" style="margin-top:12px;font-size:13px;color:#aaa"></div>
+<div class="img-result" id="i2i-result"></div>
+</div>
+
+<!-- Multi-Ref Panel -->
+<div class="panel" id="imgpanel-multiref">
+<div class="row">
+<div class="field" style="flex:1">
+<label>参考图片 (最多10张，点击添加)</label>
+<div id="multiref-gallery" style="display:flex;flex-wrap:wrap;gap:8px;margin-top:6px;min-height:100px;background:#0a0a23;border:1px dashed #555;border-radius:8px;padding:12px;align-items:flex-start">
+<div id="multiref-add-btn" onclick="document.getElementById('multiref-file').click()" style="width:90px;height:90px;border:2px dashed #555;border-radius:8px;display:flex;align-items:center;justify-content:center;cursor:pointer;color:#888;font-size:28px;flex-shrink:0" title="添加参考图">+</div>
+</div>
+<input type="file" id="multiref-file" accept="image/*" multiple style="display:none">
+<div style="font-size:11px;color:#666;margin-top:4px">支持场景：多人合照、角色一致性、风格融合 | 单张最大 10MB</div>
+</div>
+</div>
+<div class="row"><div class="field" style="flex:3"><label>提示词 (描述想要生成的效果)</label>
+<textarea id="multiref-prompt" placeholder="例如: 三个人站在一起合照，背景是巴黎铁塔，阳光明媚 / 把这些角色放在同一个场景中" style="min-height:100px"></textarea>
+</div></div>
+<div class="row">
+<div class="field"><label>输出尺寸</label>
+<select id="multiref-size">
+<option value="2048x2048">2K 方形 (2048×2048)</option>
+<option value="2048x1024">2K 横版 (2048×1024)</option>
+<option value="1024x2048">2K 竖版 (1024×2048)</option>
+<option value="1920x1080">1080P 横版 (1920×1080)</option>
+<option value="1080x1920">1080P 竖版 (1080×1920)</option>
+</select></div>
+<div class="field"><label>Seed (-1=随机)</label>
+<input type="number" id="multiref-seed" value="-1"></div>
+</div>
+<div class="btn-row"><button class="btn" onclick="submitMultiRef()">生成合照</button></div>
+<div id="multiref-status" style="margin-top:12px;font-size:13px;color:#aaa"></div>
+<div class="img-result" id="multiref-result"></div>
+</div>
+</div><!-- end section-image -->
 
 <!-- Prompt Optimize Modal -->
 <div id="prompt-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:999;display:none;align-items:center;justify-content:center">
@@ -820,11 +932,29 @@ function onPresetChange(prefix) {
   if (rec.scheduler !== undefined) document.getElementById(prefix + '-sched').value = rec.scheduler;
 }
 
-// Tab switching
+// Main tab switching (video / image)
+document.querySelectorAll('.main-tab').forEach(t => {
+  t.addEventListener('click', () => {
+    document.querySelectorAll('.main-tab').forEach(x => x.classList.remove('active'));
+    document.querySelectorAll('.main-section').forEach(x => x.classList.remove('active'));
+    t.classList.add('active');
+    document.getElementById('section-' + t.dataset.main).classList.add('active');
+    localStorage.setItem('wan22_main_tab', t.dataset.main);
+  });
+});
+try {
+  const savedMain = localStorage.getItem('wan22_main_tab');
+  if (savedMain) {
+    const mt = document.querySelector(`.main-tab[data-main="${savedMain}"]`);
+    if (mt) mt.click();
+  }
+} catch(e) {}
+
+// Sub-tab switching (within video section)
 document.querySelectorAll('.tab').forEach(t => {
   t.addEventListener('click', () => {
     document.querySelectorAll('.tab').forEach(x => x.classList.remove('active'));
-    document.querySelectorAll('.panel').forEach(x => x.classList.remove('active'));
+    document.querySelectorAll('.panel:not(#panel-image)').forEach(x => x.classList.remove('active'));
     t.classList.add('active');
     document.getElementById('panel-' + t.dataset.tab).classList.add('active');
     localStorage.setItem('wan22_active_tab', t.dataset.tab);
@@ -834,7 +964,7 @@ document.querySelectorAll('.tab').forEach(t => {
   });
 });
 
-// Restore last active tab
+// Restore last active sub-tab
 try {
   const savedTab = localStorage.getItem('wan22_active_tab');
   if (savedTab) {
@@ -842,6 +972,178 @@ try {
     if (tabEl) tabEl.click();
   }
 } catch(e) {}
+
+// Image sub-tab switching
+document.querySelectorAll('[data-imgtab]').forEach(t => {
+  t.addEventListener('click', () => {
+    document.querySelectorAll('[data-imgtab]').forEach(x => x.classList.remove('active'));
+    document.querySelectorAll('[id^="imgpanel-"]').forEach(x => x.classList.remove('active'));
+    t.classList.add('active');
+    document.getElementById('imgpanel-' + t.dataset.imgtab).classList.add('active');
+  });
+});
+
+// Image generation helpers
+function onImgSizeChange() {
+  const v = document.getElementById('img-size').value;
+  document.getElementById('img-custom-size').style.display = v === 'custom' ? '' : 'none';
+}
+
+async function submitImage() {
+  const prompt = document.getElementById('img-prompt').value.trim();
+  if (!prompt) return alert('请输入提示词');
+  const sizeSelect = document.getElementById('img-size').value;
+  const size = sizeSelect === 'custom' ? document.getElementById('img-custom').value.trim() : sizeSelect;
+  const seed = parseInt(document.getElementById('img-seed').value);
+  const statusEl = document.getElementById('img-status');
+  const resultEl = document.getElementById('img-result');
+  statusEl.textContent = '正在生成图片，请稍候...';
+  statusEl.style.color = '#7c83ff';
+  resultEl.innerHTML = '';
+  const body = { prompt, size };
+  if (seed >= 0) body.seed = seed;
+  try {
+    const r = await fetch(BASE + '/api/v1/image/generate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-API-Key': getKey() },
+      body: JSON.stringify(body)
+    });
+    const data = await r.json();
+    if (!r.ok) {
+      statusEl.textContent = '生成失败: ' + (data.detail || JSON.stringify(data));
+      statusEl.style.color = '#f87171';
+      return;
+    }
+    statusEl.textContent = '生成完成! 尺寸: ' + (data.size || size);
+    statusEl.style.color = '#4ade80';
+    resultEl.innerHTML = `<img src="${data.url}" onclick="window.open(this.src,'_blank')" style="cursor:pointer" title="点击查看原图">`;
+  } catch(e) {
+    statusEl.textContent = '请求失败: ' + e.message;
+    statusEl.style.color = '#f87171';
+  }
+}
+
+// I2I image upload
+let i2iSelectedFile = null;
+document.getElementById('i2i-file').addEventListener('change', function() {
+  const file = this.files[0];
+  if (!file) return;
+  i2iSelectedFile = file;
+  const reader = new FileReader();
+  const preview = document.getElementById('i2i-img-preview');
+  const text = document.getElementById('i2i-upload-text');
+  reader.onload = e => { preview.src = e.target.result; preview.style.display = 'block'; text.style.display = 'none'; };
+  reader.readAsDataURL(file);
+});
+
+async function submitI2I() {
+  const prompt = document.getElementById('i2i-prompt').value.trim();
+  if (!prompt) return alert('请输入编辑提示词');
+  if (!i2iSelectedFile) return alert('请上传参考图');
+  const size = document.getElementById('i2i-size').value;
+  const seed = parseInt(document.getElementById('i2i-seed').value);
+  const statusEl = document.getElementById('i2i-status');
+  const resultEl = document.getElementById('i2i-result');
+  statusEl.textContent = '正在编辑图片，请稍候...';
+  statusEl.style.color = '#7c83ff';
+  resultEl.innerHTML = '';
+  const fd = new FormData();
+  fd.append('prompt', prompt);
+  fd.append('size', size);
+  if (seed >= 0) fd.append('seed', seed);
+  fd.append('image', i2iSelectedFile);
+  try {
+    const r = await fetch(BASE + '/api/v1/image/edit', {
+      method: 'POST',
+      headers: { 'X-API-Key': getKey() },
+      body: fd
+    });
+    const data = await r.json();
+    if (!r.ok) {
+      statusEl.textContent = '编辑失败: ' + (data.detail || JSON.stringify(data));
+      statusEl.style.color = '#f87171';
+      return;
+    }
+    statusEl.textContent = '编辑完成! 尺寸: ' + (data.size || size);
+    statusEl.style.color = '#4ade80';
+    resultEl.innerHTML = `<img src="${data.url}" onclick="window.open(this.src,'_blank')" style="cursor:pointer" title="点击查看原图">`;
+  } catch(e) {
+    statusEl.textContent = '请求失败: ' + e.message;
+    statusEl.style.color = '#f87171';
+  }
+}
+
+// Multi-reference upload
+let multirefFiles = [];
+document.getElementById('multiref-file').addEventListener('change', function() {
+  for (const file of this.files) {
+    if (multirefFiles.length >= 10) break;
+    if (file.size > 10 * 1024 * 1024) { alert(file.name + ' 超过10MB限制'); continue; }
+    multirefFiles.push(file);
+    const reader = new FileReader();
+    const idx = multirefFiles.length - 1;
+    reader.onload = e => {
+      const wrap = document.createElement('div');
+      wrap.style.cssText = 'position:relative;width:90px;height:90px;border-radius:8px;overflow:hidden;flex-shrink:0';
+      wrap.innerHTML = `<img src="${e.target.result}" style="width:100%;height:100%;object-fit:cover"><div onclick="removeMultiRef(${idx})" style="position:absolute;top:2px;right:2px;width:20px;height:20px;background:rgba(0,0,0,.7);border-radius:50%;color:#f87171;font-size:14px;display:flex;align-items:center;justify-content:center;cursor:pointer">&times;</div>`;
+      wrap.dataset.idx = idx;
+      const gallery = document.getElementById('multiref-gallery');
+      gallery.insertBefore(wrap, document.getElementById('multiref-add-btn'));
+    };
+    reader.readAsDataURL(file);
+  }
+  this.value = '';
+  updateMultiRefAddBtn();
+});
+function removeMultiRef(idx) {
+  multirefFiles[idx] = null;
+  const gallery = document.getElementById('multiref-gallery');
+  const el = gallery.querySelector(`[data-idx="${idx}"]`);
+  if (el) el.remove();
+  updateMultiRefAddBtn();
+}
+function updateMultiRefAddBtn() {
+  const count = multirefFiles.filter(f => f).length;
+  const btn = document.getElementById('multiref-add-btn');
+  btn.style.display = count >= 10 ? 'none' : 'flex';
+}
+async function submitMultiRef() {
+  const prompt = document.getElementById('multiref-prompt').value.trim();
+  if (!prompt) return alert('请输入提示词');
+  const files = multirefFiles.filter(f => f);
+  if (files.length < 1) return alert('请至少上传1张参考图');
+  const size = document.getElementById('multiref-size').value;
+  const seed = parseInt(document.getElementById('multiref-seed').value);
+  const statusEl = document.getElementById('multiref-status');
+  const resultEl = document.getElementById('multiref-result');
+  statusEl.textContent = `正在生成 (${files.length}张参考图)，请稍候...`;
+  statusEl.style.color = '#7c83ff';
+  resultEl.innerHTML = '';
+  const fd = new FormData();
+  fd.append('prompt', prompt);
+  fd.append('size', size);
+  if (seed >= 0) fd.append('seed', seed);
+  files.forEach(f => fd.append('images', f));
+  try {
+    const r = await fetch(BASE + '/api/v1/image/multiref', {
+      method: 'POST',
+      headers: { 'X-API-Key': getKey() },
+      body: fd
+    });
+    const data = await r.json();
+    if (!r.ok) {
+      statusEl.textContent = '生成失败: ' + (data.detail || JSON.stringify(data));
+      statusEl.style.color = '#f87171';
+      return;
+    }
+    statusEl.textContent = '生成完成! 尺寸: ' + (data.size || size);
+    statusEl.style.color = '#4ade80';
+    resultEl.innerHTML = `<img src="${data.url}" onclick="window.open(this.src,'_blank')" style="cursor:pointer" title="点击查看原图">`;
+  } catch(e) {
+    statusEl.textContent = '请求失败: ' + e.message;
+    statusEl.style.color = '#f87171';
+  }
+}
 
 // Image upload - store file in variable to avoid losing it
 document.getElementById('i2v-file').addEventListener('change', function() {
