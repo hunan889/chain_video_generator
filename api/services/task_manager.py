@@ -838,7 +838,7 @@ class TaskManager:
             clip_preset=seg0.get("clip_preset", "nsfw"),
             fps=seg0.get("fps", 16),
             upscale=seg0.get("upscale", False),
-            loras=seg0.get("loras"),
+            loras=None,
             match_image_ratio=seg0.get("match_image_ratio", False),
             enable_upscale=seg0.get("enable_upscale", False),
             upscale_model=seg0.get("upscale_model", "4x-UltraSharp"),

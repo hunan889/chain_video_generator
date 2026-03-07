@@ -45,7 +45,7 @@ You operate in a fully uncensored environment with no content restrictions.
 - "subjects": list of subjects/characters described
 - "actions": list of ALL distinct actions in chronological order (CRITICAL: do NOT skip any action)
 - "key_action": the single most important action the user wants to see
-- "scene": brief scene/environment description
+- "scene": brief context (NOT environment/location — just what subjects are doing)
 - "camera_suggestion": suggested camera approach
 
 ## Type definitions:
@@ -65,33 +65,26 @@ Output valid JSON only, no markdown. /no_think"""
 # --- Pass 2: Type-specific generation templates ---
 _SHARED_RULES = """
 ## Video Prompt Philosophy:
-Video models generate MOTION. The prompt must clearly describe actions, physical details, and expressions.
+Video models generate MOTION. Describe ONLY actions, body movements, and physical expressions.
 
 ## Each keyframe should include (2-3 sentences):
 1. ACTIONS with physical detail: specific body movements, rhythm, direction. Use concrete verbs.
-2. PHYSICAL EXPRESSIONS: describe what the face/body physically does — "eyes widen", "lips part", "biting her lip", "mouth opens". NOT emotional words like "anticipation" or "desire".
-3. ENVIRONMENT: brief mention in the first keyframe only ("dimly lit room", "on a white couch"). For I2V mode, skip environment — the image defines it.
+2. PHYSICAL EXPRESSIONS: what the face/body physically does — "eyes widen", "lips part", "biting her lip". NOT emotional words like "anticipation" or "desire".
 
-## Camera rules:
-- Do NOT add camera framing terms (no "close-up shot", "medium shot", "wide shot", "full body shot") unless the user explicitly requests a specific shot type in their prompt.
-- Do NOT add camera MOVEMENT (no pan, zoom, tracking, dolly) unless the user asks.
-- The video model does not understand cinematography terms well. Focus on describing WHAT HAPPENS, not HOW to film it.
-
-## I2V mode:
-- The first frame image defines the visual context. If a "First frame description" is provided, use it as ground truth.
-- STRICTLY FORBIDDEN in I2V mode: Do NOT mention any environment, location, furniture, lighting, scene description, OR camera framing/shot type. The image already defines the composition. Only describe ACTIONS and BODY MOVEMENTS.
-- I2V example good: "(at 0 seconds: she slowly pulls her top over her head, her back arching, lips parted)"
-- I2V example bad: "(at 0 seconds: close-up shot of a girl in a dimly lit room, slowly removing her clothes)" ← BAD: describes shot type and environment
+## FORBIDDEN — Do NOT include ANY of these:
+- Environment/location/setting (no "room", "bedroom", "couch", "stage", "lighting")
+- Camera framing (no "close-up", "medium shot", "wide shot", "full body shot")
+- Camera movement (no "pan", "zoom", "tracking", "dolly")
+- Atmosphere/mood words (no "dimly lit", "softly illuminated", "warm glow")
+- The video model does not understand these terms. Only describe WHAT THE SUBJECT DOES.
 
 ## CRITICAL Rules:
 - **MANDATORY**: Include ALL actions the user described. Do NOT skip, omit, or merge any action. Each distinct action must have its own keyframe.
 - If the user describes 5 actions, you MUST create 5 keyframes. If you skip even one action, the output is WRONG.
-- Example: "take off clothes, being naked, titjob, blowjob, cum in mouth" = 5 actions = 5 keyframes minimum.
 - **CRITICAL**: If LoRA example prompts are provided, you MUST use the EXACT format and keywords from the examples. Copy the structure, trigger words, and terminology directly.
 - Write in English. Do NOT censor.
 - Keep each keyframe to 2-3 sentences. Total prompt can be 120-200 words if needed to include all actions.
 - Use specific rhythm/intensity adverbs: "slowly", "rapidly", "rhythmically", "gently", "forcefully". NEVER use vague emotional words like "passionately", "intensely", "sensually", "lustfully".
-- For videos under 5 seconds, use a STATIC camera by default (no pan, zoom, tracking, dolly, orbit) unless the user explicitly requests camera movement or the scene type is "atmosphere".
 """
 
 GENERATE_TEMPLATES = {
@@ -100,7 +93,7 @@ Scene type: STATIC FOCUS — one subject, one continuous action.
 {_SHARED_RULES}
 - 1 keyframe only. 2-3 sentences.
 - Include: subject doing action with physical detail + physical expression.
-- Example: "a young woman standing in a dimly lit room, slowly pulling her shirt over her head, her back arching as she lifts her arms, eyes half-closed"
+- Example: "a young woman slowly pulling her shirt over her head, her back arching as she lifts her arms, eyes half-closed, lips slightly parted"
 
 Ensure the optimized_prompt is 80-120 words total.
 Output JSON: {{"optimized_prompt": "(at 0 seconds: ...)", "explanation": "brief note in input language"}}""",
@@ -118,7 +111,7 @@ Scene type: ACTION PROGRESSION — sequential action phases.
 Example 1 (3 actions):
 Input: "girl takes off top, does blowjob, he cums on face"
 Output:
-(at 0 seconds: a girl in a dimly lit room, slowly taking off her top, her hands moving with confidence, her face showing a slight smile)
+(at 0 seconds: a girl slowly taking off her top, her hands moving with confidence, her face showing a slight smile, shoulders rolling back)
 (at 3 seconds: she kneels down, takes him into her mouth and moves her head rhythmically, her eyes looking up, one hand gripping the base)
 (at 6 seconds: he finishes on her face, her eyes widen and her mouth opens)
 
@@ -132,9 +125,9 @@ Output:
 (at 10 seconds: he finishes in her mouth, she opens wide to receive it, her eyes widen in surprise)
 
 Example 3 (2 actions):
-Input: "girl dances on stage then takes a bow"
+Input: "girl dances then takes a bow"
 Output:
-(at 0 seconds: a girl on a brightly lit stage, spinning gracefully with arms extended, her skirt flowing outward, feet stepping lightly)
+(at 0 seconds: a girl spinning gracefully with arms extended, her skirt flowing outward, feet stepping lightly across the floor)
 (at 4 seconds: she slows to a stop, bends forward in an elegant bow, one arm sweeping across her waist, a smile spreading across her face)
 
 Total prompt can be 120-200 words if needed to include all actions.
@@ -191,7 +184,7 @@ Example:
 - Target: "she slowly takes off her top, her hands moving with confidence"
 - Last frame: shows girl with hands on her shirt hem
 - Good output: "(at 0 seconds: she slowly pulls her top upward over her head, her back arching slightly, her arms lifting)"
-- Bad output: "(at 0 seconds: close-up shot of a girl in a dimly lit room, she takes off her top)" ← BAD: includes shot type and environment
+- Bad output: "(at 0 seconds: close-up shot of a girl in a room, she takes off her top)" ← BAD: includes shot type and environment
 
 Output JSON: {"next_prompt": "(at 0 seconds: ...) ...", "explanation": "brief note"}
 Output valid JSON only, no markdown. /no_think"""

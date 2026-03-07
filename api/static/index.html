@@ -112,6 +112,7 @@ h1{text-align:center;color:#7c83ff;margin-bottom:24px;font-size:1.6em}
 <div class="tab" data-tab="story">Story 视频</div>
 <div class="tab" data-tab="civitai">CivitAI</div>
 <div class="tab" data-tab="tts">TTS 语音</div>
+<div class="tab" data-tab="postproc">后期处理</div>
 </div>
 <!-- T2V Panel -->
 <div class="panel active" id="panel-t2v">
@@ -524,6 +525,102 @@ h1{text-align:center;color:#7c83ff;margin-bottom:24px;font-size:1.6em}
 注: ChatTTS 的情感效果由模型自动控制插入位置，不支持手动在文字中插入标签。音色效果因种子而异，建议多试几个种子。
 </div>
 </div>
+</div>
+
+<!-- Postprocess Panel -->
+<div class="panel" id="panel-postproc">
+<div style="margin-bottom:16px;font-size:13px;color:#aaa">对视频进行后期处理：插帧、超分、AI配音。支持任务ID或直接上传视频。</div>
+<div class="row">
+<div class="field" style="flex:2"><label>任务 ID (可选)</label>
+<input type="text" id="pp-task-id" placeholder="输入已完成视频的任务ID">
+</div>
+<div class="field" style="flex:1;display:flex;align-items:flex-end">
+<button class="btn btn-sm" style="background:#0f3460" onclick="ppLoadPreview()">加载预览</button>
+</div>
+</div>
+<div style="margin-bottom:16px;font-size:12px;color:#666;text-align:center">— 或 —</div>
+<div class="row">
+<div class="field" style="flex:2">
+<label>上传视频文件</label>
+<div class="upload-area" id="pp-upload-area" style="min-height:80px;padding:16px">
+<span id="pp-upload-text" style="color:#888;font-size:13px">点击或拖拽上传视频</span>
+<input type="file" id="pp-file" accept="video/*">
+</div>
+</div>
+</div>
+<div id="pp-preview" style="display:none;margin-bottom:16px;background:#0a0a23;border:1px solid #333;border-radius:8px;padding:12px">
+<div style="font-size:12px;color:#4ade80;margin-bottom:8px" id="pp-preview-info"></div>
+<video id="pp-preview-video" controls style="max-width:100%;max-height:300px;border-radius:6px"></video>
+</div>
+
+<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:16px">
+<!-- Interpolation -->
+<div style="background:#0a0a23;border:1px solid #333;border-radius:8px;padding:16px">
+<div style="color:#7c83ff;font-weight:600;margin-bottom:12px">RIFE 插帧</div>
+<div class="row">
+<div class="field"><label>倍率</label>
+<select id="pp-interp-mult"><option value="2">2x</option><option value="3">3x</option><option value="4">4x</option><option value="8">8x</option></select>
+</div>
+<div class="field"><label>分辨率配置</label>
+<select id="pp-interp-profile"><option value="small">small</option><option value="medium">medium</option><option value="large">large</option></select>
+</div>
+</div>
+<div class="row">
+<div class="field"><label>源视频 FPS</label>
+<input type="number" id="pp-interp-fps" value="16" min="1" max="60" step="1">
+</div>
+</div>
+<div style="text-align:right;margin-top:8px"><button class="btn btn-sm" onclick="ppInterpolate()">开始插帧</button></div>
+</div>
+
+<!-- Upscale -->
+<div style="background:#0a0a23;border:1px solid #333;border-radius:8px;padding:16px">
+<div style="color:#7c83ff;font-weight:600;margin-bottom:12px">TRT 超分</div>
+<div class="row">
+<div class="field"><label>超分模型</label>
+<select id="pp-upscale-model"><option value="4x-UltraSharp">4x-UltraSharp</option><option value="4x-AnimeSharp">4x-AnimeSharp</option></select>
+</div>
+<div class="field"><label>目标分辨率</label>
+<select id="pp-upscale-resize"><option value="FHD">FHD (1080p)</option><option value="HD">HD (720p)</option><option value="2k">2K</option><option value="4k">4K</option><option value="1.5x">1.5x</option><option value="2x">2x</option></select>
+</div>
+</div>
+<div class="row">
+<div class="field"><label>源视频 FPS</label>
+<input type="number" id="pp-upscale-fps" value="16" min="1" max="60" step="1">
+</div>
+</div>
+<div style="text-align:right;margin-top:8px"><button class="btn btn-sm" onclick="ppUpscale()">开始超分</button></div>
+</div>
+
+<!-- AI Audio -->
+<div style="background:#0a0a23;border:1px solid #333;border-radius:8px;padding:16px">
+<div style="color:#7c83ff;font-weight:600;margin-bottom:12px">MMAudio AI 配音</div>
+<div class="row">
+<div class="field"><label>音频提示词</label>
+<input type="text" id="pp-audio-prompt" placeholder="描述想要的音效 (可选)">
+</div>
+</div>
+<div class="row">
+<div class="field"><label>负向提示词</label>
+<input type="text" id="pp-audio-neg" placeholder="不需要的声音 (可选)">
+</div>
+</div>
+<div class="row">
+<div class="field"><label>Steps</label>
+<input type="number" id="pp-audio-steps" value="25" min="1" max="50">
+</div>
+<div class="field"><label>CFG</label>
+<input type="number" id="pp-audio-cfg" value="4.5" min="1" max="20" step="0.5">
+</div>
+<div class="field"><label>源视频 FPS</label>
+<input type="number" id="pp-audio-fps" value="16" min="1" max="60" step="1">
+</div>
+</div>
+<div style="text-align:right;margin-top:8px"><button class="btn btn-sm" onclick="ppAudio()">开始配音</button></div>
+</div>
+</div>
+
+<div id="pp-status" style="margin-top:16px"></div>
 </div>
 
 <!-- Prompt Optimize Modal -->
@@ -999,7 +1096,8 @@ async function queryTask() {
         <div style="color:#7c83ff;font-size:14px;margin-bottom:8px">🎬 点击加载视频</div>
         <div style="font-size:12px;color:#888">视频已生成，点击播放</div>
       </div>
-      <div style="margin-top:6px"><a href="${d.video_url}" download style="color:#7c83ff;font-size:13px">下载视频</a></div></div>`;
+      <div style="margin-top:6px"><a href="${d.video_url}" download style="color:#7c83ff;font-size:13px">下载视频</a>
+        <button class="btn btn-sm" style="margin-left:12px;background:#2a1a4a;font-size:11px;padding:3px 10px" onclick="goPostproc('${d.task_id}')">后期处理</button></div></div>`;
     html += '</div>';
     box.innerHTML = html;
     // Also add to active tasks for polling if still running
@@ -1440,8 +1538,9 @@ function _buildTaskCard(id, t) {
     }
     const cancelBtn = (statusCls==='queued'||statusCls==='running') ? `<button class="btn btn-sm" style="margin-left:8px;background:#4a1a1a;font-size:11px;padding:3px 10px" onclick="cancelTask('${id}')">取消</button>` : '';
     const extendBtn = statusCls==='completed' && t.video_url ? `<button class="btn btn-sm" style="margin-left:8px;background:#1a4a2e;font-size:11px;padding:3px 10px" onclick="extendTask('${id}')">延续</button>` : '';
+    const ppBtn = statusCls==='completed' && t.video_url ? `<button class="btn btn-sm" style="margin-left:8px;background:#2a1a4a;font-size:11px;padding:3px 10px" onclick="goPostproc('${id}')">后期处理</button>` : '';
     return `<div class="task-card" data-task-id="${id}">
-      <div class="task-header"><span><b>${t.type||''}</b> <span class="task-id">${id}</span>${durStr ? ` <span data-role="dur" style="color:#4ade80;font-size:11px">⏱${durStr}</span>` : ` <span data-role="dur" style="color:#4ade80;font-size:11px"></span>`}${cancelBtn}${extendBtn}</span>
+      <div class="task-header"><span><b>${t.type||''}</b> <span class="task-id">${id}</span>${durStr ? ` <span data-role="dur" style="color:#4ade80;font-size:11px">⏱${durStr}</span>` : ` <span data-role="dur" style="color:#4ade80;font-size:11px"></span>`}${cancelBtn}${extendBtn}${ppBtn}</span>
         <span class="status ${statusCls}">${statusText}</span></div>
       <div style="font-size:13px;color:#aaa;margin-bottom:6px">${promptText}</div>
       ${aiHtml}
@@ -3784,6 +3883,122 @@ async function generateTTS() {
     statusEl.textContent = '失败: ' + e.message;
     statusEl.style.color = '#f44336';
   }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Postprocess Functions
+let ppSelectedFile = null;
+
+document.getElementById('pp-file').addEventListener('change', function() {
+  const file = this.files[0];
+  if (!file) return;
+  ppSelectedFile = file;
+  document.getElementById('pp-upload-text').textContent = file.name + ' (' + (file.size / 1024 / 1024).toFixed(1) + 'MB)';
+  // Clear task ID since user chose file
+  document.getElementById('pp-task-id').value = '';
+  // Show preview
+  const preview = document.getElementById('pp-preview');
+  const info = document.getElementById('pp-preview-info');
+  const video = document.getElementById('pp-preview-video');
+  info.textContent = '已选择: ' + file.name;
+  info.style.color = '#4ade80';
+  video.src = URL.createObjectURL(file);
+  video.style.display = 'block';
+  preview.style.display = 'block';
+});
+
+function goPostproc(taskId) {
+  document.getElementById('pp-task-id').value = taskId;
+  ppSelectedFile = null;
+  document.getElementById('pp-upload-text').textContent = '点击或拖拽上传视频';
+  document.getElementById('pp-file').value = '';
+  document.querySelectorAll('.tab').forEach(x => x.classList.remove('active'));
+  document.querySelectorAll('.panel').forEach(x => x.classList.remove('active'));
+  document.querySelector('.tab[data-tab="postproc"]').classList.add('active');
+  document.getElementById('panel-postproc').classList.add('active');
+  ppLoadPreview();
+}
+
+async function ppLoadPreview() {
+  const tid = document.getElementById('pp-task-id').value.trim();
+  if (!tid) { alert('请输入任务ID'); return; }
+  ppSelectedFile = null;
+  document.getElementById('pp-upload-text').textContent = '点击或拖拽上传视频';
+  document.getElementById('pp-file').value = '';
+  const preview = document.getElementById('pp-preview');
+  const info = document.getElementById('pp-preview-info');
+  const video = document.getElementById('pp-preview-video');
+  info.textContent = '加载中...';
+  preview.style.display = 'block';
+  video.style.display = 'none';
+  try {
+    const r = await fetch(BASE + '/api/v1/tasks/' + tid, {headers:{'X-API-Key':getKey()}});
+    if (!r.ok) { info.textContent = '任务未找到'; info.style.color = '#f87171'; return; }
+    const d = await r.json();
+    if (d.status !== 'completed') { info.textContent = '任务未完成 (状态: ' + d.status + ')'; info.style.color = '#f87171'; return; }
+    if (!d.video_url) { info.textContent = '任务无视频输出'; info.style.color = '#f87171'; return; }
+    info.textContent = '任务 ' + tid.substring(0,8) + ' - 已完成';
+    info.style.color = '#4ade80';
+    video.src = d.video_url;
+    video.style.display = 'block';
+  } catch(e) { info.textContent = '加载失败: ' + e.message; info.style.color = '#f87171'; }
+}
+
+async function ppPostprocess(endpoint, fields, label) {
+  const tid = document.getElementById('pp-task-id').value.trim();
+  if (!tid && !ppSelectedFile) { alert('请输入任务ID或上传视频文件'); return; }
+  const statusEl = document.getElementById('pp-status');
+  statusEl.innerHTML = `<div style="color:#f0c040;font-size:13px">${label} 提交中...</div>`;
+  try {
+    const fd = new FormData();
+    if (ppSelectedFile) {
+      fd.append('video', ppSelectedFile);
+    }
+    if (tid) {
+      fd.append('task_id', tid);
+    }
+    for (const [k, v] of Object.entries(fields)) {
+      fd.append(k, String(v));
+    }
+    const r = await fetch(BASE + '/api/v1/postprocess/' + endpoint, {
+      method: 'POST',
+      headers: {'X-API-Key': getKey()},
+      body: fd,
+    });
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.detail || JSON.stringify(d));
+    const source = tid || ppSelectedFile.name;
+    statusEl.innerHTML = `<div style="color:#4ade80;font-size:13px">${label} 任务已创建: <span style="color:#7c83ff;cursor:pointer" onclick="document.getElementById('query-id').value='${d.task_id}';document.querySelector('.tab[data-tab=query]').click();queryTask();">${d.task_id}</span></div>`;
+    addTask(d.task_id, label, source);
+  } catch(e) {
+    statusEl.innerHTML = `<div style="color:#f87171;font-size:13px">${label} 失败: ${e.message}</div>`;
+  }
+}
+
+function ppInterpolate() {
+  ppPostprocess('interpolate', {
+    multiplier: document.getElementById('pp-interp-mult').value,
+    resolution_profile: document.getElementById('pp-interp-profile').value,
+    fps: document.getElementById('pp-interp-fps').value,
+  }, '插帧');
+}
+
+function ppUpscale() {
+  ppPostprocess('upscale', {
+    model: document.getElementById('pp-upscale-model').value,
+    resize_to: document.getElementById('pp-upscale-resize').value,
+    fps: document.getElementById('pp-upscale-fps').value,
+  }, '超分');
+}
+
+function ppAudio() {
+  ppPostprocess('audio', {
+    prompt: document.getElementById('pp-audio-prompt').value,
+    negative_prompt: document.getElementById('pp-audio-neg').value,
+    steps: document.getElementById('pp-audio-steps').value,
+    cfg: document.getElementById('pp-audio-cfg').value,
+    fps: document.getElementById('pp-audio-fps').value,
+  }, 'AI配音');
 }
 
 </script>

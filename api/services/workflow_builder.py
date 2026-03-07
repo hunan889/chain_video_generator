@@ -550,50 +550,66 @@ def get_story_clip_presets() -> list[dict]:
 
 
 def _inject_story_loras(workflow: dict, loras: list[LoraInput]) -> dict:
-    """Inject Power Lora Loader (rgthree) nodes between UNETLoader and WanMoeKSamplerAdvanced.
+    """Inject Power Lora Loader (rgthree) nodes into the model chain.
 
-    For each UNETLoader (HIGH/LOW), chain LoRA loaders and rewire
-    the sampler's model_high_noise / model_low_noise to the last loader.
+    Finds the last node in each model chain (HIGH/LOW) before the sampler,
+    inserts LoRA loaders after it, and rewires the sampler to use the last LoRA output.
     """
     if not loras:
         return workflow
 
-    # Find UNETLoader nodes and determine HIGH/LOW
-    unet_nodes = {}  # "high" or "low" -> node_id
+    # Find what each sampler's model_high_noise / model_low_noise points to
+    # This is the correct insertion point (after SageAttention/TorchSettings/per-seg LoRA)
+    sampler_model_refs = {}  # "high" -> node_id, "low" -> node_id
     for nid, node in workflow.items():
-        if node.get("class_type") == "UNETLoader":
-            title = node.get("_meta", {}).get("title", "").upper()
-            unet_name = node.get("inputs", {}).get("unet_name", "").upper()
-            if "HIGH" in title or "HIGH" in unet_name:
-                unet_nodes["high"] = nid
-            elif "LOW" in title or "LOW" in unet_name:
-                unet_nodes["low"] = nid
+        if node.get("class_type") == "WanMoeKSamplerAdvanced":
+            inputs = node.get("inputs", {})
+            high_ref = inputs.get("model_high_noise")
+            low_ref = inputs.get("model_low_noise")
+            if isinstance(high_ref, list):
+                sampler_model_refs["high"] = high_ref[0]
+            if isinstance(low_ref, list):
+                sampler_model_refs["low"] = low_ref[0]
+            break  # all samplers share the same model chain
 
-    if not unet_nodes:
-        logger.warning("No UNETLoader nodes found for story LoRA injection")
+    if not sampler_model_refs:
+        logger.warning("No WanMoeKSamplerAdvanced found for LoRA injection")
         return workflow
 
-    # Find max numeric ID (handle both pure numbers and "prefix:number" format)
+    # Find max numeric ID for generating new node IDs
     max_id = 0
     for k in workflow.keys():
         if ':' in k:
-            # Extract all numeric parts from IDs like "1252:1299"
             for part in k.split(':'):
                 if part.isdigit():
                     max_id = max(max_id, int(part))
         elif k.isdigit():
             max_id = max(max_id, int(k))
 
-    for variant, unet_nid in unet_nodes.items():
-        # Build a chain of Power Lora Loader nodes
-        prev_output = [unet_nid, 0]
-        last_lora_id = None
+    for variant, model_nid in sampler_model_refs.items():
+        # Chain starts from the node that the sampler currently points to
+        # Get what that node's model input is (the upstream model source)
+        current_node = workflow.get(model_nid, {})
+        upstream_model_ref = current_node.get("inputs", {}).get("model")
 
+        # If the current node is an empty Power Lora Loader, replace it inline
+        is_empty_lora = (
+            current_node.get("class_type") == "Power Lora Loader (rgthree)"
+            and "lora_1" not in current_node.get("inputs", {})
+        )
+
+        if is_empty_lora and isinstance(upstream_model_ref, list):
+            # Start LoRA chain from where the empty loader was connected
+            prev_output = upstream_model_ref
+        else:
+            # Start LoRA chain from the current model node output
+            prev_output = [model_nid, 0]
+
+        last_lora_id = None
         for lora in loras:
             base_name = _lora_name_map.get(lora.name, lora.name)
             lora_file = _find_lora_file(base_name, variant)
             if not lora_file:
-                # Try single-file LoRA (no HIGH/LOW variant)
                 lora_file = _find_lora_file(base_name, "")
             if not lora_file:
                 logger.warning("Story LoRA file not found for %s variant=%s, skipping", lora.name, variant)
@@ -622,16 +638,17 @@ def _inject_story_loras(workflow: dict, loras: list[LoraInput]) -> dict:
             last_lora_id = new_id
 
         if last_lora_id is None:
-            continue  # no loras added for this variant
+            continue
 
-        # Rewire: find WanMoeKSamplerAdvanced and update model_high_noise / model_low_noise
+        # Rewire ALL samplers to use the last LoRA output
         target_key = "model_high_noise" if variant == "high" else "model_low_noise"
         for nid, node in workflow.items():
             if node.get("class_type") == "WanMoeKSamplerAdvanced":
-                inputs = node.get("inputs", {})
-                old_ref = inputs.get(target_key)
-                if isinstance(old_ref, list) and old_ref[0] == unet_nid:
-                    inputs[target_key] = [last_lora_id, 0]
+                node["inputs"][target_key] = [last_lora_id, 0]
+
+        # Remove the empty per-segment LoRA loader if we replaced it
+        if is_empty_lora:
+            del workflow[model_nid]
 
     return workflow
 
@@ -1261,19 +1278,59 @@ def build_merged_story_workflow(
         if (num_frames - 1) % 4 != 0:
             num_frames = ((num_frames - 1) // 4 + 1) * 4 + 1
 
-        # Inject trigger words from LoRAs
-        if loras:
-            final_prompt = _inject_trigger_words(prompt, loras)
+        # Per-segment LoRAs: from segment data or global fallback
+        seg_loras_raw = seg.get("loras") or loras or []
+        seg_loras = [l if isinstance(l, LoraInput) else LoraInput(**(l if isinstance(l, dict) else {"name": l})) for l in seg_loras_raw]
+
+        # Inject trigger words from this segment's LoRAs
+        if seg_loras:
+            final_prompt = _inject_trigger_words(prompt, seg_loras)
         else:
             final_prompt = prompt
 
-        # Power Lora Loader (HIGH and LOW) — connect to ModelPatchTorchSettings
+        # Build per-segment LoRA chain for HIGH and LOW models
+        # Each segment gets its own chain: ModelPatchTorchSettings → LoRA1 → LoRA2 → ... → sampler
+        model_high_ref = ["1252:1279", 0]  # ModelPatchTorchSettings HIGH output
+        model_low_ref = ["1252:1280", 0]   # ModelPatchTorchSettings LOW output
+
+        if seg_loras:
+            for li, sl in enumerate(seg_loras):
+                base_name = _lora_name_map.get(sl.name, sl.name)
+                for variant, upstream_ref, ref_key in [("high", model_high_ref, "high"), ("low", model_low_ref, "low")]:
+                    lora_file = _find_lora_file(base_name, variant)
+                    if not lora_file:
+                        lora_file = _find_lora_file(base_name, "")
+                    if not lora_file:
+                        logger.warning("Seg %d: LoRA file not found for %s variant=%s", seg_idx, sl.name, variant)
+                        continue
+                    lora_nid = f"{p}lora_{variant[0]}_{li}"
+                    workflow[lora_nid] = {
+                        "class_type": "Power Lora Loader (rgthree)",
+                        "inputs": {
+                            "PowerLoraLoaderHeaderWidget": {"type": "PowerLoraLoaderHeaderWidget"},
+                            "➕ Add Lora": "",
+                            "lora_1": {
+                                "on": True,
+                                "lora": lora_file,
+                                "strength": sl.strength,
+                                "strengthTwo": sl.strength,
+                            },
+                            "model": list(upstream_ref),
+                        },
+                        "_meta": {"title": f"Seg{seg_idx+1} LoRA {sl.name} {variant.upper()}"},
+                    }
+                    if ref_key == "high":
+                        model_high_ref = [lora_nid, 0]
+                    else:
+                        model_low_ref = [lora_nid, 0]
+
+        # Final per-segment LoRA placeholder (empty if loras filled above, acts as passthrough)
         workflow[ids["lora_high"]] = {
             "class_type": "Power Lora Loader (rgthree)",
             "inputs": {
                 "PowerLoraLoaderHeaderWidget": {"type": "PowerLoraLoaderHeaderWidget"},
                 "➕ Add Lora": "",
-                "model": ["1252:1279", 0],
+                "model": list(model_high_ref),
             },
             "_meta": {"title": f"{seg_idx + 1}LORA HIGH"},
         }
@@ -1282,7 +1339,7 @@ def build_merged_story_workflow(
             "inputs": {
                 "PowerLoraLoaderHeaderWidget": {"type": "PowerLoraLoaderHeaderWidget"},
                 "➕ Add Lora": "",
-                "model": ["1252:1280", 0],
+                "model": list(model_low_ref),
             },
             "_meta": {"title": f"{seg_idx + 1}LORA LOW"},
         }
@@ -1579,12 +1636,253 @@ def build_merged_story_workflow(
         "_meta": {"title": f"Final Output {output_fps}FPS"},
     }
 
-    # Inject LoRAs via Power Lora Loader
-    if loras:
-        workflow = _inject_story_loras(workflow, loras)
+    # LoRAs are injected per-segment in the loop above (not globally)
 
     logger.info(f"Built fully aligned story workflow with {len(workflow)} nodes for {len(segments)} segments")
 
     return workflow
 
 
+# ═══════════════════════════════════════════════════════════════════════════════
+# STANDALONE POST-PROCESSING WORKFLOWS
+# ═══════════════════════════════════════════════════════════════════════════════
+
+def build_interpolate_workflow(
+    video_path: str,
+    multiplier: int = 2,
+    resolution_profile: str = "small",
+    fps: float = 16.0,
+) -> dict:
+    """Build a ComfyUI workflow for standalone RIFE frame interpolation."""
+    workflow = {}
+
+    # Load video
+    workflow["load_video"] = {
+        "class_type": "VHS_LoadVideoFFmpegPath",
+        "inputs": {
+            "video": video_path,
+            "force_rate": 0,
+            "custom_width": 0,
+            "custom_height": 0,
+            "frame_load_cap": 0,
+            "start_time": 0.0,
+        },
+        "_meta": {"title": "Load Video"},
+    }
+
+    # RIFE TRT model loader
+    workflow["rife_loader"] = {
+        "class_type": "AutoLoadRifeTensorrtModel",
+        "inputs": {
+            "model": "rife49_ensemble_True_scale_1_sim",
+            "precision": "fp16",
+            "resolution_profile": resolution_profile,
+        },
+        "_meta": {"title": "Load RIFE TRT"},
+    }
+
+    # RIFE interpolation
+    workflow["rife"] = {
+        "class_type": "AutoRifeTensorrt",
+        "inputs": {
+            "frames": ["load_video", 0],
+            "rife_trt_model": ["rife_loader", 0],
+            "clear_cache_after_n_frames": 100,
+            "multiplier": multiplier,
+            "keep_model_loaded": False,
+        },
+        "_meta": {"title": f"RIFE {multiplier}x"},
+    }
+
+    # Output: RIFE multiplied the frame count, so FPS must be multiplied too
+    output_fps = fps * multiplier
+    workflow["output"] = {
+        "class_type": "VHS_VideoCombine",
+        "inputs": {
+            "frame_rate": output_fps,
+            "loop_count": 0,
+            "filename_prefix": "wan22_interpolated",
+            "format": "video/h264-mp4",
+            "pix_fmt": "yuv420p",
+            "crf": 19,
+            "save_metadata": True,
+            "trim_to_audio": False,
+            "pingpong": False,
+            "save_output": True,
+            "images": ["rife", 0],
+        },
+        "_meta": {"title": "Output"},
+    }
+
+    logger.info(f"Built interpolate workflow: {video_path}, {multiplier}x, {resolution_profile}")
+    return workflow
+
+
+def build_upscale_workflow(
+    video_path: str,
+    model: str = "4x-UltraSharp",
+    resize_to: str = "FHD",
+    fps: float = 16.0,
+) -> dict:
+    """Build a ComfyUI workflow for standalone TRT video upscaling."""
+    workflow = {}
+
+    # Load video
+    workflow["load_video"] = {
+        "class_type": "VHS_LoadVideoFFmpegPath",
+        "inputs": {
+            "video": video_path,
+            "force_rate": 0,
+            "custom_width": 0,
+            "custom_height": 0,
+            "frame_load_cap": 0,
+            "start_time": 0.0,
+        },
+        "_meta": {"title": "Load Video"},
+    }
+
+    # TRT upscaler model
+    workflow["upscale_loader"] = {
+        "class_type": "LoadUpscalerTensorrtModel",
+        "inputs": {
+            "model": model,
+            "precision": "fp16",
+        },
+        "_meta": {"title": "Load Upscaler TRT"},
+    }
+
+    # Upscale
+    workflow["upscale"] = {
+        "class_type": "UpscalerTensorrt",
+        "inputs": {
+            "images": ["load_video", 0],
+            "upscaler_trt_model": ["upscale_loader", 0],
+            "resize_to": resize_to,
+            "resize_width": 1024,
+            "resize_height": 1024,
+        },
+        "_meta": {"title": f"Upscale {resize_to}"},
+    }
+
+    # Output
+    workflow["output"] = {
+        "class_type": "VHS_VideoCombine",
+        "inputs": {
+            "frame_rate": fps,
+            "loop_count": 0,
+            "filename_prefix": "wan22_upscaled",
+            "format": "video/h264-mp4",
+            "pix_fmt": "yuv420p",
+            "crf": 19,
+            "save_metadata": True,
+            "trim_to_audio": False,
+            "pingpong": False,
+            "save_output": True,
+            "images": ["upscale", 0],
+        },
+        "_meta": {"title": "Output"},
+    }
+
+    logger.info(f"Built upscale workflow: {video_path}, model={model}, resize={resize_to}")
+    return workflow
+
+
+def build_audio_workflow(
+    video_path: str,
+    fps: float = 16.0,
+    prompt: str = "",
+    negative_prompt: str = "",
+    steps: int = 25,
+    cfg: float = 4.5,
+) -> dict:
+    """Build a ComfyUI workflow for standalone MMAudio generation."""
+    workflow = {}
+
+    # Load video
+    workflow["load_video"] = {
+        "class_type": "VHS_LoadVideoFFmpegPath",
+        "inputs": {
+            "video": video_path,
+            "force_rate": 0,
+            "custom_width": 0,
+            "custom_height": 0,
+            "frame_load_cap": 0,
+            "start_time": 0.0,
+        },
+        "_meta": {"title": "Load Video"},
+    }
+
+    # Video info for FPS and frame count
+    workflow["video_info"] = {
+        "class_type": "VHS_VideoInfoLoaded",
+        "inputs": {
+            "video_info": ["load_video", 3],
+        },
+        "_meta": {"title": "Video Info"},
+    }
+
+    # MMAudio model
+    workflow["mma_model"] = {
+        "class_type": "MMAudioModelLoader",
+        "inputs": {
+            "mmaudio_model": "mmaudio_large_44k_nsfw_gold_8.5k_final_fp16.safetensors",
+            "base_precision": "fp16",
+        },
+        "_meta": {"title": "MMAudio Model"},
+    }
+
+    # MMAudio features
+    workflow["mma_features"] = {
+        "class_type": "MMAudioFeatureUtilsLoader",
+        "inputs": {
+            "vae_model": "mmaudio_vae_44k_fp16.safetensors",
+            "synchformer_model": "mmaudio_synchformer_fp16.safetensors",
+            "clip_model": "apple_DFN5B-CLIP-ViT-H-14-384_fp16.safetensors",
+            "mode": "44k",
+            "precision": "fp16",
+        },
+        "_meta": {"title": "MMAudio Features"},
+    }
+
+    # MMAudio sampler — duration from video_info
+    workflow["mma_sampler"] = {
+        "class_type": "MMAudioSampler",
+        "inputs": {
+            "mmaudio_model": ["mma_model", 0],
+            "feature_utils": ["mma_features", 0],
+            "duration": ["video_info", 2],  # duration output from VideoInfoLoaded
+            "steps": steps,
+            "cfg": cfg,
+            "seed": random.randint(0, 1125899906842624),
+            "prompt": prompt,
+            "negative_prompt": negative_prompt,
+            "mask_away_clip": False,
+            "force_offload": True,
+            "images": ["load_video", 0],
+            "source_fps": fps,
+        },
+        "_meta": {"title": "MMAudio Sampler"},
+    }
+
+    # Output with audio
+    workflow["output"] = {
+        "class_type": "VHS_VideoCombine",
+        "inputs": {
+            "frame_rate": fps,
+            "loop_count": 0,
+            "filename_prefix": "wan22_audio",
+            "format": "video/h264-mp4",
+            "pix_fmt": "yuv420p",
+            "crf": 19,
+            "save_metadata": True,
+            "trim_to_audio": True,
+            "pingpong": False,
+            "save_output": True,
+            "images": ["load_video", 0],
+            "audio": ["mma_sampler", 0],
+        },
+        "_meta": {"title": "Output with Audio"},
+    }
+
+    logger.info(f"Built audio workflow: {video_path}, fps={fps}, steps={steps}")
+    return workflow
