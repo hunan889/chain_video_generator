@@ -1,4 +1,5 @@
 import re
+import asyncio
 import logging
 import aiohttp
 from typing import Optional
@@ -8,7 +9,10 @@ from api.models.schemas import CivitAIModelResult, CivitAIModelVersion, CivitAIF
 logger = logging.getLogger(__name__)
 
 BASE_URL = "https://civitai.com/api/v1"
+MEILI_URL = "https://search.civitai.com"
+MEILI_KEY = "8c46eb2508e21db1e9828a97968d91ab1ca1caa5f70a00e88a2ba1e286603b61"
 TIMEOUT = aiohttp.ClientTimeout(total=15)
+MEILI_TIMEOUT = aiohttp.ClientTimeout(total=10)
 
 
 def _headers() -> dict:
@@ -26,9 +30,112 @@ def _strip_html(text: str, max_len: int = 500) -> str:
     return clean[:max_len] if len(clean) > max_len else clean
 
 
-async def search_loras(query: str = "wan 2.1", limit: int = 20, cursor: str = "",
+async def search_loras(query: str = "wan 2.1", limit: int = 100, cursor: str = "",
                        nsfw: bool = True, sort: str = "Most Downloaded",
                        base_model: str = "") -> dict:
+    """Search CivitAI using Meilisearch (same engine as website) with v1 API fallback."""
+    try:
+        return await _search_meili(query, limit, cursor, nsfw, sort, base_model)
+    except Exception as e:
+        logger.warning("Meilisearch failed, falling back to v1 API: %s", e)
+        return await _search_v1(query, limit, cursor, nsfw, sort, base_model)
+
+
+async def _search_meili(query: str, limit: int, cursor: str,
+                        nsfw: bool, sort: str, base_model: str) -> dict:
+    """Search via CivitAI's Meilisearch endpoint (full-text, same as website)."""
+    offset = int(cursor) if cursor and cursor.isdigit() else 0
+    filters = ["type = LORA"]
+    if not nsfw:
+        filters.append("nsfwLevel = 1")
+    if base_model:
+        filters.append(f"version.baseModel = '{base_model}'")
+
+    # Map sort options to Meilisearch sort
+    sort_map = {
+        "Most Downloaded": ["metrics.downloadCount:desc"],
+        "Highest Rated": ["metrics.thumbsUpCount:desc"],
+        "Newest": ["createdAt:desc"],
+    }
+    meili_sort = sort_map.get(sort, ["metrics.downloadCount:desc"])
+
+    body = {
+        "q": query,
+        "limit": limit,
+        "offset": offset,
+        "filter": filters,
+        "sort": meili_sort,
+    }
+    headers = {
+        "Content-Type": "application/json",
+        "Authorization": f"Bearer {MEILI_KEY}",
+        "Accept-Encoding": "gzip, deflate",
+    }
+    async with aiohttp.ClientSession(timeout=MEILI_TIMEOUT) as session:
+        async with session.post(f"{MEILI_URL}/indexes/models_v9/search",
+                                json=body, headers=headers) as resp:
+            if resp.status != 200:
+                err_text = await resp.text()
+                raise RuntimeError(f"Meilisearch {resp.status}: {err_text[:300]}")
+            data = await resp.json()
+
+    hits = data.get("hits", [])
+    total = data.get("estimatedTotalHits", 0)
+    next_cursor = str(offset + limit) if offset + limit < total else ""
+
+    # Convert Meilisearch hits to v1-compatible format for extract_model_result
+    IMAGE_CDN = "https://image.civitai.com/xG1nkqKTMzGDvpLrqFT7WA"
+    items = []
+    for hit in hits:
+        ver = hit.get("version", {})
+        # Build preview URL from first image
+        preview_images = []
+        for img in hit.get("images", []):
+            url_id = img.get("url", "")
+            img_type = img.get("type", "image")
+            img_name = img.get("name", "")
+            if url_id:
+                # Build full URL: CDN/{uuid}/original=true/{name}
+                ext = img_name if img_name else ("video.mp4" if img_type == "video" else "image.jpeg")
+                full_url = f"{IMAGE_CDN}/{url_id}/original=true/{ext}"
+                preview_images.append({"url": full_url})
+            break  # Only need first image for preview
+
+        mv = {
+            "id": ver.get("id", 0),
+            "name": ver.get("name", ""),
+            "baseModel": ver.get("baseModel", ""),
+            "trainedWords": ver.get("trainedWords") or hit.get("triggerWords") or [],
+            "files": [],
+            "images": preview_images,
+        }
+
+        # Map metrics to stats format
+        metrics = hit.get("metrics", {})
+        stats = {
+            "downloadCount": metrics.get("downloadCount", 0),
+            "thumbsUpCount": metrics.get("thumbsUpCount", 0),
+            "rating": metrics.get("rating", 0),
+        }
+
+        item = {
+            "id": hit.get("id"),
+            "name": hit.get("name", ""),
+            "description": "",
+            "tags": [t["name"] if isinstance(t, dict) else t for t in (hit.get("tags") or [])],
+            "stats": stats,
+            "modelVersions": [mv],
+        }
+        items.append(item)
+
+    import sys
+    print(f"[MEILI DEBUG] returning {len(items)} items, next_cursor={next_cursor}", file=sys.stderr, flush=True)
+    return {"items": items, "metadata": {"nextCursor": next_cursor}}
+
+
+async def _search_v1(query: str, limit: int, cursor: str,
+                     nsfw: bool, sort: str, base_model: str) -> dict:
+    """Fallback: search via CivitAI v1 REST API."""
     params = {
         "types": "LORA",
         "query": query,

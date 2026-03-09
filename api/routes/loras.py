@@ -20,7 +20,21 @@ async def list_loras(_=Depends(verify_api_key)):
         with open(LORAS_PATH) as f:
             data = yaml.safe_load(f)
         loras = data.get("loras") or []
-        return [LoraInfo(**l) for l in loras]
+        # Deduplicate by name: merge HIGH/LOW variants into one entry
+        seen: dict[str, dict] = {}
+        for l in loras:
+            name = l.get("name", "")
+            if name in seen:
+                # Merge: keep the entry with more trigger_words or preview_url
+                existing = seen[name]
+                if not existing.get("preview_url") and l.get("preview_url"):
+                    existing["preview_url"] = l["preview_url"]
+                for tw in l.get("trigger_words", []):
+                    if tw not in existing.get("trigger_words", []):
+                        existing.setdefault("trigger_words", []).append(tw)
+            else:
+                seen[name] = dict(l)
+        return [LoraInfo(**v) for v in seen.values()]
     except Exception:
         return []
 

@@ -88,7 +88,15 @@ h1{text-align:center;color:#7c83ff;margin-bottom:24px;font-size:1.6em}
 .civitai-batch-bar{display:flex;gap:10px;align-items:center;margin-top:12px;padding:10px;background:#0a0a23;border-radius:6px;border:1px solid #333}
 .lora-item .lora-tw{font-size:11px;color:#666;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:200px}
 .lora-item .lora-preview{width:64px;height:64px;border-radius:6px;object-fit:cover;cursor:pointer;flex-shrink:0}
+.lora-item .lora-preview-wrap{position:relative;width:64px;height:64px;flex-shrink:0;cursor:pointer}
+.lora-item .lora-preview-wrap .lora-preview{width:100%;height:100%;border-radius:6px;object-fit:cover}
+.lora-item .lora-preview-wrap .lora-play-btn{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,0.4);border-radius:6px;pointer-events:none;transition:opacity .2s}
+.lora-item .lora-preview-wrap .lora-play-btn svg{width:24px;height:24px;fill:#fff;opacity:0.9}
+.lora-item .lora-preview-wrap.playing .lora-play-btn{opacity:0}
 .lora-item .lora-placeholder{width:64px;height:64px;border-radius:6px;background:#1a1a2e;display:flex;align-items:center;justify-content:center;color:#444;font-size:10px;flex-shrink:0}
+.lora-item .lora-type-tag{font-size:9px;padding:1px 4px;border-radius:3px;margin-left:4px;vertical-align:middle}
+.lora-item .lora-type-tag.t2v{background:#2d1b69;color:#a78bfa}
+.lora-item .lora-type-tag.i2v{background:#1b3d69;color:#7cb3ff}
 .prompt-preview{background:#0a0a23;border:1px solid #333;border-radius:6px;padding:10px;margin-top:8px;font-size:13px;color:#ccc;white-space:pre-wrap;display:none;position:relative}
 .prompt-preview .preview-actions{display:flex;gap:8px;margin-top:8px;justify-content:flex-end}
 .query-subtab{background:#16213e;border:1px solid #444;padding:6px 16px;font-size:12px}
@@ -103,7 +111,15 @@ h1{text-align:center;color:#7c83ff;margin-bottom:24px;font-size:1.6em}
 .main-section{display:none}
 .main-section.active{display:block}
 .img-result{margin-top:16px;text-align:center}
-.img-result img{max-width:100%;max-height:500px;border-radius:8px;border:1px solid #444}
+.img-result img{max-width:100%;max-height:500px;border-radius:8px;border:1px solid #444;object-fit:contain}
+.chat-msg{margin-bottom:14px;line-height:1.6;font-size:14px}
+.chat-msg.user{text-align:right}
+.chat-msg .bubble{display:inline-block;max-width:85%;padding:10px 14px;border-radius:10px;text-align:left;white-space:pre-wrap;word-break:break-word}
+.chat-msg.user .bubble{background:#0f3460;color:#e0e0e0}
+.chat-msg.assistant .bubble{background:#1a2a1a;color:#d0d0d0}
+.chat-msg .role{font-size:11px;color:#666;margin-bottom:2px}
+.chat-msg.assistant .role{text-align:left}
+.chat-msg.user .role{text-align:right}
 </style>
 </head>
 <body>
@@ -116,6 +132,7 @@ h1{text-align:center;color:#7c83ff;margin-bottom:24px;font-size:1.6em}
 <div class="main-tabs">
 <div class="main-tab active" data-main="video">视频生成</div>
 <div class="main-tab" data-main="image">图片生成</div>
+<div class="main-tab" data-main="chat">AI 对话</div>
 </div>
 <div class="main-section active" id="section-video">
 <div class="tabs">
@@ -464,8 +481,9 @@ h1{text-align:center;color:#7c83ff;margin-bottom:24px;font-size:1.6em}
 <div class="field" style="min-width:120px;flex:0"><label>Base Model</label>
 <select id="civitai-basemodel" style="width:100%;padding:8px 10px;background:#0a0a23;border:1px solid #444;border-radius:6px;color:#e0e0e0;font-size:13px">
 <option value="">全部</option>
-<option value="Wan Video 2.2 14B">Wan 2.2 14B</option>
+<option value="Wan Video 2.2 I2V-A14B">Wan 2.2 I2V-A14B</option>
 <option value="Wan Video 2.2 T2V-A14B">Wan 2.2 T2V-A14B</option>
+<option value="Wan Video 2.2 14B">Wan 2.2 14B</option>
 <option value="Wan Video 2.1 14B">Wan 2.1 14B</option>
 <option value="Wan Video 1.3B t2v">Wan 1.3B</option>
 <option value="Illustrious">Illustrious</option>
@@ -481,6 +499,10 @@ h1{text-align:center;color:#7c83ff;margin-bottom:24px;font-size:1.6em}
 <div class="field" style="min-width:60px;flex:0;display:flex;align-items:flex-end">
 <label style="display:flex;align-items:center;gap:4px;font-size:13px;color:#aaa;padding:8px 0">
 <input type="checkbox" id="civitai-nsfw" checked style="accent-color:#7c83ff;width:16px;height:16px"> NSFW</label>
+</div>
+<div class="field" style="min-width:80px;flex:0;display:flex;align-items:flex-end">
+<label style="display:flex;align-items:center;gap:4px;font-size:13px;color:#aaa;padding:8px 0">
+<input type="checkbox" id="civitai-hide-downloaded" onchange="toggleCivitaiDownloaded()" style="accent-color:#7c83ff;width:16px;height:16px"> 隐藏已下载</label>
 </div>
 <div style="display:flex;align-items:flex-end"><button class="btn btn-sm" onclick="searchCivitAI()">搜索</button></div>
 </div>
@@ -645,6 +667,10 @@ h1{text-align:center;color:#7c83ff;margin-bottom:24px;font-size:1.6em}
 <div class="tab active" data-imgtab="t2i">文生图</div>
 <div class="tab" data-imgtab="i2i">图片编辑</div>
 <div class="tab" data-imgtab="multiref">多参考合照</div>
+<div class="tab" data-imgtab="sceneswap">场景人物替换</div>
+<div class="tab" data-imgtab="faceswap">角色定制 (NSFW)</div>
+<div class="tab" data-imgtab="transfer">姿态迁移</div>
+<div class="tab" data-imgtab="zimage">Z-Image 编辑</div>
 </div>
 
 <!-- T2I Panel -->
@@ -664,6 +690,12 @@ h1{text-align:center;color:#7c83ff;margin-bottom:24px;font-size:1.6em}
 </select></div>
 <div class="field" id="img-custom-size" style="display:none"><label>自定义尺寸 (宽x高)</label>
 <input type="text" id="img-custom" value="2048x2048" placeholder="例如: 1920x1080"></div>
+<div class="field"><label>Seedream 模型</label>
+<select id="img-model">
+<option value="seedream-5-0-260128">5.0 Lite</option>
+<option value="seedream-4-5-251128">4.5</option>
+<option value="seedream-4-0-250828">4.0</option>
+</select></div>
 <div class="field"><label>Seed (-1=随机)</label>
 <input type="number" id="img-seed" value="-1"></div>
 </div>
@@ -694,6 +726,12 @@ h1{text-align:center;color:#7c83ff;margin-bottom:24px;font-size:1.6em}
 <option value="1920x1080">1080P 横版 (1920×1080)</option>
 <option value="1080x1920">1080P 竖版 (1080×1920)</option>
 </select></div>
+<div class="field"><label>Seedream 模型</label>
+<select id="i2i-model">
+<option value="seedream-5-0-260128">5.0 Lite</option>
+<option value="seedream-4-5-251128">4.5</option>
+<option value="seedream-4-0-250828">4.0</option>
+</select></div>
 <div class="field"><label>Seed (-1=随机)</label>
 <input type="number" id="i2i-seed" value="-1"></div>
 </div>
@@ -708,7 +746,6 @@ h1{text-align:center;color:#7c83ff;margin-bottom:24px;font-size:1.6em}
 <div class="field" style="flex:1">
 <label>参考图片 (最多10张，点击添加)</label>
 <div id="multiref-gallery" style="display:flex;flex-wrap:wrap;gap:8px;margin-top:6px;min-height:100px;background:#0a0a23;border:1px dashed #555;border-radius:8px;padding:12px;align-items:flex-start">
-<div id="multiref-add-btn" onclick="document.getElementById('multiref-file').click()" style="width:90px;height:90px;border:2px dashed #555;border-radius:8px;display:flex;align-items:center;justify-content:center;cursor:pointer;color:#888;font-size:28px;flex-shrink:0" title="添加参考图">+</div>
 </div>
 <input type="file" id="multiref-file" accept="image/*" multiple style="display:none">
 <div style="font-size:11px;color:#666;margin-top:4px">支持场景：多人合照、角色一致性、风格融合 | 单张最大 10MB</div>
@@ -726,6 +763,12 @@ h1{text-align:center;color:#7c83ff;margin-bottom:24px;font-size:1.6em}
 <option value="1920x1080">1080P 横版 (1920×1080)</option>
 <option value="1080x1920">1080P 竖版 (1080×1920)</option>
 </select></div>
+<div class="field"><label>Seedream 模型</label>
+<select id="multiref-model">
+<option value="seedream-5-0-260128">5.0 Lite</option>
+<option value="seedream-4-5-251128">4.5</option>
+<option value="seedream-4-0-250828">4.0</option>
+</select></div>
 <div class="field"><label>Seed (-1=随机)</label>
 <input type="number" id="multiref-seed" value="-1"></div>
 </div>
@@ -733,7 +776,236 @@ h1{text-align:center;color:#7c83ff;margin-bottom:24px;font-size:1.6em}
 <div id="multiref-status" style="margin-top:12px;font-size:13px;color:#aaa"></div>
 <div class="img-result" id="multiref-result"></div>
 </div>
+
+<!-- Scene Character Swap Panel -->
+<div class="panel" id="imgpanel-sceneswap">
+<div class="row">
+<div class="field" style="flex:1">
+<label>IMAGE 1 — 目标人物 (正脸照)</label>
+<div id="sceneswap-face-box" onclick="document.getElementById('sceneswap-face-file').click()" style="width:120px;height:120px;border:2px dashed #555;border-radius:8px;display:flex;align-items:center;justify-content:center;cursor:pointer;color:#888;font-size:28px;margin-top:6px;overflow:hidden;position:relative" title="上传目标人物照片">+</div>
+<input type="file" id="sceneswap-face-file" accept="image/*" style="display:none">
+<div style="font-size:11px;color:#666;margin-top:4px">上传清晰正脸照，作为替换的目标人物</div>
+</div>
+<div class="field" style="flex:1">
+<label>IMAGE 2 — 场景图 (含人物)</label>
+<div id="sceneswap-scene-box" onclick="document.getElementById('sceneswap-scene-file').click()" style="width:120px;height:120px;border:2px dashed #555;border-radius:8px;display:flex;align-items:center;justify-content:center;cursor:pointer;color:#888;font-size:28px;margin-top:6px;overflow:hidden;position:relative" title="上传场景图片">+</div>
+<input type="file" id="sceneswap-scene-file" accept="image/*" style="display:none">
+<div style="font-size:11px;color:#666;margin-top:4px">上传含人物的场景图，人脸将被替换为目标人物</div>
+</div>
+</div>
+<div class="row"><div class="field" style="flex:3"><label>默认提示词 (可编辑)</label>
+<textarea id="sceneswap-prompt" style="min-height:60px">edit image 2, keep the position of image 2, and swap face to image 1, replace the character of image 2 to image 1, change face to image 1</textarea>
+</div></div>
+<div class="row"><div class="field" style="flex:3"><label>额外提示词 (可选，追加在默认提示词后)</label>
+<input type="text" id="sceneswap-extra" placeholder="例如: wearing a blue dress, sunny background, high quality">
+</div></div>
+<div class="row">
+<div class="field"><label>表情保留</label>
+<input type="range" id="sceneswap-expr" min="0" max="0.8" step="0.05" value="0" oninput="document.getElementById('sceneswap-expr-val').textContent=this.value">
+<span id="sceneswap-expr-val" style="color:#7c83ff;font-size:13px">0</span>
+<div style="font-size:11px;color:#666;margin-top:2px">0=纯换脸 | 0.3=轻保留 | 0.5=推荐 | 0.8=强保留原表情</div>
+</div>
+<div class="field"><label><input type="checkbox" id="sceneswap-occlusion" onchange="onSceneSwapModeChange()"> 保留遮挡物</label>
+<div style="font-size:11px;color:#666;margin-top:2px">跳过换脸，靠 AI 大模型替换人物，保留脸部所有遮挡物</div>
+</div>
+<div class="field"><label><input type="checkbox" id="sceneswap-reactor-only" onchange="onSceneSwapModeChange()"> 仅换脸</label>
+<div style="font-size:11px;color:#666;margin-top:2px">只做 Reactor 换脸，跳过 AI 大模型编辑（保留遮挡最精确）</div>
+</div>
+<div class="field"><label><input type="checkbox" id="sceneswap-skip-reactor" onchange="onSceneSwapModeChange()"> 跳过换脸</label>
+<div style="font-size:11px;color:#666;margin-top:2px">不做 Reactor 换脸，仅靠 AI 大模型理解提示词替换人物</div>
+</div>
+<div class="field"><label>输出尺寸</label>
+<select id="sceneswap-size">
+<option value="1024x1024">1024×1024 方形</option>
+<option value="2048x2048">2K 方形</option>
+<option value="768x1024">768×1024 竖版</option>
+<option value="1024x768">1024×768 横版</option>
+<option value="1080x1920">1080P 竖版</option>
+<option value="1920x1080">1080P 横版</option>
+<option value="2048x1024">2K 横版</option>
+<option value="1024x2048">2K 竖版</option>
+</select></div>
+<div class="field"><label>Seedream 模型</label>
+<select id="sceneswap-model">
+<option value="seedream-5-0-260128">5.0 Lite</option>
+<option value="seedream-4-5-251128">4.5</option>
+<option value="seedream-4-0-250828">4.0</option>
+</select></div>
+<div class="field"><label>Seed (-1=随机)</label>
+<input type="number" id="sceneswap-seed" value="-1"></div>
+</div>
+<div class="btn-row"><button class="btn" onclick="submitSceneSwap()">替换人物</button></div>
+<div id="sceneswap-status" style="margin-top:12px;font-size:13px;color:#aaa"></div>
+<div class="img-result" id="sceneswap-result"></div>
+</div>
+
+<!-- FaceSwap Panel -->
+<div class="panel" id="imgpanel-faceswap">
+<div class="row">
+<div class="field" style="flex:1">
+<label>人脸参考图 (1-5张，每人一张正脸照)</label>
+<div id="faceswap-gallery" style="display:flex;flex-wrap:wrap;gap:8px;margin-top:6px;min-height:100px;background:#0a0a23;border:1px dashed #555;border-radius:8px;padding:12px;align-items:flex-start">
+<div id="faceswap-add-btn" onclick="document.getElementById('faceswap-file').click()" style="width:90px;height:90px;border:2px dashed #555;border-radius:8px;display:flex;align-items:center;justify-content:center;cursor:pointer;color:#888;font-size:28px;flex-shrink:0" title="添加人脸">+</div>
+</div>
+<input type="file" id="faceswap-file" accept="image/*" multiple style="display:none">
+<div style="font-size:11px;color:#666;margin-top:4px">上传清晰正脸照，面部特征将融入生成过程（非贴脸）| IP-Adapter FaceID + Forge Couple</div>
+</div>
+</div>
+<div class="row"><div class="field" style="flex:3"><label>场景描述 (Prompt)</label>
+<textarea id="faceswap-prompt" placeholder="写实风格示例:&#10;单人: a beautiful woman, portrait photo, natural lighting, professional photography&#10;多人用换行分隔每人描述:&#10;a woman on the left, red dress, smiling&#10;a man on the right, black suit, confident" style="min-height:100px"></textarea>
+</div></div>
+<div class="row"><div class="field" style="flex:3"><label>反向提示词 (Negative Prompt)</label>
+<input type="text" id="faceswap-neg" value="deformed, blurry, bad anatomy, bad hands, extra fingers, ugly, cartoon, anime, painting, drawing">
+</div></div>
+<div class="row">
+<div class="field"><label>尺寸</label>
+<select id="faceswap-size" onchange="onFaceswapSizeChange()">
+<option value="auto" selected>自适应(跟随参考图)</option>
+<option value="768x1024">768x1024 竖版</option>
+<option value="1024x768">1024x768 横版</option>
+<option value="1024x1024">1024x1024 方形</option>
+<option value="custom">自定义</option>
+</select></div>
+<div class="field" id="faceswap-w-field" style="display:none"><label>宽度</label>
+<input type="number" id="faceswap-w" value="768" step="64" min="512" max="2048"></div>
+<div class="field" id="faceswap-h-field" style="display:none"><label>高度</label>
+<input type="number" id="faceswap-h" value="1024" step="64" min="512" max="2048"></div>
+<div class="field"><label>Steps</label>
+<input type="number" id="faceswap-steps" value="25" min="10" max="50"></div>
+<div class="field"><label>CFG</label>
+<input type="number" id="faceswap-cfg" value="5" step="0.5" min="1" max="20"></div>
+<div class="field"><label>面部相似度</label>
+<input type="number" id="faceswap-weight" value="0.8" step="0.05" min="0.3" max="1.0" title="越高越像参考脸，但可能降低画质"></div>
+<div class="field"><label>Seed (-1=随机)</label>
+<input type="number" id="faceswap-seed" value="-1"></div>
+</div>
+<div class="btn-row"><button class="btn" onclick="submitFaceSwap()">生成角色图</button></div>
+<div id="faceswap-status" style="margin-top:12px;font-size:13px;color:#aaa"></div>
+<div class="img-result" id="faceswap-result"></div>
+</div>
+<!-- Transfer Panel -->
+<div class="panel" id="imgpanel-transfer">
+<div class="row" style="gap:16px">
+<div class="field" style="flex:1">
+<label>A 图：动作/场景参考 (可选)</label>
+<div id="transfer-pose-preview" style="min-height:160px;background:#0a0a23;border:1px dashed #555;border-radius:8px;display:flex;align-items:center;justify-content:center;cursor:pointer;overflow:hidden" onclick="document.getElementById('transfer-pose-file').click()">
+<span style="color:#888;font-size:13px" id="transfer-pose-hint">点击上传动作/场景图 (不传则纯文字生成)</span>
+</div>
+<input type="file" id="transfer-pose-file" accept="image/*" style="display:none">
+</div>
+<div class="field" style="flex:1">
+<label>B 图：人物参考</label>
+<div id="transfer-ref-preview" style="min-height:160px;background:#0a0a23;border:1px dashed #555;border-radius:8px;display:flex;align-items:center;justify-content:center;cursor:pointer;overflow:hidden" onclick="document.getElementById('transfer-ref-file').click()">
+<span style="color:#888;font-size:13px" id="transfer-ref-hint">点击上传人物参考图</span>
+</div>
+<input type="file" id="transfer-ref-file" accept="image/*" style="display:none">
+</div>
+</div>
+<div class="row"><div class="field" style="flex:3"><label>场景描述 (Prompt) — 可选，不填则自动</label>
+<textarea id="transfer-prompt" placeholder="可留空，图片已定义全部内容。如需额外引导可填写，例如:&#10;a woman in red dress, outdoor garden, sunny day" style="min-height:60px"></textarea>
+</div></div>
+<div class="row"><div class="field" style="flex:3"><label>反向提示词</label>
+<input type="text" id="transfer-neg" value="deformed, blurry, bad anatomy, bad hands, extra fingers, ugly, cartoon, anime, painting, drawing, overexposed, oversaturated, plastic skin, airbrushed, glossy skin, shiny skin, doll">
+</div></div>
+<div class="row">
+<div class="field"><label>构图保持</label>
+<select id="transfer-structure" title="从A图提取构图结构，保持整体画面一致">
+<option value="none">无 (仅姿势)</option>
+<option value="canny" selected>Canny 边缘 (推荐，保留轮廓)</option>
+<option value="depth">Depth 深度 (保留空间层次)</option>
+<option value="softedge">SoftEdge 柔边 (柔和保留构图)</option>
+</select></div>
+<div class="field"><label>构图权重</label>
+<input type="number" id="transfer-structure-w" value="0.85" step="0.05" min="0.1" max="1.5" title="越高越接近A图构图"></div>
+<div class="field"><label>能力开关</label>
+<div style="display:flex;gap:16px;margin-top:4px">
+<label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:13px">
+<input type="checkbox" id="transfer-face-on" checked> 人脸身份 (InstantID)
+</label>
+<label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:13px">
+<input type="checkbox" id="transfer-appear-on" checked> 外观服装 (IP-Adapter)
+</label>
+</div>
+</div>
+</div>
+<div class="row">
+<div class="field"><label>姿态权重</label>
+<input type="number" id="transfer-pose-w" value="0.8" step="0.05" min="0.1" max="1.5" title="OpenPose控制姿态的强度"></div>
+<div class="field"><label>人脸权重</label>
+<input type="number" id="transfer-face-w" value="0.8" step="0.05" min="0.1" max="1.5" title="InstantID人脸相似度"></div>
+<div class="field"><label>外观权重</label>
+<input type="number" id="transfer-appear-w" value="0.6" step="0.05" min="0.1" max="1.5" title="IP-Adapter服装/体型迁移强度"></div>
+</div>
+<div class="row">
+<div class="field"><label>Steps</label>
+<input type="number" id="transfer-steps" value="30" min="10" max="50"></div>
+<div class="field"><label>CFG</label>
+<input type="number" id="transfer-cfg" value="3" step="0.5" min="1" max="20"></div>
+<div class="field"><label>Seed (-1=随机)</label>
+<input type="number" id="transfer-seed" value="-1"></div>
+</div>
+<div class="btn-row"><button class="btn" onclick="submitTransfer()">生成迁移图</button></div>
+<div id="transfer-status" style="margin-top:12px;font-size:13px;color:#aaa"></div>
+<div class="img-result" id="transfer-result"></div>
+</div>
+
+<!-- Z-Image Edit Panel -->
+<div class="panel" id="imgpanel-zimage">
+<div class="row"><div class="field" style="flex:3"><label>编辑指令 (Prompt)</label>
+<textarea id="zimg-prompt" placeholder="描述完整的目标画面（不是编辑指令），例如：a woman in red dress on the beach, sunset, photorealistic, 8k"></textarea></div></div>
+<div class="row">
+<div class="field"><label>Denoise (编辑强度)</label>
+<input type="range" id="zimg-denoise" min="0.1" max="1.0" step="0.05" value="0.75" oninput="document.getElementById('zimg-denoise-val').textContent=this.value">
+<span id="zimg-denoise-val" style="color:#7c83ff;font-size:13px">0.75</span>
+<div style="font-size:11px;color:#666;margin-top:2px">0.6=微调保留原图 | 0.75=推荐 | 0.9=大改</div></div>
+<div class="field"><label>Steps</label>
+<input type="number" id="zimg-steps" value="8" min="4" max="30"></div>
+<div class="field"><label>CFG</label>
+<input type="number" id="zimg-cfg" value="1.0" step="0.5" min="1" max="10"></div>
+<div class="field"><label>Seed</label>
+<input type="number" id="zimg-seed" value="-1"></div>
+</div>
+<div class="row">
+<div class="field"><label><input type="checkbox" id="zimg-cn-enable" onchange="document.getElementById('zimg-cn-strength').disabled=!this.checked"> ControlNet (保留结构/人物)</label>
+<input type="range" id="zimg-cn-strength" min="0.1" max="1.5" step="0.05" value="0.6" disabled oninput="document.getElementById('zimg-cn-val').textContent=this.value">
+<span id="zimg-cn-val" style="color:#7c83ff;font-size:13px">0.6</span>
+<div style="font-size:11px;color:#666;margin-top:2px">开启后锁定原图轮廓，防止人物变形 | 0.4=轻 0.6=推荐 1.0=强</div></div>
+</div>
+<div class="row"><div class="field"><label>负向提示词 (可选)</label>
+<input type="text" id="zimg-neg" placeholder="blurry, low quality, watermark"></div></div>
+<div class="row"><div class="field">
+<label>上传图片</label>
+<div class="upload-area" onclick="this.querySelector('input').click()">
+<input type="file" id="zimg-file" accept="image/*" onchange="previewUpload(this,'zimg-preview')">
+<div id="zimg-preview">点击上传图片</div>
+</div></div></div>
+<div class="btn-row"><button class="btn" onclick="submitZImage()">Z-Image 编辑</button></div>
+<div id="zimg-status" style="margin-top:12px;font-size:13px;color:#aaa"></div>
+<div class="img-result" id="zimg-result"></div>
+</div>
+
 </div><!-- end section-image -->
+
+<div class="main-section" id="section-chat">
+<div style="display:flex;flex-direction:column;height:calc(100vh - 200px);max-height:800px">
+<div class="row" style="margin-bottom:8px;flex-shrink:0">
+<div class="field" style="min-width:260px"><label>模型 Endpoint</label>
+<input type="text" id="chat-model" value="ep-20260308123632-k8f6w" placeholder="ep-xxxx"></div>
+<div class="field" style="min-width:200px"><label>MCP Server (可选)</label>
+<input type="text" id="chat-mcp-url" placeholder="https://mcp.deepwiki.com/mcp"></div>
+<div class="field" style="min-width:140px"><label>MCP Label</label>
+<input type="text" id="chat-mcp-label" placeholder="deepwiki"></div>
+</div>
+<div id="chat-messages" style="flex:1;overflow-y:auto;background:#0a0a23;border:1px solid #444;border-radius:8px;padding:16px;margin-bottom:12px">
+<div style="color:#666;font-size:13px;text-align:center;padding:40px 0">发送消息开始对话</div>
+</div>
+<div style="display:flex;gap:8px;flex-shrink:0">
+<textarea id="chat-input" placeholder="输入消息..." style="flex:1;padding:10px;background:#0a0a23;border:1px solid #444;border-radius:8px;color:#e0e0e0;font-size:14px;resize:none;min-height:48px;max-height:120px" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendChat()}"></textarea>
+<button class="btn" onclick="sendChat()" id="chat-send-btn" style="align-self:flex-end">发送</button>
+<button class="btn" onclick="clearChat()" style="align-self:flex-end;background:#333">清空</button>
+</div>
+</div>
+</div><!-- end section-chat -->
 
 <!-- Prompt Optimize Modal -->
 <div id="prompt-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:999;display:none;align-items:center;justify-content:center">
@@ -1000,7 +1272,8 @@ async function submitImage() {
   statusEl.textContent = '正在生成图片，请稍候...';
   statusEl.style.color = '#7c83ff';
   resultEl.innerHTML = '';
-  const body = { prompt, size };
+  const model = document.getElementById('img-model').value;
+  const body = { prompt, size, model };
   if (seed >= 0) body.seed = seed;
   try {
     const r = await fetch(BASE + '/api/v1/image/generate', {
@@ -1050,6 +1323,7 @@ async function submitI2I() {
   const fd = new FormData();
   fd.append('prompt', prompt);
   fd.append('size', size);
+  fd.append('model', document.getElementById('i2i-model').value);
   if (seed >= 0) fd.append('seed', seed);
   fd.append('image', i2iSelectedFile);
   try {
@@ -1074,39 +1348,112 @@ async function submitI2I() {
 }
 
 // Multi-reference upload
-let multirefFiles = [];
+let multirefFiles = new Array(10).fill(null);
+let multirefPreviews = new Array(10).fill(null); // cached dataURL previews
+let multirefAddingSlot = -1;
+let multirefDragFrom = -1;
 document.getElementById('multiref-file').addEventListener('change', function() {
+  if (!this.files.length) return;
+  const replacing = multirefAddingSlot >= 0 && multirefFiles[multirefAddingSlot] !== null;
+  let slot = multirefAddingSlot >= 0 ? multirefAddingSlot : multirefFiles.indexOf(null);
+  let count = 0;
   for (const file of this.files) {
-    if (multirefFiles.length >= 10) break;
     if (file.size > 10 * 1024 * 1024) { alert(file.name + ' 超过10MB限制'); continue; }
-    multirefFiles.push(file);
-    const reader = new FileReader();
-    const idx = multirefFiles.length - 1;
-    reader.onload = e => {
-      const wrap = document.createElement('div');
-      wrap.style.cssText = 'position:relative;width:90px;height:90px;border-radius:8px;overflow:hidden;flex-shrink:0';
-      wrap.innerHTML = `<img src="${e.target.result}" style="width:100%;height:100%;object-fit:cover"><div onclick="removeMultiRef(${idx})" style="position:absolute;top:2px;right:2px;width:20px;height:20px;background:rgba(0,0,0,.7);border-radius:50%;color:#f87171;font-size:14px;display:flex;align-items:center;justify-content:center;cursor:pointer">&times;</div>`;
-      wrap.dataset.idx = idx;
-      const gallery = document.getElementById('multiref-gallery');
-      gallery.insertBefore(wrap, document.getElementById('multiref-add-btn'));
-    };
-    reader.readAsDataURL(file);
+    if (replacing && count === 0) {
+      // Replace this specific slot
+      multirefFiles[slot] = file;
+      multirefPreviews[slot] = null;
+      count++; slot++;
+      continue;
+    }
+    // Find next empty slot
+    while (slot < 10 && multirefFiles[slot] !== null) slot++;
+    if (slot >= 10) { alert('最多10张参考图'); break; }
+    multirefFiles[slot] = file;
+    multirefPreviews[slot] = null;
+    slot++;
+    count++;
   }
   this.value = '';
-  updateMultiRefAddBtn();
+  multirefAddingSlot = -1;
+  renderMultiRefGallery();
 });
 function removeMultiRef(idx) {
   multirefFiles[idx] = null;
+  multirefPreviews[idx] = null;
+  renderMultiRefGallery();
+}
+function renderMultiRefGallery() {
   const gallery = document.getElementById('multiref-gallery');
-  const el = gallery.querySelector(`[data-idx="${idx}"]`);
-  if (el) el.remove();
-  updateMultiRefAddBtn();
+  gallery.innerHTML = '';
+  const usedCount = multirefFiles.filter(f => f).length;
+  const totalSlots = Math.max(usedCount + 1, multirefFiles.findLastIndex(f => f) + 2);
+  const showSlots = Math.min(totalSlots, 10);
+  for (let i = 0; i < showSlots; i++) {
+    const wrap = document.createElement('div');
+    wrap.style.cssText = 'position:relative;width:90px;flex-shrink:0;text-align:center';
+    wrap.dataset.slot = i;
+    // Drop target for all slots
+    wrap.addEventListener('dragover', function(e) { e.preventDefault(); this.style.outline = '2px solid #7c83ff'; });
+    wrap.addEventListener('dragleave', function() { this.style.outline = ''; });
+    wrap.addEventListener('drop', function(e) {
+      e.preventDefault(); this.style.outline = '';
+      const to = parseInt(this.dataset.slot);
+      if (multirefDragFrom >= 0 && multirefDragFrom !== to) {
+        const tmp = multirefFiles[multirefDragFrom];
+        multirefFiles[multirefDragFrom] = multirefFiles[to];
+        multirefFiles[to] = tmp;
+        const tmpP = multirefPreviews[multirefDragFrom];
+        multirefPreviews[multirefDragFrom] = multirefPreviews[to];
+        multirefPreviews[to] = tmpP;
+        renderMultiRefGallery();
+      }
+    });
+    const label = document.createElement('div');
+    label.style.cssText = 'font-size:11px;color:#7c83ff;margin-bottom:3px;font-weight:bold';
+    label.textContent = 'IMAGE ' + (i + 1);
+    wrap.appendChild(label);
+    if (multirefFiles[i]) {
+      const box = document.createElement('div');
+      box.style.cssText = 'position:relative;width:90px;height:90px;border-radius:8px;overflow:hidden;cursor:grab';
+      box.draggable = true;
+      box.addEventListener('dragstart', (function(slot) { return function(e) {
+        multirefDragFrom = slot;
+        e.dataTransfer.effectAllowed = 'move';
+        this.style.opacity = '0.5';
+      }; })(i));
+      box.addEventListener('dragend', function() { this.style.opacity = ''; multirefDragFrom = -1; });
+      // Click to replace (only if not dragging)
+      box.addEventListener('click', (function(slot) { return function(e) {
+        if (e.target.closest('[data-remove]')) return; // let × handle removal
+        multirefAddingSlot = slot;
+        document.getElementById('multiref-file').click();
+      }; })(i));
+      const fillBox = function(b, slot, src) {
+        b.innerHTML = `<img src="${src}" style="width:100%;height:100%;object-fit:cover;pointer-events:none"><div data-remove="1" onclick="event.stopPropagation();removeMultiRef(${slot})" style="position:absolute;top:2px;right:2px;width:20px;height:20px;background:rgba(0,0,0,.7);border-radius:50%;color:#f87171;font-size:14px;display:flex;align-items:center;justify-content:center;cursor:pointer">&times;</div>`;
+      };
+      if (multirefPreviews[i]) {
+        fillBox(box, i, multirefPreviews[i]);
+      } else {
+        const reader = new FileReader();
+        reader.onload = (function(b, slot) { return function(e) {
+          multirefPreviews[slot] = e.target.result;
+          fillBox(b, slot, e.target.result);
+        }; })(box, i);
+        reader.readAsDataURL(multirefFiles[i]);
+      }
+      wrap.appendChild(box);
+    } else {
+      const box = document.createElement('div');
+      box.style.cssText = 'width:90px;height:90px;border:2px dashed #555;border-radius:8px;display:flex;align-items:center;justify-content:center;cursor:pointer;color:#888;font-size:28px';
+      box.textContent = '+';
+      box.onclick = (function(slot) { return function() { multirefAddingSlot = slot; document.getElementById('multiref-file').click(); }; })(i);
+      wrap.appendChild(box);
+    }
+    gallery.appendChild(wrap);
+  }
 }
-function updateMultiRefAddBtn() {
-  const count = multirefFiles.filter(f => f).length;
-  const btn = document.getElementById('multiref-add-btn');
-  btn.style.display = count >= 10 ? 'none' : 'flex';
-}
+renderMultiRefGallery();
 async function submitMultiRef() {
   const prompt = document.getElementById('multiref-prompt').value.trim();
   if (!prompt) return alert('请输入提示词');
@@ -1122,8 +1469,13 @@ async function submitMultiRef() {
   const fd = new FormData();
   fd.append('prompt', prompt);
   fd.append('size', size);
+  fd.append('model', document.getElementById('multiref-model').value);
   if (seed >= 0) fd.append('seed', seed);
-  files.forEach(f => fd.append('images', f));
+  // Send files in slot order: IMAGE 1, IMAGE 2, ... (skip empty slots)
+  const slotIndices = [];
+  for (let i = 0; i < multirefFiles.length; i++) {
+    if (multirefFiles[i]) { fd.append('images', multirefFiles[i]); slotIndices.push(i); }
+  }
   try {
     const r = await fetch(BASE + '/api/v1/image/multiref', {
       method: 'POST',
@@ -1138,7 +1490,342 @@ async function submitMultiRef() {
     }
     statusEl.textContent = '生成完成! 尺寸: ' + (data.size || size);
     statusEl.style.color = '#4ade80';
+    let html = '';
+    if (data.cropped_inputs && data.cropped_inputs.length) {
+      html += '<div style="margin-bottom:8px;font-size:12px;color:#999">裁剪后的输入图（对应模型数组位置）：</div><div style="display:flex;gap:12px;margin-bottom:12px;flex-wrap:wrap">';
+      data.cropped_inputs.forEach((u, i) => {
+        const slotNum = slotIndices[i] !== undefined ? slotIndices[i] + 1 : i + 1;
+        html += `<div style="text-align:center"><div style="font-size:11px;color:#7c83ff;font-weight:bold;margin-bottom:4px">IMAGE ${slotNum}</div><img src="${u}" onclick="window.open(this.src,'_blank')" style="max-height:200px;cursor:pointer;border:1px solid #333;border-radius:6px" title="IMAGE ${slotNum} (裁剪后)"></div>`;
+      });
+      html += '</div>';
+    }
+    html += `<img src="${data.url}" onclick="window.open(this.src,'_blank')" style="cursor:pointer;max-width:100%" title="点击查看原图">`;
+    resultEl.innerHTML = html;
+  } catch(e) {
+    statusEl.textContent = '请求失败: ' + e.message;
+    statusEl.style.color = '#f87171';
+  }
+}
+
+// Scene Character Swap
+let sceneswapFace = null, sceneswapScene = null;
+function setupSceneSwapUpload(inputId, boxId, onSet) {
+  document.getElementById(inputId).addEventListener('change', function() {
+    const file = this.files[0];
+    if (!file) return;
+    if (file.size > 10 * 1024 * 1024) { alert(file.name + ' 超过10MB限制'); this.value = ''; return; }
+    onSet(file);
+    const reader = new FileReader();
+    const box = document.getElementById(boxId);
+    reader.onload = e => {
+      box.innerHTML = `<img src="${e.target.result}" style="width:100%;height:100%;object-fit:cover"><div onclick="event.stopPropagation();clearSceneSwapSlot('${inputId}','${boxId}')" style="position:absolute;top:2px;right:2px;width:20px;height:20px;background:rgba(0,0,0,.7);border-radius:50%;color:#f87171;font-size:14px;display:flex;align-items:center;justify-content:center;cursor:pointer">&times;</div>`;
+    };
+    reader.readAsDataURL(file);
+    this.value = '';
+  });
+}
+function clearSceneSwapSlot(inputId, boxId) {
+  document.getElementById(boxId).innerHTML = '+';
+  if (inputId === 'sceneswap-face-file') sceneswapFace = null;
+  else sceneswapScene = null;
+}
+setupSceneSwapUpload('sceneswap-face-file', 'sceneswap-face-box', f => { sceneswapFace = f; });
+setupSceneSwapUpload('sceneswap-scene-file', 'sceneswap-scene-box', f => { sceneswapScene = f; });
+
+function onSceneSwapModeChange() {
+  const skip = document.getElementById('sceneswap-skip-reactor').checked;
+  const occl = document.getElementById('sceneswap-occlusion').checked;
+  const reactorOnly = document.getElementById('sceneswap-reactor-only');
+  const expr = document.getElementById('sceneswap-expr');
+  // Occlusion mode auto-skips Reactor, incompatible with reactor-only
+  if (occl) { reactorOnly.checked = false; reactorOnly.disabled = true; }
+  else { reactorOnly.disabled = skip; }
+  // Skip reactor disables reactor-only
+  if (skip) { reactorOnly.checked = false; reactorOnly.disabled = true; }
+  expr.disabled = skip || occl || reactorOnly.checked;
+}
+
+async function submitSceneSwap() {
+  if (!sceneswapFace) return alert('请上传目标人物照片 (IMAGE 1)');
+  if (!sceneswapScene) return alert('请上传场景图片 (IMAGE 2)');
+  const prompt = document.getElementById('sceneswap-prompt').value.trim();
+  if (!prompt) return alert('请输入提示词');
+  const extra = document.getElementById('sceneswap-extra').value.trim();
+  const size = document.getElementById('sceneswap-size').value;
+  const seed = parseInt(document.getElementById('sceneswap-seed').value);
+  const statusEl = document.getElementById('sceneswap-status');
+  const resultEl = document.getElementById('sceneswap-result');
+  statusEl.textContent = '步骤 1/2: Reactor 换脸中...';
+  statusEl.style.color = '#7c83ff';
+  resultEl.innerHTML = '';
+  const fd = new FormData();
+  fd.append('face_image', sceneswapFace);
+  fd.append('scene_image', sceneswapScene);
+  fd.append('prompt', prompt);
+  fd.append('extra_prompt', extra);
+  const skipReactor = document.getElementById('sceneswap-skip-reactor').checked;
+  const occlusion = document.getElementById('sceneswap-occlusion').checked;
+  const reactorOnly = document.getElementById('sceneswap-reactor-only').checked;
+  fd.append('skip_reactor', skipReactor ? 'true' : 'false');
+  fd.append('reactor_only', reactorOnly ? 'true' : 'false');
+  fd.append('expression_keep', (skipReactor || occlusion || reactorOnly) ? '0' : document.getElementById('sceneswap-expr').value);
+  fd.append('preserve_occlusion', occlusion ? 'true' : 'false');
+  fd.append('size', size);
+  fd.append('model', document.getElementById('sceneswap-model').value);
+  if (seed >= 0) fd.append('seed', seed);
+  try {
+    const modeText = skipReactor ? 'SeedDream 编辑' : reactorOnly ? 'Reactor 换脸' : 'Reactor换脸 + SeedDream编辑';
+    statusEl.textContent = `正在处理 (${modeText})，请稍候...`;
+    const r = await fetch(BASE + '/api/v1/image/scene-swap', {
+      method: 'POST',
+      headers: { 'X-API-Key': getKey() },
+      body: fd
+    });
+    const data = await r.json();
+    if (!r.ok) {
+      statusEl.textContent = '生成失败: ' + (data.detail || JSON.stringify(data));
+      statusEl.style.color = '#f87171';
+      return;
+    }
+    statusEl.textContent = '生成完成! 尺寸: ' + (data.size || size);
+    statusEl.style.color = '#4ade80';
+    let html = '';
+    if (data.cropped_inputs && data.cropped_inputs.length) {
+      const labels = ['IMAGE 1 (目标人物)', 'IMAGE 2 (换脸后场景)'];
+      html += '<div style="display:flex;gap:12px;margin-bottom:12px;flex-wrap:wrap">';
+      data.cropped_inputs.forEach((u, i) => {
+        html += `<div style="text-align:center"><div style="font-size:11px;color:#7c83ff;font-weight:bold;margin-bottom:4px">${labels[i] || 'IMAGE '+(i+1)}</div><img src="${u}" onclick="window.open(this.src,'_blank')" style="max-height:200px;cursor:pointer;border:1px solid #333;border-radius:6px" title="${labels[i] || ''}"></div>`;
+      });
+      html += '</div>';
+    }
+    html += `<div style="text-align:center"><div style="font-size:11px;color:#4ade80;font-weight:bold;margin-bottom:4px">生成结果</div><img src="${data.url}" onclick="window.open(this.src,'_blank')" style="cursor:pointer;max-width:100%;border-radius:6px" title="点击查看原图"></div>`;
+    resultEl.innerHTML = html;
+  } catch(e) {
+    statusEl.textContent = '请求失败: ' + e.message;
+    statusEl.style.color = '#f87171';
+  }
+}
+
+// FaceSwap upload
+let faceswapFiles = [];
+document.getElementById('faceswap-file').addEventListener('change', function() {
+  for (const file of this.files) {
+    if (faceswapFiles.length >= 5) break;
+    if (file.size > 10 * 1024 * 1024) { alert(file.name + ' 超过10MB限制'); continue; }
+    faceswapFiles.push(file);
+    const reader = new FileReader();
+    const idx = faceswapFiles.length - 1;
+    reader.onload = e => {
+      const wrap = document.createElement('div');
+      wrap.style.cssText = 'position:relative;width:90px;height:90px;border-radius:8px;overflow:hidden;flex-shrink:0';
+      wrap.innerHTML = `<img src="${e.target.result}" style="width:100%;height:100%;object-fit:cover"><div onclick="removeFaceSwap(${idx})" style="position:absolute;top:2px;right:2px;width:20px;height:20px;background:rgba(0,0,0,.7);border-radius:50%;color:#f87171;font-size:14px;display:flex;align-items:center;justify-content:center;cursor:pointer">&times;</div><div style="position:absolute;bottom:2px;left:2px;background:rgba(0,0,0,.7);color:#fff;font-size:10px;padding:1px 5px;border-radius:4px">Face ${idx+1}</div>`;
+      wrap.dataset.fidx = idx;
+      const gallery = document.getElementById('faceswap-gallery');
+      gallery.insertBefore(wrap, document.getElementById('faceswap-add-btn'));
+    };
+    reader.readAsDataURL(file);
+  }
+  this.value = '';
+  document.getElementById('faceswap-add-btn').style.display = faceswapFiles.filter(f=>f).length >= 5 ? 'none' : 'flex';
+});
+function removeFaceSwap(idx) {
+  faceswapFiles[idx] = null;
+  const el = document.getElementById('faceswap-gallery').querySelector(`[data-fidx="${idx}"]`);
+  if (el) el.remove();
+  document.getElementById('faceswap-add-btn').style.display = faceswapFiles.filter(f=>f).length >= 5 ? 'none' : 'flex';
+}
+function onFaceswapSizeChange() {
+  const v = document.getElementById('faceswap-size').value;
+  const showCustom = v === 'custom';
+  document.getElementById('faceswap-w-field').style.display = showCustom ? '' : 'none';
+  document.getElementById('faceswap-h-field').style.display = showCustom ? '' : 'none';
+  if (v !== 'auto' && v !== 'custom') {
+    const [w, h] = v.split('x').map(Number);
+    document.getElementById('faceswap-w').value = w;
+    document.getElementById('faceswap-h').value = h;
+  }
+}
+async function submitFaceSwap() {
+  const prompt = document.getElementById('faceswap-prompt').value.trim();
+  if (!prompt) return alert('请输入场景描述');
+  const files = faceswapFiles.filter(f => f);
+  if (files.length < 1) return alert('请至少上传1张人脸照片');
+  // Multi-face: prompt needs one line per face for regional control
+  if (files.length > 1) {
+    const lines = prompt.split('\n').filter(l => l.trim());
+    if (lines.length < files.length) {
+      return alert(`上传了${files.length}张脸，prompt需要${files.length}行（每行描述一个人）。\n例如:\na woman on the left, red dress\na man on the right, black suit`);
+    }
+  }
+  const statusEl = document.getElementById('faceswap-status');
+  const resultEl = document.getElementById('faceswap-result');
+  statusEl.textContent = `正在生成 (${files.length}张人脸)，约需30-60秒...`;
+  statusEl.style.color = '#7c83ff';
+  resultEl.innerHTML = '';
+  const sizeMode = document.getElementById('faceswap-size').value;
+  let w, h;
+  if (sizeMode === 'auto') {
+    w = 0; h = 0; // server auto-detects from face image
+  } else if (sizeMode === 'custom') {
+    w = document.getElementById('faceswap-w').value;
+    h = document.getElementById('faceswap-h').value;
+  } else {
+    [w, h] = sizeMode.split('x').map(Number);
+  }
+  const fd = new FormData();
+  fd.append('prompt', prompt);
+  fd.append('negative_prompt', document.getElementById('faceswap-neg').value);
+  fd.append('width', w);
+  fd.append('height', h);
+  fd.append('steps', document.getElementById('faceswap-steps').value);
+  fd.append('cfg_scale', document.getElementById('faceswap-cfg').value);
+  fd.append('face_weight', document.getElementById('faceswap-weight').value);
+  fd.append('seed', document.getElementById('faceswap-seed').value);
+  files.forEach(f => fd.append('faces', f));
+  try {
+    const r = await fetch(BASE + '/api/v1/image/faceswap', {
+      method: 'POST',
+      headers: { 'X-API-Key': getKey() },
+      body: fd
+    });
+    const data = await r.json();
+    if (!r.ok) {
+      statusEl.textContent = '生成失败: ' + (data.detail || JSON.stringify(data));
+      statusEl.style.color = '#f87171';
+      return;
+    }
+    statusEl.textContent = '生成完成! 尺寸: ' + (data.size || '');
+    statusEl.style.color = '#4ade80';
     resultEl.innerHTML = `<img src="${data.url}" onclick="window.open(this.src,'_blank')" style="cursor:pointer" title="点击查看原图">`;
+  } catch(e) {
+    statusEl.textContent = '请求失败: ' + e.message;
+    statusEl.style.color = '#f87171';
+  }
+}
+
+// === Transfer (Pose Transfer) ===
+let transferPoseFile = null, transferRefFile = null;
+document.getElementById('transfer-pose-file').addEventListener('change', function() {
+  const file = this.files[0]; if (!file) return;
+  transferPoseFile = file;
+  const r = new FileReader();
+  r.onload = e => {
+    document.getElementById('transfer-pose-preview').innerHTML =
+      `<img src="${e.target.result}" style="max-width:100%;max-height:240px;object-fit:contain">`;
+  };
+  r.readAsDataURL(file);
+});
+document.getElementById('transfer-ref-file').addEventListener('change', function() {
+  const file = this.files[0]; if (!file) return;
+  transferRefFile = file;
+  const r = new FileReader();
+  r.onload = e => {
+    document.getElementById('transfer-ref-preview').innerHTML =
+      `<img src="${e.target.result}" style="max-width:100%;max-height:240px;object-fit:contain">`;
+  };
+  r.readAsDataURL(file);
+});
+async function submitTransfer() {
+  if (!transferRefFile) return alert('请上传 B 图（人物参考）');
+  const prompt = document.getElementById('transfer-prompt').value.trim();
+  const enableFace = document.getElementById('transfer-face-on').checked;
+  const enableAppear = document.getElementById('transfer-appear-on').checked;
+  if (!enableFace && !enableAppear) return alert('请至少开启一个能力（人脸身份或外观服装）');
+  const statusEl = document.getElementById('transfer-status');
+  const resultEl = document.getElementById('transfer-result');
+  statusEl.textContent = '正在生成，约需30-60秒...';
+  statusEl.style.color = '#7c83ff';
+  resultEl.innerHTML = '';
+  const fd = new FormData();
+  if (transferPoseFile) fd.append('pose_image', transferPoseFile);
+  fd.append('ref_image', transferRefFile);
+  if (prompt) fd.append('prompt', prompt);
+  fd.append('negative_prompt', document.getElementById('transfer-neg').value);
+  fd.append('structure_mode', document.getElementById('transfer-structure').value);
+  fd.append('structure_weight', document.getElementById('transfer-structure-w').value);
+  fd.append('pose_weight', document.getElementById('transfer-pose-w').value);
+  fd.append('face_weight', document.getElementById('transfer-face-w').value);
+  fd.append('appearance_weight', document.getElementById('transfer-appear-w').value);
+  fd.append('enable_face', enableFace);
+  fd.append('enable_appearance', enableAppear);
+  fd.append('steps', document.getElementById('transfer-steps').value);
+  fd.append('cfg_scale', document.getElementById('transfer-cfg').value);
+  fd.append('seed', document.getElementById('transfer-seed').value);
+  try {
+    const r = await fetch(BASE + '/api/v1/image/transfer', {
+      method: 'POST',
+      headers: { 'X-API-Key': getKey() },
+      body: fd
+    });
+    const text = await r.text();
+    let data;
+    try { data = JSON.parse(text); } catch(e) {
+      statusEl.textContent = '响应解析失败 (HTTP ' + r.status + '): ' + text.substring(0, 200);
+      statusEl.style.color = '#f87171';
+      return;
+    }
+    if (!r.ok) {
+      statusEl.textContent = '生成失败: ' + (data.detail || JSON.stringify(data));
+      statusEl.style.color = '#f87171';
+      return;
+    }
+    statusEl.textContent = '生成完成! 尺寸: ' + (data.size || '');
+    statusEl.style.color = '#4ade80';
+    resultEl.innerHTML = `<img src="${data.url}" onclick="window.open(this.src,'_blank')" style="cursor:pointer" title="点击查看原图">`;
+  } catch(e) {
+    statusEl.textContent = '请求失败: ' + e.message;
+    statusEl.style.color = '#f87171';
+  }
+}
+
+// --- Z-Image Edit ---
+let zimgSelectedFile = null;
+
+function previewUpload(input, previewId) {
+  const file = input.files[0];
+  if (!file) return;
+  zimgSelectedFile = file;
+  const reader = new FileReader();
+  reader.onload = e => {
+    document.getElementById(previewId).innerHTML = '<img src="' + e.target.result + '" style="max-width:100%;max-height:200px;border-radius:6px">';
+  };
+  reader.readAsDataURL(file);
+}
+
+async function submitZImage() {
+  const prompt = document.getElementById('zimg-prompt').value.trim();
+  if (!prompt) return alert('请输入编辑指令');
+  if (!zimgSelectedFile) return alert('请上传图片');
+  const statusEl = document.getElementById('zimg-status');
+  const resultEl = document.getElementById('zimg-result');
+  statusEl.textContent = '正在编辑，请稍候（约10-30秒）...';
+  statusEl.style.color = '#7c83ff';
+  resultEl.innerHTML = '';
+  const fd = new FormData();
+  fd.append('prompt', prompt);
+  fd.append('negative_prompt', document.getElementById('zimg-neg').value);
+  fd.append('denoise', document.getElementById('zimg-denoise').value);
+  fd.append('steps', document.getElementById('zimg-steps').value);
+  fd.append('cfg', document.getElementById('zimg-cfg').value);
+  fd.append('seed', document.getElementById('zimg-seed').value);
+  const cnEnabled = document.getElementById('zimg-cn-enable').checked;
+  fd.append('controlnet_strength', cnEnabled ? document.getElementById('zimg-cn-strength').value : '0');
+  fd.append('image', zimgSelectedFile);
+  try {
+    const r = await fetch(BASE + '/api/v1/image/zimage-edit', {
+      method: 'POST',
+      headers: { 'X-API-Key': getKey() },
+      body: fd
+    });
+    const data = await r.json();
+    if (!r.ok) {
+      statusEl.textContent = '编辑失败: ' + (data.detail || JSON.stringify(data));
+      statusEl.style.color = '#f87171';
+      return;
+    }
+    statusEl.textContent = '编辑完成! Seed: ' + (data.seed || '');
+    statusEl.style.color = '#4ade80';
+    resultEl.innerHTML = '<img src="' + data.url + '" onclick="window.open(this.src,\'_blank\')" style="cursor:pointer" title="点击查看原图">';
   } catch(e) {
     statusEl.textContent = '请求失败: ' + e.message;
     statusEl.style.color = '#f87171';
@@ -1189,9 +1876,16 @@ document.getElementById('story-file').addEventListener('change', function() {
 
 async function loadLoras() {
   try {
+    // Try cache first for instant render
+    const cached = localStorage.getItem('wan22_loras_cache');
+    if (cached) {
+      try { allLoras = JSON.parse(cached); } catch(e) {}
+    }
+    // Fetch latest in background
     const r = await fetch(BASE + '/api/v1/loras', {headers: {'X-API-Key': getKey()}});
     if (!r.ok) return;
     allLoras = await r.json();
+    localStorage.setItem('wan22_loras_cache', JSON.stringify(allLoras));
     renderLoras('t2v-loras');
     renderLoras('i2v-loras');
     // Don't render chain-loras here, it will be rendered when segments are restored or added
@@ -1246,6 +1940,11 @@ function restoreLoraSelections(prefix) {
   });
 }
 
+function _isI2VLora(l) {
+  const n = (l.name || '').toLowerCase();
+  const f = (l.file || '').toLowerCase();
+  return n.includes('i2v') || f.includes('i2v') || f.includes('_high_noise') || f.includes('_low_noise');
+}
 function renderLoras(cid) {
   const c = document.getElementById(cid);
   if (!c) {
@@ -1253,25 +1952,31 @@ function renderLoras(cid) {
     return;
   }
   if (!allLoras.length) { c.innerHTML = '<span style="color:#666;font-size:13px">暂无可用 LoRA</span>'; return; }
+  // Filter: t2v panel hides I2V-only loras, i2v/chain panels show all
+  const isT2V = cid.startsWith('t2v-');
   c.innerHTML = allLoras.map((l, i) => {
+    if (isT2V && _isI2VLora(l)) return '';
     const twText = (l.trigger_words||[]).join(', ');
+    const isI2V = _isI2VLora(l);
     let previewHtml = '';
     if (l.preview_url) {
       const isVideo = /\.(mp4|webm)$/i.test(l.preview_url);
       if (isVideo) {
-        previewHtml = `<video class="lora-preview" src="${l.preview_url}" muted autoplay loop playsinline referrerpolicy="no-referrer" onclick="openPreviewModal('${l.preview_url}', true)"></video>`;
+        const playIcon = `<svg viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>`;
+        previewHtml = `<div class="lora-preview-wrap" onclick="event.stopPropagation();var v=this.querySelector('video');if(v.paused){v.play();this.classList.add('playing')}else{v.pause();this.classList.remove('playing')}" ondblclick="event.stopPropagation();openPreviewModal('${l.preview_url}',true)"><video class="lora-preview" src="${l.preview_url}" muted loop playsinline preload="metadata" referrerpolicy="no-referrer"></video><div class="lora-play-btn">${playIcon}</div></div>`;
       } else {
         previewHtml = `<img class="lora-preview" src="${l.preview_url}" alt="" referrerpolicy="no-referrer" onclick="openPreviewModal('${l.preview_url}', false)">`;
       }
     } else {
       previewHtml = '<div class="lora-placeholder">LoRA</div>';
     }
+    const typeTag = isI2V ? '<span class="lora-type-tag i2v">I2V</span>' : '<span class="lora-type-tag t2v">T2V</span>';
     const civitaiLink = l.civitai_id ? `<a href="https://civitai.com/models/${l.civitai_id}" target="_blank" rel="noopener" title="${l.file}">${l.name}</a>` : `<span title="${l.file}">${l.name}</span>`;
     return `<div class="lora-item" id="${cid}-${i}">
       <input type="checkbox" data-idx="${i}" onchange="this.parentElement.classList.toggle('selected')">
       ${previewHtml}
       <div style="flex:1;min-width:0">
-        <span class="lora-name">${civitaiLink}</span>
+        <span class="lora-name">${civitaiLink}${typeTag}</span>
         ${twText ? `<div class="lora-tw" title="${twText}">${twText}</div>` : ''}
       </div>
       <input type="number" class="lora-strength" min="0" max="2" step="0.05" value="${l.default_strength}">
@@ -1947,13 +2652,24 @@ async function loadCivitaiLoraFiles() {
 function isCivitaiDownloaded(versions) {
   if (!versions || !versions.length) return false;
   for (const v of versions) {
+    // Check actual filenames in version files
+    if (v.files && v.files.length) {
+      for (const f of v.files) {
+        const fname = (f.name||'').toLowerCase();
+        if (fname && civitaiLoraFiles.includes(fname)) return true;
+      }
+    }
+    // Fallback: check download_url last segment
     if (v.download_url) {
       const parts = v.download_url.split('/');
       const fname = (parts[parts.length-1]||'').split('?')[0].toLowerCase();
       if (fname && civitaiLoraFiles.includes(fname)) return true;
     }
+    // Fallback: fuzzy match version name (only if long enough and not generic like "v1.0")
     const vname = (v.name||'').toLowerCase().replace(/\s+/g,'');
-    if (civitaiLoraFiles.some(f => f.includes(vname) && vname.length > 3)) return true;
+    if (vname.length > 8 && !/^v?\d+[\.\d]*$/.test(vname)) {
+      if (civitaiLoraFiles.some(f => f.includes(vname))) return true;
+    }
   }
   return false;
 }
@@ -1963,7 +2679,7 @@ function _buildCivitaiUrl(cursor) {
   const baseModel = document.getElementById('civitai-basemodel').value;
   const sort = document.getElementById('civitai-sort').value;
   const nsfw = document.getElementById('civitai-nsfw').checked;
-  let url = BASE + '/api/v1/civitai/search?query=' + encodeURIComponent(query) + '&limit=50&nsfw=' + nsfw + '&sort=' + encodeURIComponent(sort);
+  let url = BASE + '/api/v1/civitai/search?query=' + encodeURIComponent(query) + '&limit=100&nsfw=' + nsfw + '&sort=' + encodeURIComponent(sort);
   if (baseModel) url += '&base_model=' + encodeURIComponent(baseModel);
   if (cursor) url += '&cursor=' + encodeURIComponent(cursor);
   return url;
@@ -1972,6 +2688,24 @@ function _buildCivitaiUrl(cursor) {
 async function searchCivitAI(cursor) {
   cursor = cursor || '';
   const box = document.getElementById('civitai-results');
+  const query = document.getElementById('civitai-query').value.trim();
+
+  // Detect CivitAI URL: extract model ID and fetch directly
+  const urlMatch = query.match(/civitai\.com\/models\/(\d+)/);
+  if (urlMatch && !cursor) {
+    const modelId = urlMatch[1];
+    box.innerHTML = '<span style="color:#aaa">加载模型...</span>';
+    await loadCivitaiLoraFiles();
+    try {
+      const r = await fetch(BASE + '/api/v1/civitai/models/' + modelId, {headers:{'X-API-Key':getKey()}});
+      if (!r.ok) { box.innerHTML = '<span style="color:#f87171">模型不存在或加载失败</span>'; return; }
+      const model = await r.json();
+      civitaiNextCursor = '';
+      renderCivitAIResults({items: [model]}, false);
+    } catch(e) { box.innerHTML = '<span style="color:#f87171">加载失败: ' + e.message + '</span>'; }
+    return;
+  }
+
   if (!cursor) {
     box.innerHTML = '<span style="color:#aaa">搜索中...</span>';
   }
@@ -1997,7 +2731,8 @@ function renderCivitAIResults(data, append) {
     const previewClick = m.preview_url ? `onclick="openPreviewModal('${m.preview_url}', ${isVideo})"` : '';
     let previewHtml;
     if (m.preview_url && isVideo) {
-      previewHtml = `<video src="${m.preview_url}" muted autoplay loop playsinline referrerpolicy="no-referrer" style="width:100%;height:140px;object-fit:cover;cursor:pointer" ${previewClick}></video>`;
+      const playIcon = `<svg viewBox="0 0 24 24" style="width:32px;height:32px;fill:#fff;opacity:0.85"><path d="M8 5v14l11-7z"/></svg>`;
+      previewHtml = `<div style="position:relative;width:100%;height:140px;cursor:pointer" onclick="var v=this.querySelector('video'),b=this.querySelector('.civ-play-btn');if(v.paused){v.play();b.style.opacity='0'}else{v.pause();b.style.opacity='1'}" ondblclick="event.stopPropagation();openPreviewModal('${m.preview_url}',true)"><video src="${m.preview_url}" muted loop playsinline preload="metadata" referrerpolicy="no-referrer" style="width:100%;height:140px;object-fit:cover"></video><div class="civ-play-btn" style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,0.35);transition:opacity .2s">${playIcon}</div></div>`;
     } else if (m.preview_url) {
       previewHtml = `<img src="${m.preview_url}" alt="${m.name}" loading="lazy" referrerpolicy="no-referrer" style="cursor:pointer" ${previewClick}>`;
     } else {
@@ -2053,7 +2788,7 @@ function renderCivitAIResults(data, append) {
         ${tw ? `<div class="card-tw" title="${tw}">${tw}</div>` : ''}
         <div class="card-actions">
           <select id="cv-${m.id}">${fileOpts}</select>
-          <button class="btn btn-sm" style="padding:3px 10px;font-size:11px" onclick="downloadFromCivitAI(${m.id})">下载</button>
+          ${downloaded ? '<span style="color:#4ade80;font-size:11px;padding:3px 6px">已下载</span>' : `<button class="btn btn-sm" style="padding:3px 10px;font-size:11px" onclick="downloadFromCivitAI(${m.id})">下载</button>`}
         </div>
       </div>
     </div>`;
@@ -2076,6 +2811,11 @@ function renderCivitAIResults(data, append) {
     ? `<button class="btn btn-sm" style="background:#333" onclick="searchCivitAI('${civitaiNextCursor}')">加载更多</button>`
     : '';
   updateCivitaiBatch();
+}
+
+function toggleCivitaiDownloaded() {
+  const hide = document.getElementById('civitai-hide-downloaded').checked;
+  document.querySelectorAll('.civitai-card.downloaded').forEach(c => c.style.display = hide ? 'none' : '');
 }
 
 function updateCivitaiBatch() {
@@ -2105,7 +2845,57 @@ async function batchDownloadCivitAI() {
 async function downloadFromCivitAI(modelId) {
   const card = document.querySelector(`.civitai-card[data-model-id="${modelId}"]`);
   if (!card) return;
-  const groups = JSON.parse(card.dataset.groups || '[]');
+  let groups = JSON.parse(card.dataset.groups || '[]');
+
+  // If no file groups (Meilisearch result), fetch full model data first
+  if (!groups.length || !groups[0].files || !groups[0].files.length) {
+    const box = document.getElementById('civitai-dl-status');
+    box.innerHTML += `<div class="dl-item">获取模型信息...</div>`;
+    try {
+      const r = await fetch(BASE + '/api/v1/civitai/models/' + modelId, {headers:{'X-API-Key':getKey()}});
+      if (!r.ok) { box.innerHTML += `<div class="dl-item" style="border-color:#f87171">获取模型信息失败</div>`; return; }
+      const model = await r.json();
+      // Rebuild groups from full model data
+      const allFiles = [];
+      (model.versions||[]).forEach(v => {
+        (v.files||[]).forEach(f => {
+          allFiles.push({name: f.name, url: f.download_url, size: f.size_mb, version: v.name, base: v.base_model});
+        });
+      });
+      const newGroups = []; const used = new Set();
+      for (let i = 0; i < allFiles.length; i++) {
+        if (used.has(i)) continue;
+        const f = allFiles[i];
+        const isH = /[-_](H|HIGH)[-_.]|[-_](H|HIGH)$/i.test(f.name);
+        const isL = /[-_](L|LOW)[-_.]|[-_](L|LOW)$/i.test(f.name);
+        if (isH || isL) {
+          const pairRe = isH ? /[-_](L|LOW)[-_.]|[-_](L|LOW)$/i : /[-_](H|HIGH)[-_.]|[-_](H|HIGH)$/i;
+          const pairIdx = allFiles.findIndex((g, j) => j !== i && !used.has(j) && pairRe.test(g.name));
+          if (pairIdx >= 0) {
+            used.add(i); used.add(pairIdx);
+            const hFile = isH ? f : allFiles[pairIdx];
+            const lFile = isH ? allFiles[pairIdx] : f;
+            newGroups.push({label: hFile.name.replace(/[-_](H|HIGH)[-_.]/i,'').replace('.safetensors','') + ' (H+L)', files: [hFile, lFile], base: hFile.base});
+            continue;
+          }
+        }
+        used.add(i);
+        newGroups.push({label: f.name.replace('.safetensors','') + ' (' + f.size + 'MB)', files: [f], base: f.base});
+      }
+      groups = newGroups;
+      // Update card data and rebuild select
+      card.dataset.groups = JSON.stringify(groups);
+      const selEl = document.getElementById('cv-' + modelId);
+      if (selEl) selEl.innerHTML = groups.map((g,i) => `<option value="${i}">${g.label}</option>`).join('');
+      box.lastElementChild.remove(); // remove "获取模型信息..."
+      if (!groups.length) { box.innerHTML += `<div class="dl-item" style="border-color:#f87171">未找到可下载文件</div>`; return; }
+      // If multiple groups, let user pick first
+      if (groups.length > 1) { box.innerHTML += `<div class="dl-item">请选择版本后再点下载</div>`; return; }
+    } catch(e) {
+      box.innerHTML += `<div class="dl-item" style="border-color:#f87171">${e.message}</div>`; return;
+    }
+  }
+
   const sel = document.getElementById('cv-' + modelId);
   const idx = sel ? parseInt(sel.value) : 0;
   const group = groups[idx];
@@ -4301,6 +5091,141 @@ function ppAudio() {
     cfg: document.getElementById('pp-audio-cfg').value,
     fps: document.getElementById('pp-audio-fps').value,
   }, 'AI配音');
+}
+
+// --- Chat ---
+let chatHistory = [];
+let chatAbort = null;
+
+function clearChat() {
+  chatHistory = [];
+  const box = document.getElementById('chat-messages');
+  box.innerHTML = '<div style="color:#666;font-size:13px;text-align:center;padding:40px 0">发送消息开始对话</div>';
+}
+
+function appendChatMsg(role, text) {
+  const box = document.getElementById('chat-messages');
+  if (chatHistory.length === 1) box.innerHTML = '';
+  const div = document.createElement('div');
+  div.className = 'chat-msg ' + role;
+  div.innerHTML = '<div class="role">' + (role === 'user' ? '你' : 'AI') + '</div><div class="bubble">' + escapeHtml(text) + '</div>';
+  box.appendChild(div);
+  box.scrollTop = box.scrollHeight;
+  return div;
+}
+
+function escapeHtml(s) {
+  const d = document.createElement('div');
+  d.textContent = s;
+  return d.innerHTML;
+}
+
+async function sendChat() {
+  const input = document.getElementById('chat-input');
+  const text = input.value.trim();
+  if (!text) return;
+
+  input.value = '';
+  chatHistory.push({role: 'user', content: text});
+  appendChatMsg('user', text);
+
+  const model = document.getElementById('chat-model').value.trim();
+  const mcpUrl = document.getElementById('chat-mcp-url').value.trim();
+  const mcpLabel = document.getElementById('chat-mcp-label').value.trim();
+
+  const body = {
+    messages: chatHistory,
+    stream: true,
+  };
+  if (model) body.model = model;
+  if (mcpUrl) {
+    body.tools = [{type: 'mcp', server_label: mcpLabel || 'mcp', server_url: mcpUrl, require_approval: 'never'}];
+  }
+
+  const btn = document.getElementById('chat-send-btn');
+  btn.disabled = true;
+  btn.textContent = '...';
+
+  // Create assistant message placeholder
+  const box = document.getElementById('chat-messages');
+  const msgDiv = document.createElement('div');
+  msgDiv.className = 'chat-msg assistant';
+  msgDiv.innerHTML = '<div class="role">AI</div><div class="bubble">...</div>';
+  box.appendChild(msgDiv);
+  box.scrollTop = box.scrollHeight;
+  const bubble = msgDiv.querySelector('.bubble');
+
+  let fullText = '';
+
+  try {
+    const resp = await fetch(BASE + '/api/v1/chat/completions', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json', 'X-API-Key': getKey()},
+      body: JSON.stringify(body),
+    });
+
+    if (!resp.ok) {
+      const err = await resp.text();
+      bubble.textContent = 'Error: ' + err;
+      btn.disabled = false;
+      btn.textContent = '发送';
+      return;
+    }
+
+    const reader = resp.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+
+    while (true) {
+      const {done, value} = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, {stream: true});
+
+      const lines = buffer.split('\n');
+      buffer = lines.pop();
+
+      for (const line of lines) {
+        if (!line.startsWith('data:')) continue;
+        const data = line.slice(5).trim();
+        if (data === '[DONE]') continue;
+        try {
+          const obj = JSON.parse(data);
+          // Handle responses API streaming format
+          if (obj.type === 'response.output_text.delta' && obj.delta) {
+            fullText += obj.delta;
+            bubble.textContent = fullText;
+            box.scrollTop = box.scrollHeight;
+          } else if (obj.type === 'response.completed' && obj.response) {
+            // Final response - extract full text if we missed deltas
+            const output = obj.response.output;
+            if (output && !fullText) {
+              for (const item of output) {
+                if (item.type === 'message' && item.content) {
+                  for (const c of item.content) {
+                    if (c.type === 'output_text') fullText += c.text;
+                  }
+                }
+              }
+              bubble.textContent = fullText || '(empty response)';
+            }
+          } else if (obj.error) {
+            fullText = 'Error: ' + (obj.error.message || JSON.stringify(obj.error));
+            bubble.textContent = fullText;
+          }
+        } catch(e) {}
+      }
+    }
+
+    if (!fullText) {
+      bubble.textContent = '(empty response)';
+    }
+    chatHistory.push({role: 'assistant', content: fullText});
+  } catch(e) {
+    bubble.textContent = 'Request failed: ' + e.message;
+  }
+
+  btn.disabled = false;
+  btn.textContent = '发送';
 }
 
 </script>

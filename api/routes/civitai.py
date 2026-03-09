@@ -19,7 +19,7 @@ _download_tasks: dict[str, dict] = {}
 
 @router.get("/civitai/search", response_model=CivitAISearchResponse)
 async def search_civitai(
-    query: str = "wan 2.1", limit: int = 20, cursor: str = "",
+    query: str = "wan 2.1", limit: int = 100, cursor: str = "",
     nsfw: bool = True, sort: str = "Most Downloaded", base_model: str = "",
     _=Depends(verify_api_key),
 ):
