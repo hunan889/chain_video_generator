@@ -51,7 +51,13 @@ test_*.py
 # Workflows (keep only templates)
 workflows/__MACOSX/
 
-# Models (too large for git)
+# Models & assets (too large for git)
 models/
 checkpoints/
 loras/
+asset/
+
+# Runtime output
+results/
+benchmarks/
+*.backup
