@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>收藏 - AI Studio</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:#1a1a2e;color:#e0e0e0;min-height:100vh}
+.container{max-width:1400px;margin:0 auto;padding:20px}
+h1{text-align:center;color:#7c83ff;margin-bottom:24px;font-size:1.6em}
+.back-link{display:inline-block;margin-bottom:16px;color:#7c83ff;text-decoration:none;font-size:14px}
+.back-link:hover{text-decoration:underline}
+.tabs{display:flex;gap:8px;margin-bottom:20px;flex-wrap:wrap}
+.tab{padding:10px 24px;background:#16213e;border:1px solid #333;border-radius:8px 8px 0 0;cursor:pointer;color:#aaa;font-size:14px}
+.tab.active{background:#0f3460;border-color:#7c83ff;color:#fff}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:16px;margin-top:20px}
+.card{background:#16213e;border:1px solid #333;border-radius:8px;overflow:hidden;position:relative}
+.card .media-container{width:100%;background:#0a0a0a;display:flex;align-items:center;justify-content:center}
+.card .media-container.video{aspect-ratio:9/16}
+.card .media-container.image{height:300px}
+.card video{width:100%;height:100%;object-fit:contain}
+.card img{max-width:100%;max-height:100%;object-fit:contain}
+.card .card-body{padding:12px}
+.card .card-prompt{font-size:13px;color:#ccc;margin-bottom:8px;line-height:1.4;max-height:60px;overflow:hidden;text-overflow:ellipsis;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical}
+.card .card-tags{display:flex;flex-wrap:wrap;gap:4px;margin-bottom:8px}
+.card .tag{font-size:11px;padding:2px 6px;border-radius:4px;background:#0a0a23;border:1px solid #444;color:#aaa}
+.card .tag.position{border-color:#7c83ff;color:#7c83ff}
+.card .tag.body_parts{border-color:#4ade80;color:#4ade80}
+.card .tag.action{border-color:#f59e0b;color:#f59e0b}
+.card .tag.modifier{border-color:#ec4899;color:#ec4899}
+.card .tag.scene{border-color:#06b6d4;color:#06b6d4}
+.card .tag.clothing{border-color:#8b5cf6;color:#8b5cf6}
+.card .tag.expression{border-color:#f87171;color:#f87171}
+.card .card-actions{display:flex;gap:8px}
+.card .btn-unfavorite{flex:1;padding:6px;background:#4a1a1a;color:#f87171;border:none;border-radius:4px;cursor:pointer;font-size:12px}
+.card .btn-unfavorite:hover{background:#5a2a2a}
+.pagination{display:flex;justify-content:center;align-items:center;gap:12px;margin-top:24px}
+.pagination button{padding:8px 16px;background:#16213e;border:1px solid #444;border-radius:6px;color:#e0e0e0;cursor:pointer;font-size:13px}
+.pagination button:hover:not(:disabled){background:#0f3460;border-color:#7c83ff}
+.pagination button:disabled{opacity:0.5;cursor:not-allowed}
+.pagination span{font-size:13px;color:#aaa}
+.empty-state{text-align:center;padding:60px 20px;color:#666}
+.empty-state svg{width:64px;height:64px;margin-bottom:16px;opacity:0.3}
+.loading{text-align:center;padding:40px;color:#666}
+</style>
+</head>
+<body>
+<div class="container">
+<a href="/" class="back-link">← 返回首页</a>
+<h1>我的收藏</h1>
+
+<div class="tabs">
+<div class="tab active" data-type="all" onclick="switchType('all')">全部</div>
+<div class="tab" data-type="image" onclick="switchType('image')">图片</div>
+<div class="tab" data-type="video" onclick="switchType('video')">视频</div>
+</div>
+
+<div id="favorites-grid" class="grid"></div>
+<div id="pagination" class="pagination"></div>
+</div>
+
+<script>
+// 尝试从localStorage获取，如果没有则使用默认值
+const API_KEY = localStorage.getItem('wan22_api_key') || 'wan22-default-key-change-me';
+let currentType = 'all';
+let currentPage = 1;
+const pageSize = 12;
+
+async function loadFavorites() {
+  const grid = document.getElementById('favorites-grid');
+  grid.innerHTML = '<div class="loading">加载中...</div>';
+
+  try {
+    let url = `/api/v1/favorites?page=${currentPage}&page_size=${pageSize}`;
+    if (currentType === 'image') {
+      url += '&resource_type=image';
+    } else if (currentType === 'video') {
+      url += '&resource_type=video,generated_video';
+    }
+
+    const res = await fetch(url, {
+      headers: { 'X-API-Key': API_KEY }
+    });
+
+    if (!res.ok) {
+      if (res.status === 401) {
+        throw new Error('API密钥无效，请返回首页检查API密钥设置');
+      }
+      throw new Error('Failed to load favorites');
+    }
+
+    const data = await res.json();
+
+    if (data.resources.length === 0) {
+      grid.innerHTML = `
+        <div class="empty-state">
+          <svg fill="currentColor" viewBox="0 0 24 24"><path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/></svg>
+          <p>还没有收藏任何内容</p>
+        </div>
+      `;
+      document.getElementById('pagination').innerHTML = '';
+      return;
+    }
+
+    grid.innerHTML = data.resources.map(r => {
+      const isVideo = r.resource_type === 'video' || r.resource_type === 'generated_video';
+      const mediaHtml = isVideo
+        ? `<div class="media-container video"><video src="${r.url}" controls preload="metadata"></video></div>`
+        : `<div class="media-container image"><img src="${r.url}" alt="Resource"></div>`;
+
+      const tagsHtml = r.tags.map(t =>
+        `<span class="tag ${t.category || ''}">${t.name}</span>`
+      ).join('');
+
+      return `
+        <div class="card" data-id="${r.id}">
+          ${mediaHtml}
+          <div class="card-body">
+            ${r.prompt ? `<div class="card-prompt">${r.prompt}</div>` : ''}
+            ${r.tags.length > 0 ? `<div class="card-tags">${tagsHtml}</div>` : ''}
+            <div class="card-actions">
+              <button class="btn-unfavorite" onclick="removeFavorite(${r.id})">取消收藏</button>
+            </div>
+          </div>
+        </div>
+      `;
+    }).join('');
+
+    // Render pagination
+    const totalPages = data.total_pages;
+    let paginationHtml = '';
+
+    if (totalPages > 1) {
+      paginationHtml = `
+        <button onclick="goToPage(${currentPage - 1})" ${currentPage === 1 ? 'disabled' : ''}>上一页</button>
+        <span>第 ${currentPage} / ${totalPages} 页</span>
+        <button onclick="goToPage(${currentPage + 1})" ${currentPage === totalPages ? 'disabled' : ''}>下一页</button>
+      `;
+    }
+
+    document.getElementById('pagination').innerHTML = paginationHtml;
+
+  } catch (err) {
+    grid.innerHTML = `<div class="empty-state"><p>加载失败: ${err.message}</p></div>`;
+  }
+}
+
+async function removeFavorite(resourceId) {
+  if (!confirm('确定要取消收藏吗？')) return;
+
+  try {
+    const res = await fetch(`/api/v1/favorites/${resourceId}`, {
+      method: 'DELETE',
+      headers: { 'X-API-Key': API_KEY }
+    });
+
+    if (!res.ok) throw new Error('Failed to remove favorite');
+
+    // Remove card from DOM
+    const card = document.querySelector(`.card[data-id="${resourceId}"]`);
+    if (card) card.remove();
+
+    // Reload if grid is empty
+    const grid = document.getElementById('favorites-grid');
+    if (grid.children.length === 0) {
+      loadFavorites();
+    }
+
+  } catch (err) {
+    alert('取消收藏失败: ' + err.message);
+  }
+}
+
+function switchType(type) {
+  currentType = type;
+  currentPage = 1;
+
+  document.querySelectorAll('.tab').forEach(tab => {
+    if (tab.dataset.type === type) {
+      tab.classList.add('active');
+    } else {
+      tab.classList.remove('active');
+    }
+  });
+
+  loadFavorites();
+}
+
+function goToPage(page) {
+  currentPage = page;
+  loadFavorites();
+}
+
+// Load on page load
+loadFavorites();
+</script>
+</body>
+</html>

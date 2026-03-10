@@ -1,0 +1,567 @@
+"""
+资源和标签管理 API
+"""
+from fastapi import APIRouter, HTTPException, Depends, Query
+from typing import List, Optional
+from pydantic import BaseModel
+import pymysql
+from api.middleware.auth import verify_api_key
+
+router = APIRouter(prefix="/api/v1", tags=["resources"])
+
+# 数据库配置
+DB_CONFIG = {
+    'host': 'use-cdb-b9nvte6o.sql.tencentcdb.com',
+    'port': 20603,
+    'user': 'user_soga',
+    'password': '1IvO@*#68',
+    'database': 'tudou_soga',
+    'charset': 'utf8mb4'
+}
+
+def get_db():
+    """获取数据库连接"""
+    return pymysql.connect(**DB_CONFIG)
+
+# Pydantic 模型
+class Tag(BaseModel):
+    tag_id: int
+    name: str
+    category: Optional[str]
+    source: str
+    confidence: float
+    usage_count: int
+
+class Resource(BaseModel):
+    id: int
+    resource_type: str
+    url: str
+    prompt: Optional[str]
+    tags: List[Tag]
+    is_favorited: Optional[bool] = False
+
+class AddTagRequest(BaseModel):
+    tag_name: str
+    category: Optional[str] = None
+
+class AddFavoriteRequest(BaseModel):
+    note: Optional[str] = None
+
+class ResourceListResponse(BaseModel):
+    resources: List[Resource]
+    total: int
+    page: int
+    page_size: int
+    total_pages: int
+
+@router.get("/resources", response_model=ResourceListResponse)
+async def list_resources(
+    page: int = Query(1, ge=1),
+    page_size: int = Query(12, ge=1, le=100),
+    resource_type: Optional[str] = None,
+    tag: Optional[str] = None,
+    prompt: Optional[str] = None,
+    _: str = Depends(verify_api_key)
+):
+    """获取资源列表"""
+    conn = get_db()
+    cursor = conn.cursor(pymysql.cursors.DictCursor)
+
+    try:
+        # 构建查询
+        where_clauses = []
+        params = []
+
+        if resource_type:
+            # Support comma-separated types
+            types = [t.strip() for t in resource_type.split(',') if t.strip()]
+            if len(types) == 1:
+                where_clauses.append("r.resource_type = %s")
+                params.append(types[0])
+            elif len(types) > 1:
+                placeholders = ','.join(['%s'] * len(types))
+                where_clauses.append(f"r.resource_type IN ({placeholders})")
+                params.extend(types)
+
+        if tag:
+            where_clauses.append("""
+                EXISTS (
+                    SELECT 1 FROM resource_tags rt
+                    JOIN tags t ON rt.tag_id = t.id
+                    WHERE rt.resource_id = r.id AND t.name = %s
+                )
+            """)
+            params.append(tag)
+
+        if prompt:
+            where_clauses.append("r.prompt LIKE %s")
+            params.append(f"%{prompt}%")
+
+        where_sql = " AND ".join(where_clauses) if where_clauses else "1=1"
+
+        # 获取总数
+        cursor.execute(f"SELECT COUNT(*) as total FROM resources r WHERE {where_sql}", params)
+        total = cursor.fetchone()['total']
+
+        # 获取资源（优先显示有标签的）
+        offset = (page - 1) * page_size
+        cursor.execute(f"""
+            SELECT r.*,
+                   (SELECT COUNT(*) FROM resource_tags rt WHERE rt.resource_id = r.id) as tag_count
+            FROM resources r
+            WHERE {where_sql}
+            ORDER BY tag_count DESC, r.id DESC
+            LIMIT %s OFFSET %s
+        """, params + [page_size, offset])
+        resources = cursor.fetchall()
+
+        if not resources:
+            return {
+                'resources': [],
+                'total': total,
+                'page': page,
+                'page_size': page_size,
+                'total_pages': (total + page_size - 1) // page_size
+            }
+
+        # 获取所有资源ID
+        resource_ids = [r['id'] for r in resources]
+
+        # 批量获取标签
+        placeholders = ','.join(['%s'] * len(resource_ids))
+        cursor.execute(f"""
+            SELECT rt.resource_id, t.id as tag_id, t.name, t.category, t.usage_count,
+                   rt.source, rt.confidence
+            FROM resource_tags rt
+            JOIN tags t ON rt.tag_id = t.id
+            WHERE rt.resource_id IN ({placeholders})
+        """, resource_ids)
+        all_tags = cursor.fetchall()
+
+        # 组织标签数据
+        tags_by_resource = {}
+        for tag in all_tags:
+            rid = tag['resource_id']
+            if rid not in tags_by_resource:
+                tags_by_resource[rid] = []
+            tags_by_resource[rid].append({
+                'tag_id': tag['tag_id'],
+                'name': tag['name'],
+                'category': tag['category'],
+                'usage_count': tag['usage_count'],
+                'source': tag['source'],
+                'confidence': tag['confidence']
+            })
+
+        # 批量检查收藏状态
+        cursor.execute(f"""
+            SELECT resource_id FROM favorites WHERE resource_id IN ({placeholders})
+        """, resource_ids)
+        favorited_ids = {row['resource_id'] for row in cursor.fetchall()}
+
+        # 组装结果
+        result = []
+        for r in resources:
+            result.append({
+                'id': r['id'],
+                'resource_type': r['resource_type'],
+                'url': r['url'],
+                'prompt': r['prompt'],
+                'tags': tags_by_resource.get(r['id'], []),
+                'is_favorited': r['id'] in favorited_ids
+            })
+
+        return {
+            'resources': result,
+            'total': total,
+            'page': page,
+            'page_size': page_size,
+            'total_pages': (total + page_size - 1) // page_size
+        }
+
+    finally:
+        conn.close()
+
+@router.get("/resources/search", response_model=ResourceListResponse)
+async def search_resources(
+    tags: str = Query(..., description="逗号分隔的标签列表"),
+    match_mode: str = Query("all", pattern="^(all|any)$"),
+    page: int = Query(1, ge=1),
+    page_size: int = Query(12, ge=1, le=100),
+    resource_type: Optional[str] = None,
+    _: str = Depends(verify_api_key)
+):
+    """多标签搜索资源"""
+    conn = get_db()
+    cursor = conn.cursor(pymysql.cursors.DictCursor)
+
+    try:
+        tag_list = [t.strip().lower() for t in tags.split(',') if t.strip()]
+        if not tag_list:
+            raise HTTPException(status_code=400, detail="至少需要一个标签")
+
+        # 构建查询
+        if match_mode == "all":
+            # 精确匹配：必须包含所有标签
+            sql = """
+                SELECT r.id, r.resource_type, r.url, r.prompt
+                FROM resources r
+                WHERE r.id IN (
+                    SELECT rt.resource_id
+                    FROM resource_tags rt
+                    JOIN tags t ON rt.tag_id = t.id
+                    WHERE t.name IN ({})
+                    GROUP BY rt.resource_id
+                    HAVING COUNT(DISTINCT t.name) = %s
+                )
+            """.format(','.join(['%s'] * len(tag_list)))
+            params = tag_list + [len(tag_list)]
+        else:
+            # 模糊匹配：包含任意标签
+            sql = """
+                SELECT DISTINCT r.id, r.resource_type, r.url, r.prompt
+                FROM resources r
+                JOIN resource_tags rt ON r.id = rt.resource_id
+                JOIN tags t ON rt.tag_id = t.id
+                WHERE t.name IN ({})
+            """.format(','.join(['%s'] * len(tag_list)))
+            params = tag_list
+
+        if resource_type:
+            # Support comma-separated types
+            types = [t.strip() for t in resource_type.split(',') if t.strip()]
+            if len(types) == 1:
+                sql += " AND r.resource_type = %s"
+                params.append(types[0])
+            elif len(types) > 1:
+                placeholders = ','.join(['%s'] * len(types))
+                sql += f" AND r.resource_type IN ({placeholders})"
+                params.extend(types)
+
+        # 获取总数
+        count_sql = f"SELECT COUNT(*) as total FROM ({sql}) as subquery"
+        cursor.execute(count_sql, params)
+        total = cursor.fetchone()['total']
+
+        # 获取资源
+        offset = (page - 1) * page_size
+        cursor.execute(f"{sql} ORDER BY r.id DESC LIMIT %s OFFSET %s", params + [page_size, offset])
+        resources = cursor.fetchall()
+
+        if not resources:
+            return {
+                'resources': [],
+                'total': total,
+                'page': page,
+                'page_size': page_size,
+                'total_pages': (total + page_size - 1) // page_size
+            }
+
+        # 获取所有资源ID
+        resource_ids = [r['id'] for r in resources]
+
+        # 批量获取标签
+        placeholders = ','.join(['%s'] * len(resource_ids))
+        cursor.execute(f"""
+            SELECT rt.resource_id, t.id as tag_id, t.name, t.category, t.usage_count,
+                   rt.source, rt.confidence
+            FROM resource_tags rt
+            JOIN tags t ON rt.tag_id = t.id
+            WHERE rt.resource_id IN ({placeholders})
+        """, resource_ids)
+        all_tags = cursor.fetchall()
+
+        # 组织标签数据
+        tags_by_resource = {}
+        for tag in all_tags:
+            rid = tag['resource_id']
+            if rid not in tags_by_resource:
+                tags_by_resource[rid] = []
+            tags_by_resource[rid].append({
+                'tag_id': tag['tag_id'],
+                'name': tag['name'],
+                'category': tag['category'],
+                'usage_count': tag['usage_count'],
+                'source': tag['source'],
+                'confidence': tag['confidence']
+            })
+
+        # 批量检查收藏状态
+        cursor.execute(f"""
+            SELECT resource_id FROM favorites WHERE resource_id IN ({placeholders})
+        """, resource_ids)
+        favorited_ids = {row['resource_id'] for row in cursor.fetchall()}
+
+        # 组装结果
+        result = []
+        for r in resources:
+            result.append({
+                'id': r['id'],
+                'resource_type': r['resource_type'],
+                'url': r['url'],
+                'prompt': r['prompt'],
+                'tags': tags_by_resource.get(r['id'], []),
+                'is_favorited': r['id'] in favorited_ids
+            })
+
+        return {
+            'resources': result,
+            'total': total,
+            'page': page,
+            'page_size': page_size,
+            'total_pages': (total + page_size - 1) // page_size
+        }
+
+    finally:
+        conn.close()
+
+@router.post("/resources/{resource_id}/tags")
+async def add_tag(
+    resource_id: int,
+    request: AddTagRequest,
+    _: str = Depends(verify_api_key)
+):
+    """添加标签到资源"""
+    conn = get_db()
+    cursor = conn.cursor()
+
+    try:
+        # 获取或创建标签
+        cursor.execute("SELECT id FROM tags WHERE name = %s", (request.tag_name,))
+        result = cursor.fetchone()
+
+        if result:
+            tag_id = result[0]
+        else:
+            cursor.execute(
+                "INSERT INTO tags (name, category, usage_count) VALUES (%s, %s, 0)",
+                (request.tag_name, request.category)
+            )
+            tag_id = cursor.lastrowid
+
+        # 关联资源和标签
+        cursor.execute("""
+            INSERT IGNORE INTO resource_tags (resource_id, tag_id, source, confidence)
+            VALUES (%s, %s, 'manual', 1.0)
+        """, (resource_id, tag_id))
+
+        # 更新标签使用次数
+        cursor.execute("UPDATE tags SET usage_count = usage_count + 1 WHERE id = %s", (tag_id,))
+
+        conn.commit()
+        return {"success": True, "tag_id": tag_id}
+
+    finally:
+        conn.close()
+
+@router.delete("/resources/{resource_id}/tags/{tag_id}")
+async def remove_tag(
+    resource_id: int,
+    tag_id: int,
+    _: str = Depends(verify_api_key)
+):
+    """从资源移除标签"""
+    conn = get_db()
+    cursor = conn.cursor()
+
+    try:
+        cursor.execute(
+            "DELETE FROM resource_tags WHERE resource_id = %s AND tag_id = %s",
+            (resource_id, tag_id)
+        )
+
+        # 更新标签使用次数
+        cursor.execute("UPDATE tags SET usage_count = usage_count - 1 WHERE id = %s", (tag_id,))
+
+        conn.commit()
+        return {"success": True}
+
+    finally:
+        conn.close()
+
+@router.get("/tags")
+async def list_tags(
+    category: Optional[str] = None,
+    _: str = Depends(verify_api_key)
+):
+    """获取标签列表"""
+    conn = get_db()
+    cursor = conn.cursor(pymysql.cursors.DictCursor)
+
+    try:
+        if category:
+            cursor.execute(
+                "SELECT * FROM tags WHERE category = %s ORDER BY usage_count DESC",
+                (category,)
+            )
+        else:
+            cursor.execute("SELECT * FROM tags ORDER BY usage_count DESC")
+
+        tags = cursor.fetchall()
+        return tags
+
+    finally:
+        conn.close()
+
+# ========== Favorites API ==========
+
+@router.post("/favorites/{resource_id}")
+async def add_favorite(
+    resource_id: int,
+    request: AddFavoriteRequest,
+    _: str = Depends(verify_api_key)
+):
+    """添加收藏"""
+    conn = get_db()
+    cursor = conn.cursor()
+
+    try:
+        cursor.execute("""
+            INSERT INTO favorites (resource_id, note)
+            VALUES (%s, %s)
+            ON DUPLICATE KEY UPDATE note = VALUES(note)
+        """, (resource_id, request.note))
+        conn.commit()
+        return {"success": True, "favorite_id": cursor.lastrowid}
+    finally:
+        conn.close()
+
+@router.delete("/favorites/{resource_id}")
+async def remove_favorite(
+    resource_id: int,
+    _: str = Depends(verify_api_key)
+):
+    """取消收藏"""
+    conn = get_db()
+    cursor = conn.cursor()
+
+    try:
+        cursor.execute("DELETE FROM favorites WHERE resource_id = %s", (resource_id,))
+        conn.commit()
+        return {"success": True}
+    finally:
+        conn.close()
+
+@router.get("/favorites", response_model=ResourceListResponse)
+async def list_favorites(
+    page: int = Query(1, ge=1),
+    page_size: int = Query(12, ge=1, le=100),
+    resource_type: Optional[str] = None,
+    _: str = Depends(verify_api_key)
+):
+    """获取收藏列表"""
+    conn = get_db()
+    cursor = conn.cursor(pymysql.cursors.DictCursor)
+
+    try:
+        where_clauses = ["f.resource_id = r.id"]
+        params = []
+
+        if resource_type:
+            types = [t.strip() for t in resource_type.split(',') if t.strip()]
+            if len(types) == 1:
+                where_clauses.append("r.resource_type = %s")
+                params.append(types[0])
+            elif len(types) > 1:
+                placeholders = ','.join(['%s'] * len(types))
+                where_clauses.append(f"r.resource_type IN ({placeholders})")
+                params.extend(types)
+
+        where_sql = " AND ".join(where_clauses)
+
+        # 获取总数
+        cursor.execute(f"""
+            SELECT COUNT(*) as total 
+            FROM favorites f
+            JOIN resources r ON {where_sql}
+        """, params)
+        total = cursor.fetchone()['total']
+
+        # 获取收藏资源
+        offset = (page - 1) * page_size
+        cursor.execute(f"""
+            SELECT r.*, f.note, f.created_at as favorited_at,
+                   (SELECT COUNT(*) FROM resource_tags rt WHERE rt.resource_id = r.id) as tag_count
+            FROM favorites f
+            JOIN resources r ON {where_sql}
+            ORDER BY f.created_at DESC
+            LIMIT %s OFFSET %s
+        """, params + [page_size, offset])
+        resources = cursor.fetchall()
+
+        if not resources:
+            return {
+                'resources': [],
+                'total': total,
+                'page': page,
+                'page_size': page_size,
+                'total_pages': (total + page_size - 1) // page_size
+            }
+
+        # 获取所有资源ID
+        resource_ids = [r['id'] for r in resources]
+
+        # 批量获取标签
+        placeholders = ','.join(['%s'] * len(resource_ids))
+        cursor.execute(f"""
+            SELECT rt.resource_id, t.id as tag_id, t.name, t.category, t.usage_count,
+                   rt.source, rt.confidence
+            FROM resource_tags rt
+            JOIN tags t ON rt.tag_id = t.id
+            WHERE rt.resource_id IN ({placeholders})
+        """, resource_ids)
+        all_tags = cursor.fetchall()
+
+        # 组织标签数据
+        tags_by_resource = {}
+        for tag in all_tags:
+            rid = tag['resource_id']
+            if rid not in tags_by_resource:
+                tags_by_resource[rid] = []
+            tags_by_resource[rid].append({
+                'tag_id': tag['tag_id'],
+                'name': tag['name'],
+                'category': tag['category'],
+                'usage_count': tag['usage_count'],
+                'source': tag['source'],
+                'confidence': tag['confidence']
+            })
+
+        # 组装结果
+        result = []
+        for r in resources:
+            result.append({
+                'id': r['id'],
+                'resource_type': r['resource_type'],
+                'url': r['url'],
+                'prompt': r['prompt'],
+                'tags': tags_by_resource.get(r['id'], []),
+                'is_favorited': True
+            })
+
+        return {
+            'resources': result,
+            'total': total,
+            'page': page,
+            'page_size': page_size,
+            'total_pages': (total + page_size - 1) // page_size
+        }
+
+    finally:
+        conn.close()
+
+@router.get("/favorites/check/{resource_id}")
+async def check_favorite(
+    resource_id: int,
+    _: str = Depends(verify_api_key)
+):
+    """检查是否已收藏"""
+    conn = get_db()
+    cursor = conn.cursor()
+
+    try:
+        cursor.execute("SELECT id FROM favorites WHERE resource_id = %s", (resource_id,))
+        result = cursor.fetchone()
+        return {"is_favorited": result is not None}
+    finally:
+        conn.close()

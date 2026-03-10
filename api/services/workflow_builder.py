@@ -14,6 +14,10 @@ logger = logging.getLogger(__name__)
 
 LORAS_DIR = COMFYUI_PATH / "models" / "loras"
 
+# Cache for LoRA file metadata (civitai_id -> filename mapping)
+_lora_id_cache: dict[str, str] = {}
+_lora_cache_built = False
+
 
 def _load_lora_name_map() -> dict[str, str]:
     """Load name -> file mapping from loras.yaml."""
@@ -24,6 +28,53 @@ def _load_lora_name_map() -> dict[str, str]:
     except Exception as e:
         logger.warning(f"Failed to load loras config: {e}")
         return {}
+
+
+def _load_lora_id_map() -> dict[str, dict]:
+    """Load civitai_version_id -> {file, civitai_id} mapping from loras.yaml."""
+    try:
+        with open(LORAS_PATH) as f:
+            data = yaml.safe_load(f)
+        result = {}
+        for item in data.get("loras", []):
+            version_id = item.get("civitai_version_id")
+            if version_id and "file" in item:
+                result[str(version_id)] = {
+                    "file": item["file"],
+                    "civitai_id": item.get("civitai_id")
+                }
+        return result
+    except Exception as e:
+        logger.warning(f"Failed to load loras ID map: {e}")
+        return {}
+
+
+def _build_lora_id_cache():
+    """Build cache of civitai_version_id -> filename by scanning all LoRA files."""
+    global _lora_id_cache, _lora_cache_built
+
+    if _lora_cache_built:
+        return
+
+    try:
+        import safetensors.torch
+
+        for file_path in LORAS_DIR.glob("*.safetensors"):
+            try:
+                with safetensors.torch.safe_open(file_path, framework="pt") as f:
+                    meta = f.metadata()
+                    if meta:
+                        version_id = meta.get("civitai_version_id")
+                        if version_id:
+                            _lora_id_cache[str(version_id)] = file_path.name
+            except Exception:
+                pass  # Skip files that can't be read
+
+        _lora_cache_built = True
+        logger.info(f"Built LoRA ID cache: {len(_lora_id_cache)} files with CivitAI IDs")
+    except Exception as e:
+        logger.warning(f"Failed to build LoRA ID cache: {e}")
+
 
 
 def _load_lora_keywords() -> dict[str, list[str]]:
@@ -186,28 +237,70 @@ def _has_variant_tag(name: str, tag: str) -> bool:
     return bool(re.search(rf'(?:^|[\-_\s.])({tag})(?:[\-_\s.]|$)', name, re.IGNORECASE))
 
 
-def _find_lora_file(base_name: str, variant: str) -> Optional[str]:
-    """Find a LoRA file matching base_name and variant (high/low) in the loras directory."""
+def _find_lora_file(base_name: str, variant: str, civitai_version_id: Optional[int] = None) -> Optional[str]:
+    """Find a LoRA file matching base_name and variant (high/low) in the loras directory.
+
+    Priority:
+    1. If civitai_version_id is provided, try to find file by ID first
+    2. Fall back to fuzzy filename matching
+
+    Args:
+        base_name: Base name from loras.yaml 'file' field
+        variant: 'high' or 'low' for two-stage models, None for single-file
+        civitai_version_id: Optional CivitAI version ID for exact matching
+
+    Returns:
+        Filename if found, None otherwise
+    """
+    # Try ID-based matching first
+    if civitai_version_id:
+        _build_lora_id_cache()
+
+        # Check if we have this exact version ID in cache
+        version_id_str = str(civitai_version_id)
+        if version_id_str in _lora_id_cache:
+            filename = _lora_id_cache[version_id_str]
+            # Verify variant matches if specified
+            if variant:
+                fname_upper = filename.upper()
+                variant_upper = variant.upper()
+                if _has_variant_tag(filename, variant_upper):
+                    logger.debug(f"Found LoRA by ID {civitai_version_id}: {filename}")
+                    return filename
+            else:
+                logger.debug(f"Found LoRA by ID {civitai_version_id}: {filename}")
+                return filename
+
+    # Fall back to filename-based fuzzy matching
     if not variant:
+        # No variant specified: find any matching file
         for f in LORAS_DIR.glob("*.safetensors"):
-            if base_name in f.stem:
+            if base_name.lower() in f.stem.lower():
                 return f.name
         return None
-    # First try to find with variant tag (e.g. file-HIGH.safetensors)
+
+    # First try exact match with variant tag (e.g. file-HIGH.safetensors)
     for f in LORAS_DIR.glob("*.safetensors"):
         fname = f.stem
-        if base_name in fname and _has_variant_tag(fname, variant.upper()):
+        if base_name.lower() in fname.lower() and _has_variant_tag(fname, variant.upper()):
             return f.name
+
     # If no HIGH/LOW variant found, this might be a single-file LoRA — use it for both stages
     for f in LORAS_DIR.glob("*.safetensors"):
-        if base_name in f.stem and not _has_variant_tag(f.stem, "HIGH") and not _has_variant_tag(f.stem, "LOW"):
+        fname = f.stem
+        if base_name.lower() in fname.lower() and not _has_variant_tag(fname, "HIGH") and not _has_variant_tag(fname, "LOW"):
             return f.name
+
     return None
 
 
 def _inject_loras(workflow: dict, loras: list[LoraInput], model_node_ids: list[str]) -> dict:
     if not loras:
         return workflow
+
+    # Load ID mapping from loras.yaml
+    lora_id_map = _load_lora_id_map()
+
     # Find max numeric ID (handle both pure numbers and "prefix:number" format)
     max_id = 0
     for k in workflow.keys():
@@ -235,14 +328,22 @@ def _inject_loras(workflow: dict, loras: list[LoraInput], model_node_ids: list[s
         for i, lora in enumerate(loras):
             # Resolve config name to file base name
             base_name = _lora_name_map.get(lora.name, lora.name)
-            # Resolve actual filename
+
+            # Try to get civitai_version_id from loras.yaml
+            civitai_version_id = None
+            for version_id, info in lora_id_map.items():
+                if info["file"] == base_name:
+                    civitai_version_id = int(version_id)
+                    break
+
+            # Resolve actual filename (with ID-based matching if available)
             if variant:
-                lora_file = _find_lora_file(base_name, variant)
+                lora_file = _find_lora_file(base_name, variant, civitai_version_id)
             else:
                 # For single-stage, try high first, then any match
-                lora_file = _find_lora_file(base_name, "high")
+                lora_file = _find_lora_file(base_name, "high", civitai_version_id)
                 if not lora_file:
-                    lora_file = _find_lora_file(base_name, "")
+                    lora_file = _find_lora_file(base_name, "", civitai_version_id)
             if not lora_file:
                 logger.warning(f"LoRA file not found for {lora.name} (resolved={base_name}) variant={variant}, skipping")
                 continue
@@ -464,6 +565,11 @@ def build_workflow(
             if "augment_empty_frames" in inputs:
                 inputs["augment_empty_frames"] = motion_amplitude
 
+        elif ct == "WanVideoEmptyEmbeds":
+            inputs["width"] = width
+            inputs["height"] = height
+            inputs["num_frames"] = num_frames
+
         elif ct == "ColorMatch":
             inputs["method"] = color_match_method
 
@@ -576,6 +682,9 @@ def _inject_story_loras(workflow: dict, loras: list[LoraInput]) -> dict:
         logger.warning("No WanMoeKSamplerAdvanced found for LoRA injection")
         return workflow
 
+    # Load ID mapping from loras.yaml
+    lora_id_map = _load_lora_id_map()
+
     # Find max numeric ID for generating new node IDs
     max_id = 0
     for k in workflow.keys():
@@ -608,9 +717,17 @@ def _inject_story_loras(workflow: dict, loras: list[LoraInput]) -> dict:
         last_lora_id = None
         for lora in loras:
             base_name = _lora_name_map.get(lora.name, lora.name)
-            lora_file = _find_lora_file(base_name, variant)
+
+            # Try to get civitai_version_id from loras.yaml
+            civitai_version_id = None
+            for version_id, info in lora_id_map.items():
+                if info["file"] == base_name:
+                    civitai_version_id = int(version_id)
+                    break
+
+            lora_file = _find_lora_file(base_name, variant, civitai_version_id)
             if not lora_file:
-                lora_file = _find_lora_file(base_name, "")
+                lora_file = _find_lora_file(base_name, "", civitai_version_id)
             if not lora_file:
                 logger.warning("Story LoRA file not found for %s variant=%s, skipping", lora.name, variant)
                 continue
@@ -1293,13 +1410,24 @@ def build_merged_story_workflow(
         model_high_ref = ["1252:1279", 0]  # ModelPatchTorchSettings HIGH output
         model_low_ref = ["1252:1280", 0]   # ModelPatchTorchSettings LOW output
 
+        # Load ID mapping for this segment
+        lora_id_map = _load_lora_id_map()
+
         if seg_loras:
             for li, sl in enumerate(seg_loras):
                 base_name = _lora_name_map.get(sl.name, sl.name)
+
+                # Try to get civitai_version_id from loras.yaml
+                civitai_version_id = None
+                for version_id, info in lora_id_map.items():
+                    if info["file"] == base_name:
+                        civitai_version_id = int(version_id)
+                        break
+
                 for variant, upstream_ref, ref_key in [("high", model_high_ref, "high"), ("low", model_low_ref, "low")]:
-                    lora_file = _find_lora_file(base_name, variant)
+                    lora_file = _find_lora_file(base_name, variant, civitai_version_id)
                     if not lora_file:
-                        lora_file = _find_lora_file(base_name, "")
+                        lora_file = _find_lora_file(base_name, "", civitai_version_id)
                     if not lora_file:
                         logger.warning("Seg %d: LoRA file not found for %s variant=%s", seg_idx, sl.name, variant)
                         continue

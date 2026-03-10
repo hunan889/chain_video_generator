@@ -50,6 +50,15 @@ async def _search_meili(query: str, limit: int, cursor: str,
         filters.append("nsfwLevel = 1")
     if base_model:
         filters.append(f"version.baseModel = '{base_model}'")
+    else:
+        # Default: only Wan-family base models
+        wan_models = [
+            "Wan Video 2.2 I2V-A14B", "Wan Video 2.2 T2V-A14B",
+            "Wan Video 2.2 14B", "Wan Video 2.1 14B",
+            "Wan Video 14B i2v 480p", "Wan Video 1.3B t2v",
+        ]
+        wan_filter = " OR ".join(f"version.baseModel = '{m}'" for m in wan_models)
+        filters.append(wan_filter)
 
     # Map sort options to Meilisearch sort
     sort_map = {
@@ -128,8 +137,6 @@ async def _search_meili(query: str, limit: int, cursor: str,
         }
         items.append(item)
 
-    import sys
-    print(f"[MEILI DEBUG] returning {len(items)} items, next_cursor={next_cursor}", file=sys.stderr, flush=True)
     return {"items": items, "metadata": {"nextCursor": next_cursor}}
 
 
@@ -147,6 +154,8 @@ async def _search_v1(query: str, limit: int, cursor: str,
         params["cursor"] = cursor
     if base_model:
         params["baseModels"] = base_model
+    else:
+        params["baseModels"] = "Wan Video 2.2 I2V-A14B,Wan Video 2.2 T2V-A14B,Wan Video 2.2 14B,Wan Video 2.1 14B,Wan Video 1.3B t2v"
     async with aiohttp.ClientSession(timeout=TIMEOUT) as session:
         async with session.get(f"{BASE_URL}/models", params=params, headers=_headers()) as resp:
             resp.raise_for_status()

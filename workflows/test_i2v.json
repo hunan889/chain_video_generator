@@ -29,26 +29,75 @@
   "4": {
     "class_type": "WanVideoTextEncode",
     "inputs": {
-      "positive_prompt": "",
-      "negative_prompt": "",
-      "t5": ["3", 0],
+      "positive_prompt": "A woman with long hair in a dimly lit room, moving gracefully",
+      "negative_prompt": "static, blurry, low quality",
+      "t5": [
+        "3",
+        0
+      ],
       "force_offload": true
     }
   },
   "5": {
-    "class_type": "WanVideoEmptyEmbeds",
+    "class_type": "LoadImage",
     "inputs": {
-      "width": 848,
-      "height": 480,
-      "num_frames": 81
+      "image": "233217_00001_.png"
     }
   },
   "6": {
+    "class_type": "WanVideoVAELoader",
+    "inputs": {
+      "model_name": "Wan2_1_VAE_bf16.safetensors",
+      "precision": "bf16"
+    }
+  },
+  "13": {
+    "class_type": "WanVideoImageResizeToClosest",
+    "inputs": {
+      "image": [
+        "5",
+        0
+      ],
+      "generation_width": 848,
+      "generation_height": 480,
+      "aspect_ratio_preservation": "crop_to_new"
+    }
+  },
+  "7": {
+    "class_type": "WanVideoImageToVideoEncode",
+    "inputs": {
+      "width": 848,
+      "height": 480,
+      "num_frames": 17,
+      "noise_aug_strength": 0.0,
+      "start_latent_strength": 1.0,
+      "end_latent_strength": 1.0,
+      "force_offload": true,
+      "vae": [
+        "6",
+        0
+      ],
+      "start_image": [
+        "13",
+        0
+      ]
+    }
+  },
+  "8": {
     "class_type": "WanVideoSampler",
     "inputs": {
-      "model": ["1", 0],
-      "image_embeds": ["5", 0],
-      "text_embeds": ["4", 0],
+      "model": [
+        "1",
+        0
+      ],
+      "image_embeds": [
+        "7",
+        0
+      ],
+      "text_embeds": [
+        "4",
+        0
+      ],
       "steps": 30,
       "cfg": 6.0,
       "shift": 5.0,
@@ -60,13 +109,25 @@
       "end_step": 15
     }
   },
-  "7": {
+  "9": {
     "class_type": "WanVideoSampler",
     "inputs": {
-      "model": ["2", 0],
-      "image_embeds": ["5", 0],
-      "text_embeds": ["4", 0],
-      "samples": ["6", 0],
+      "model": [
+        "2",
+        0
+      ],
+      "image_embeds": [
+        "7",
+        0
+      ],
+      "text_embeds": [
+        "4",
+        0
+      ],
+      "samples": [
+        "8",
+        0
+      ],
       "steps": 30,
       "cfg": 6.0,
       "shift": 5.0,
@@ -79,18 +140,17 @@
       "denoise_strength": 1.0
     }
   },
-  "8": {
-    "class_type": "WanVideoVAELoader",
-    "inputs": {
-      "model_name": "Wan2_1_VAE_bf16.safetensors",
-      "precision": "bf16"
-    }
-  },
-  "9": {
+  "10": {
     "class_type": "WanVideoDecode",
     "inputs": {
-      "vae": ["8", 0],
-      "samples": ["7", 0],
+      "vae": [
+        "6",
+        0
+      ],
+      "samples": [
+        "9",
+        0
+      ],
       "enable_vae_tiling": false,
       "tile_x": 272,
       "tile_y": 272,
@@ -98,13 +158,16 @@
       "tile_stride_y": 128
     }
   },
-  "10": {
+  "11": {
     "class_type": "VHS_VideoCombine",
     "inputs": {
-      "images": ["9", 0],
+      "images": [
+        "10",
+        0
+      ],
       "frame_rate": 24,
       "loop_count": 0,
-      "filename_prefix": "wan22_t2v",
+      "filename_prefix": "wan22_i2v",
       "format": "video/h264-mp4",
       "pingpong": false,
       "save_output": true

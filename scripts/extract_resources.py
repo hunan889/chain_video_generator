@@ -42,7 +42,6 @@ def extract_images(source_conn, limit=None):
     JOIN tudou_im.msg_res r ON m.uuid = r.msg_uuid
     WHERE m.msg_type = 2
         AND r.int_msg_type = 2
-        AND r.unlocked = 1
         AND JSON_EXTRACT(m.content, '$.desc') IS NOT NULL
         AND JSON_UNQUOTE(JSON_EXTRACT(m.content, '$.desc')) != ''
         AND JSON_UNQUOTE(JSON_EXTRACT(m.content, '$.desc')) != '**'
@@ -75,7 +74,6 @@ def extract_videos(source_conn, limit=None):
     JOIN tudou_im.msg_res r ON m.uuid = r.msg_uuid
     WHERE m.msg_type = 4
         AND r.int_msg_type = 4
-        AND r.unlocked = 1
         AND JSON_EXTRACT(m.content, '$.desc') IS NOT NULL
         AND JSON_UNQUOTE(JSON_EXTRACT(m.content, '$.desc')) != ''
         AND JSON_UNQUOTE(JSON_EXTRACT(m.content, '$.desc')) != '**'
@@ -149,15 +147,15 @@ def main():
     target_conn = pymysql.connect(**TARGET_DB)
 
     try:
-        # 提取数据（先提取少量测试）
+        # 提取数据（全量提取）
         all_resources = []
 
-        # 图片（先提取 1000 条测试）
-        images = extract_images(source_conn, limit=1000)
+        # 图片（全部提取）
+        images = extract_images(source_conn, limit=None)
         all_resources.extend(images)
 
-        # 视频（先提取 1000 条测试）
-        videos = extract_videos(source_conn, limit=1000)
+        # 视频（全部提取）
+        videos = extract_videos(source_conn, limit=None)
         all_resources.extend(videos)
 
         # 生成视频（全部提取）

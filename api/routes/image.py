@@ -1,13 +1,15 @@
 """SeedDream image generation via BytePlus API."""
 
 import base64
+import json
 import logging
 import math
 import os
 import requests as http_requests
-from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, Query
 from pydantic import BaseModel, Field
 from typing import List, Optional
+import pymysql
 
 from api.middleware.auth import verify_api_key
 
@@ -26,6 +28,53 @@ SIZE_PRESETS = {
     "2K": "2048x2048",
     "4K": "4096x4096",
 }
+
+# Database configuration
+DB_CONFIG = {
+    'host': 'use-cdb-b9nvte6o.sql.tencentcdb.com',
+    'port': 20603,
+    'user': 'user_soga',
+    'password': '1IvO@*#68',
+    'database': 'tudou_soga',
+    'charset': 'utf8mb4'
+}
+
+def get_db():
+    """获取数据库连接"""
+    return pymysql.connect(**DB_CONFIG)
+
+def save_generation_history(generation_type: str, image_url: str, parameters: dict, user_id: str = 'default'):
+    """保存图片生成历史"""
+    try:
+        conn = get_db()
+        cursor = conn.cursor()
+
+        cursor.execute("""
+            INSERT INTO image_generation_history
+            (user_id, generation_type, prompt, negative_prompt, model, size, width, height,
+             seed, steps, cfg_scale, image_url, parameters)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+        """, (
+            user_id,
+            generation_type,
+            parameters.get('prompt'),
+            parameters.get('negative_prompt'),
+            parameters.get('model'),
+            parameters.get('size'),
+            parameters.get('width'),
+            parameters.get('height'),
+            parameters.get('seed'),
+            parameters.get('steps'),
+            parameters.get('cfg_scale'),
+            image_url,
+            json.dumps(parameters)
+        ))
+
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        logger.error(f"Failed to save generation history: {e}")
+
 
 
 def _ensure_min_size(width: int, height: int) -> tuple[int, int]:
@@ -111,6 +160,18 @@ async def generate_image(req: ImageRequest, _user=Depends(verify_api_key)):
     logger.info("SeedDream T2I: model=%s size=%s seed=%s prompt=%.80s", model, size, req.seed, req.prompt)
     url = _call_byteplus(payload)
     logger.info("SeedDream image generated: %s", url[:120])
+
+    # Save to history
+    w, h = map(int, size.split('x'))
+    save_generation_history('t2i', url, {
+        'prompt': req.prompt,
+        'model': model,
+        'size': size,
+        'width': w,
+        'height': h,
+        'seed': req.seed
+    })
+
     return ImageResponse(url=url, size=size, seed=req.seed)
 
 
@@ -1211,4 +1272,234 @@ async def zimage_edit(
     url = _save_result_image(img_b64)
 
     logger.info("Z-Image I2I completed: %s", url)
+
+    # Save to history
+    save_generation_history('zimage-edit', url, {
+        'prompt': prompt,
+        'negative_prompt': negative_prompt,
+        'denoise': denoise,
+        'steps': steps,
+        'cfg_scale': cfg,
+        'seed': actual_seed,
+        'controlnet_strength': controlnet_strength
+    })
+
     return ImageResponse(url=url, size="auto", seed=actual_seed)
+
+
+@router.post("/image/character-consistency", response_model=ImageResponse)
+async def character_consistency(
+    prompt: str = Form(...),
+    negative_prompt: str = Form("deformed, blurry, bad anatomy, bad hands, extra fingers, ugly, cartoon, anime, painting, drawing, low quality"),
+    width: int = Form(768),
+    height: int = Form(1024),
+    steps: int = Form(30),
+    cfg: float = Form(5.0),
+    seed: int = Form(-1),
+    instantid_weight: float = Form(0.8),
+    faceid_weight: float = Form(0.7),
+    ipadapter_weight: float = Form(0.5),
+    face_image: UploadFile = File(...),
+    _user=Depends(verify_api_key),
+):
+    """Generate image with enhanced character consistency using InstantID + FaceID + IP-Adapter.
+
+    This combines three powerful techniques:
+    - InstantID: Face embedding + face keypoints for structure
+    - FaceID: Enhanced face identity preservation
+    - IP-Adapter: Overall style and appearance consistency
+    """
+    # Read face image
+    face_data = await face_image.read()
+    if len(face_data) > 20 * 1024 * 1024:
+        raise HTTPException(400, "Face image too large (max 20MB)")
+
+    # Upload image to ComfyUI
+    ext = (face_image.filename or "face.png").rsplit(".", 1)[-1].lower()
+    upload_name = _upload_image_to_comfyui(face_data, f"character_face.{ext}")
+
+    # Load workflow
+    import json, random
+    workflow_path = os.path.join(os.path.dirname(__file__), "../../workflows/character_consistency.json")
+    with open(workflow_path) as f:
+        workflow = json.load(f)
+
+    # Set parameters
+    actual_seed = seed if seed >= 0 else random.randint(0, 2**63)
+
+    workflow["2"]["inputs"]["text"] = prompt
+    workflow["3"]["inputs"]["text"] = negative_prompt
+    workflow["4"]["inputs"]["width"] = width
+    workflow["4"]["inputs"]["height"] = height
+    workflow["5"]["inputs"]["image"] = upload_name
+    workflow["8"]["inputs"]["weight"] = instantid_weight
+    workflow["11"]["inputs"]["weight"] = faceid_weight
+    workflow["11"]["inputs"]["weight_faceidv2"] = faceid_weight
+    workflow["14"]["inputs"]["weight"] = ipadapter_weight
+    workflow["15"]["inputs"]["seed"] = actual_seed
+    workflow["15"]["inputs"]["steps"] = steps
+    workflow["15"]["inputs"]["cfg"] = cfg
+
+    logger.info("Character Consistency: instantid=%.2f faceid=%.2f ipadapter=%.2f steps=%d seed=%d prompt=%.80s",
+                instantid_weight, faceid_weight, ipadapter_weight, steps, actual_seed, prompt)
+
+    # Queue and wait
+    prompt_id = _queue_comfyui_prompt(workflow)
+    result_filename = _poll_comfyui_result(prompt_id)
+    img_b64 = _get_comfyui_image_b64(result_filename)
+    url = _save_result_image(img_b64)
+
+    logger.info("Character Consistency completed: %s", url)
+
+    # Save to history
+    save_generation_history('character-consistency', url, {
+        'prompt': prompt,
+        'negative_prompt': negative_prompt,
+        'width': width,
+        'height': height,
+        'steps': steps,
+        'cfg_scale': cfg,
+        'seed': actual_seed,
+        'instantid_weight': instantid_weight,
+        'faceid_weight': faceid_weight,
+        'ipadapter_weight': ipadapter_weight
+    })
+
+    return ImageResponse(url=url, size=f"{width}x{height}", seed=actual_seed)
+
+
+class HistoryItem(BaseModel):
+    id: int
+    generation_type: str
+    prompt: Optional[str]
+    negative_prompt: Optional[str]
+    model: Optional[str]
+    size: Optional[str]
+    width: Optional[int]
+    height: Optional[int]
+    seed: Optional[int]
+    steps: Optional[int]
+    cfg_scale: Optional[float]
+    image_url: str
+    created_at: str
+
+
+class HistoryResponse(BaseModel):
+    items: List[HistoryItem]
+    total: int
+    page: int
+    page_size: int
+    total_pages: int
+
+
+@router.get("/image/history", response_model=HistoryResponse)
+async def get_image_history(
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=100),
+    generation_type: Optional[str] = Query(None),
+    _user=Depends(verify_api_key)
+):
+    """获取图片生成历史"""
+    conn = get_db()
+    cursor = conn.cursor(pymysql.cursors.DictCursor)
+
+    try:
+        where_clauses = []
+        params = []
+
+        if generation_type:
+            where_clauses.append("generation_type = %s")
+            params.append(generation_type)
+
+        where_sql = " AND ".join(where_clauses) if where_clauses else "1=1"
+
+        # 获取总数
+        cursor.execute(f"SELECT COUNT(*) as total FROM image_generation_history WHERE {where_sql}", params)
+        total = cursor.fetchone()['total']
+
+        # 获取历史记录
+        offset = (page - 1) * page_size
+        cursor.execute(f"""
+            SELECT id, generation_type, prompt, negative_prompt, model, size, width, height,
+                   seed, steps, cfg_scale, image_url, created_at
+            FROM image_generation_history
+            WHERE {where_sql}
+            ORDER BY created_at DESC
+            LIMIT %s OFFSET %s
+        """, params + [page_size, offset])
+
+        items = cursor.fetchall()
+
+        return {
+            'items': items,
+            'total': total,
+            'page': page,
+            'page_size': page_size,
+            'total_pages': (total + page_size - 1) // page_size
+        }
+
+    finally:
+        conn.close()
+
+
+@router.post("/video/faceswap")
+async def faceswap_video(
+    video: UploadFile = File(...),
+    face_image: UploadFile = File(...),
+    faces_index: str = Form("0"),
+    _user=Depends(verify_api_key),
+):
+    """Swap faces in a video using a reference face image.
+
+    Args:
+        video: Input video file
+        face_image: Reference face image to swap into the video
+        faces_index: Comma-separated indices of faces to swap (default: "0" for first face)
+    """
+    from api.main import task_manager
+    import json
+
+    # Read video
+    video_data = await video.read()
+    if len(video_data) > 500 * 1024 * 1024:  # 500MB limit
+        raise HTTPException(400, "Video too large (max 500MB)")
+
+    # Read face image
+    face_data = await face_image.read()
+    if len(face_data) > 10 * 1024 * 1024:  # 10MB limit
+        raise HTTPException(400, "Face image too large (max 10MB)")
+
+    # Save uploads
+    from api.services import storage
+    video_filename, _ = await storage.save_upload(video_data, video.filename or "input.mp4")
+    face_filename, _ = await storage.save_upload(face_data, face_image.filename or "face.png")
+
+    # Upload to ComfyUI
+    client = task_manager.clients.get("a14b")
+    if not client or not await client.is_alive():
+        raise HTTPException(503, "ComfyUI service unavailable")
+
+    video_upload = await client.upload_video(video_data, video_filename)
+    face_upload = await client.upload_image(face_data, face_filename)
+
+    # Load workflow
+    from api.services.workflow_builder import load_workflow
+    workflow = load_workflow("video_faceswap")
+
+    # Set parameters
+    workflow["1"]["inputs"]["video"] = video_upload.get("name", video_filename)
+    workflow["4"]["inputs"]["image"] = face_upload.get("name", face_filename)
+    workflow["5"]["inputs"]["faces_index"] = faces_index
+
+    # Submit to ComfyUI
+    prompt_id = await client.queue_prompt(workflow)
+
+    # Create task
+    task_id = await task_manager.create_task(
+        "video_faceswap",
+        {"video": video_filename, "face": face_filename, "faces_index": faces_index},
+        prompt_id,
+        "a14b"
+    )
+
+    return {"task_id": task_id, "status": "queued"}

@@ -14,6 +14,54 @@ router = APIRouter()
 LORAS_DIR = COMFYUI_PATH / "models" / "loras"
 
 
+async def _add_civitai_id_to_file(file_path: str, civitai_id: int, civitai_version_id: int):
+    """Add CivitAI IDs to a safetensors file's metadata."""
+    try:
+        import safetensors.torch
+        import torch
+        from pathlib import Path
+        import shutil
+
+        file_path_obj = Path(file_path)
+
+        # Load existing tensors and metadata
+        tensors = {}
+        metadata = {}
+
+        with safetensors.torch.safe_open(file_path_obj, framework="pt") as f:
+            # Copy existing metadata
+            if f.metadata():
+                metadata = dict(f.metadata())
+
+            # Load all tensors
+            for key in f.keys():
+                tensors[key] = f.get_tensor(key)
+
+        # Add CivitAI IDs to metadata
+        metadata["civitai_model_id"] = str(civitai_id)
+        metadata["civitai_version_id"] = str(civitai_version_id)
+
+        # Create backup
+        backup_path = file_path_obj.with_suffix('.safetensors.bak')
+        shutil.copy2(file_path_obj, backup_path)
+
+        # Save with updated metadata
+        safetensors.torch.save_file(tensors, file_path_obj, metadata=metadata)
+
+        # Remove backup if successful
+        backup_path.unlink()
+
+        logger.info(f"Added CivitAI ID {civitai_id}/{civitai_version_id} to {file_path_obj.name}")
+    except Exception as e:
+        logger.warning(f"Failed to add CivitAI ID to file: {e}")
+        # Restore from backup if it exists
+        backup_path = Path(file_path).with_suffix('.safetensors.bak')
+        if backup_path.exists():
+            shutil.copy2(backup_path, file_path)
+            backup_path.unlink()
+
+
+
 @router.get("/loras", response_model=list[LoraInfo])
 async def list_loras(_=Depends(verify_api_key)):
     try:
@@ -110,13 +158,19 @@ async def download_lora(req: LoraDownloadRequest, _=Depends(verify_api_key)):
                 size = os.path.getsize(dest)
                 if size > 1000000:  # > 1MB
                     _download_tasks[dl_id]["status"] = "completed"
-                    # Register with CivitAI metadata if version_id provided
+
+                    # Add CivitAI ID to file metadata if version_id provided
                     if req.civitai_version_id:
                         try:
-                            from api.routes.civitai import _register_lora
                             version_data = await civitai_client.get_version(req.civitai_version_id)
                             model_id = version_data.get("modelId")
+
+                            # Add ID to file metadata
+                            await _add_civitai_id_to_file(dest, model_id, req.civitai_version_id)
+
+                            # Register with loras.yaml
                             model_data = await civitai_client.get_model(model_id) if model_id else {}
+                            from api.routes.civitai import _register_lora
                             entry = _register_lora(model_data, version_data, filename)
                             _download_tasks[dl_id]["lora_entry"] = entry
                         except Exception as e:
