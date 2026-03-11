@@ -125,6 +125,7 @@ async def extend_video(req: ExtendRequest, _=Depends(verify_api_key)):
 @router.post("/generate/chain", response_model=ChainResponse)
 async def generate_chain(
     image: UploadFile = File(None),
+    face_image: UploadFile = File(None),
     initial_reference_image: UploadFile = File(None),
     params: str = Form(...),
     _=Depends(verify_api_key),
@@ -140,7 +141,11 @@ async def generate_chain(
 
     # Handle optional starting image
     image_filename = ""
+    face_image_filename = ""
     initial_ref_filename = ""
+
+    logger.info("generate_chain: image_mode=%s image=%s face_image=%s",
+                req.image_mode, bool(image and image.filename), bool(face_image and face_image.filename))
 
     if image:
         image_data = await image.read()
@@ -150,6 +155,16 @@ async def generate_chain(
             if client and await client.is_alive():
                 upload_result = await client.upload_image(image_data, local_name)
                 image_filename = upload_result.get("name", local_name)
+
+    # Handle face reference image for face swap mode
+    if face_image:
+        face_data = await face_image.read()
+        if face_data:
+            local_name, _ = await storage.save_upload(face_data, face_image.filename or "face.png")
+            client = task_manager.clients.get(req.model.value)
+            if client and await client.is_alive():
+                upload_result = await client.upload_image(face_data, local_name)
+                face_image_filename = upload_result.get("name", local_name)
 
     # Handle Story Mode continuation from parent chain/video
     parent_video_comfy_filename = ""
@@ -251,8 +266,10 @@ async def generate_chain(
                 "original_prompt": seg_req.prompt,
                 "auto_continue": req.auto_continue,
                 "transition": req.transition,
-                "story_mode": req.story_mode,
+                "story_mode": True,
                 "motion_frames": req.motion_frames,
+                "image_mode": req.image_mode.value,
+                "face_swap_strength": req.face_swap_strength,
                 "boundary": req.boundary,
                 "clip_preset": req.clip_preset,
                 "match_image_ratio": req.match_image_ratio,
@@ -268,8 +285,17 @@ async def generate_chain(
                 "mmaudio_steps": req.mmaudio_steps,
                 "mmaudio_cfg": req.mmaudio_cfg,
             }
-            if i == 0 and image_filename:
-                seg["image_filename"] = image_filename
+            # Handle image mode for segment 0
+            if i == 0:
+                if req.image_mode == "first_frame" and image_filename:
+                    seg["image_filename"] = image_filename
+                elif req.image_mode == "face_reference":
+                    # Use face_image if provided, otherwise use image as face reference
+                    ref = face_image_filename or image_filename
+                    if ref:
+                        seg["face_image_filename"] = ref
+                    logger.info("Chain seg0 face_reference: face_image=%s image=%s -> face_image_filename=%s",
+                                face_image_filename, image_filename, ref)
             # Add parent video filename for Story Mode continuation (multi-frame reference)
             if i == 0 and parent_video_comfy_filename:
                 seg["parent_video_filename"] = parent_video_comfy_filename
@@ -284,7 +310,7 @@ async def generate_chain(
             "segment_durations": segment_durations,
             "total_duration": total_duration,
             "num_segments": num_segments,
-            "story_mode": req.story_mode,
+            "story_mode": True,
         })
         await task_manager.run_chain(chain_id, segments)
 
@@ -348,8 +374,10 @@ async def generate_chain(
             "original_prompt": prompt,
             "auto_continue": req.auto_continue,
             "transition": req.transition,
-            "story_mode": req.story_mode,
+            "story_mode": True,
             "motion_frames": req.motion_frames,
+            "image_mode": req.image_mode.value,
+            "face_swap_strength": req.face_swap_strength,
             "boundary": req.boundary,
             "clip_preset": req.clip_preset,
             "match_image_ratio": req.match_image_ratio,
@@ -365,8 +393,16 @@ async def generate_chain(
             "mmaudio_steps": req.mmaudio_steps,
             "mmaudio_cfg": req.mmaudio_cfg,
         }
-        if i == 0 and image_filename:
-            seg["image_filename"] = image_filename
+        # Handle image mode for segment 0
+        if i == 0:
+            if req.image_mode == "first_frame" and image_filename:
+                seg["image_filename"] = image_filename
+            elif req.image_mode == "face_reference":
+                ref = face_image_filename or image_filename
+                if ref:
+                    seg["face_image_filename"] = ref
+                logger.info("Single-seg face_reference: face_image=%s image=%s -> face_image_filename=%s",
+                            face_image_filename, image_filename, ref)
         if i == 0 and parent_video_comfy_filename:
             seg["parent_video_filename"] = parent_video_comfy_filename
         segments.append(seg)
@@ -380,7 +416,7 @@ async def generate_chain(
         "total_duration": req.total_duration,
         "segment_duration": req.segment_duration,
         "num_segments": num_segments,
-        "story_mode": req.story_mode,
+        "story_mode": True,
     })
     await task_manager.run_chain(chain_id, segments)
 

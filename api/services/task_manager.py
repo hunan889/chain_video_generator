@@ -595,7 +595,7 @@ class TaskManager:
             await self.redis.hset(f"chain:{chain_id}", "status", "running")
 
             # ── Merged story mode: single ComfyUI prompt with shared models ──
-            if story_mode and segments[0].get("image_filename"):
+            if story_mode and (segments[0].get("image_filename") or segments[0].get("face_image_filename")):
                 await self._chain_worker_merged_story(
                     chain_id, segments, segment_prompts,
                 )
@@ -822,6 +822,10 @@ class TaskManager:
 
         logger.info("Chain %s: building merged story workflow for %d segments", chain_id, total)
 
+        # Extract face_image_filename from segment 0 if present
+        face_image_filename = seg0.get("face_image_filename", "")
+        face_swap_strength = seg0.get("face_swap_strength", 1.0)
+
         # Build single merged workflow
         workflow = build_merged_story_workflow(
             segments=segments,
@@ -851,6 +855,8 @@ class TaskManager:
             mmaudio_negative_prompt=seg0.get("mmaudio_negative_prompt", ""),
             mmaudio_steps=seg0.get("mmaudio_steps", 25),
             mmaudio_cfg=seg0.get("mmaudio_cfg", 4.5),
+            face_image_filename=face_image_filename,
+            face_swap_strength=face_swap_strength,
         )
 
         # Create a single task for the entire merged workflow

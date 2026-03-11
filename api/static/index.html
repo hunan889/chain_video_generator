@@ -144,7 +144,6 @@ h1{text-align:center;color:#7c83ff;margin-bottom:24px;font-size:1.6em}
 <div class="tab" data-tab="chain">长视频生成</div>
 <div class="tab" data-tab="query">查询任务</div>
 <div class="tab" data-tab="dlora">下载 LoRA</div>
-<div class="tab" data-tab="story">Story 视频</div>
 <div class="tab" data-tab="civitai">CivitAI</div>
 <div class="tab" data-tab="tts">TTS 语音</div>
 <div class="tab" data-tab="postproc">后期处理</div>
@@ -307,6 +306,29 @@ h1{text-align:center;color:#7c83ff;margin-bottom:24px;font-size:1.6em}
 </div></div>
 </div>
 
+<!-- 图片用途模式 -->
+<div class="row" id="chain-image-mode-row" style="align-items:center;padding:8px 0;border-bottom:1px solid #333;margin-bottom:12px">
+<div class="field" style="flex:1">
+<label style="color:#7c83ff;font-weight:600">图片用途</label>
+<div style="display:flex;gap:20px;margin-top:8px">
+<label style="cursor:pointer;font-size:13px">
+<input type="radio" name="chain-image-mode" value="first_frame" checked style="accent-color:#7c83ff;margin-right:6px">
+作为首帧 (I2V)
+</label>
+<label style="cursor:pointer;font-size:13px">
+<input type="radio" name="chain-image-mode" value="face_reference" style="accent-color:#7c83ff;margin-right:6px">
+仅面部参考 (T2V + 换脸)
+</label>
+</div>
+</div>
+<div class="field" id="chain-face-swap-strength-field" style="display:none;min-width:200px">
+<label>换脸强度</label>
+<input type="range" id="chain-face-swap-strength" min="0.3" max="1.0" step="0.1" value="1.0" oninput="document.getElementById('chain-face-swap-value').textContent=this.value">
+<span id="chain-face-swap-value" style="margin-left:8px;color:#7c83ff">1.0</span>
+</div>
+</div>
+
+
 <!-- 基本参数（可折叠） -->
 <div class="collapsible" onclick="toggleCollapsible(this)">
 <span style="color:#7c83ff;font-weight:600">基本参数（全局共享）</span>
@@ -332,13 +354,12 @@ h1{text-align:center;color:#7c83ff;margin-bottom:24px;font-size:1.6em}
 <div class="field"><label>Noise Aug (续写)</label><input type="number" id="chain-noise" value="0.05" step="0.01" min="0" max="1"></div>
 <div class="field"><label>Motion Amplitude</label><input type="number" id="chain-motion" value="0.0" step="0.05" min="0" max="1"></div>
 </div>
-<!-- Story 模式 -->
+<!-- Story 模式参数 (always visible) -->
 <div class="row" style="align-items:center;padding:8px 0;border-top:1px solid #333;margin-top:8px">
-<div class="field" style="min-width:auto;flex:none"><label><input type="checkbox" id="chain-story-mode" onchange="toggleStoryMode()" style="accent-color:#7c83ff;width:16px;height:16px;vertical-align:middle;margin-right:6px">Story 模式 (身份一致性)</label></div>
-<div class="field" id="chain-story-motion-frames-field" style="display:none"><label>Motion Frames</label><input type="number" id="chain-story-motion-frames" value="5" min="1" max="73" step="1"></div>
-<div class="field" id="chain-story-boundary-field" style="display:none"><label>Boundary</label><input type="number" id="chain-story-boundary" value="0.9" min="0" max="1" step="0.05"></div>
-<div class="field" id="chain-story-clip-field" style="display:none"><label>CLIP 预设</label><select id="chain-story-clip"><option value="nsfw">NSFW</option><option value="default">Default</option></select></div>
-<div class="field" id="chain-story-match-ratio-field" style="display:none"><label><input type="checkbox" id="chain-story-match-ratio" style="accent-color:#7c83ff;width:16px;height:16px;vertical-align:middle;margin-right:6px">适配图片比例</label></div>
+<div class="field" id="chain-story-motion-frames-field"><label>Motion Frames</label><input type="number" id="chain-story-motion-frames" value="5" min="1" max="73" step="1"></div>
+<div class="field" id="chain-story-boundary-field"><label>Boundary</label><input type="number" id="chain-story-boundary" value="0.9" min="0" max="1" step="0.05"></div>
+<div class="field" id="chain-story-clip-field"><label>CLIP 预设</label><select id="chain-story-clip"><option value="nsfw">NSFW</option><option value="default">Default</option></select></div>
+<div class="field" id="chain-story-match-ratio-field"><label><input type="checkbox" id="chain-story-match-ratio" style="accent-color:#7c83ff;width:16px;height:16px;vertical-align:middle;margin-right:6px">适配图片比例</label></div>
 </div>
 <div class="row">
 <div class="field"><label>过渡方式</label><select id="chain-transition"><option value="none">直接拼接</option><option value="crossfade">交叉淡入淡出</option></select></div>
@@ -349,10 +370,9 @@ h1{text-align:center;color:#7c83ff;margin-bottom:24px;font-size:1.6em}
 <div class="row">
 <div class="field" style="flex:3"><label>负向提示词（全局）</label>
 <input id="chain-neg" placeholder="(optional)" value=""></div>
-<div class="field" style="min-width:auto;flex:none"><label><input type="checkbox" id="chain-upscale" style="accent-color:#7c83ff;width:16px;height:16px;vertical-align:middle;margin-right:6px">超分辨率 (2x upscale)</label></div>
 </div>
 <!-- Post-processing: Upscale / Frame Interpolation / MMAudio -->
-<div class="row" id="chain-postproc-row" style="display:none">
+<div class="row" id="chain-postproc-row">
 <div class="field" style="min-width:auto;flex:none"><label><input type="checkbox" id="chain-enable-upscale" onchange="togglePostProc()" style="accent-color:#7c83ff;width:16px;height:16px;vertical-align:middle;margin-right:6px">TRT 超分</label></div>
 <div class="field" id="chain-upscale-resize-field" style="display:none;min-width:80px"><label>倍率</label><select id="chain-upscale-resize"><option value="1.5x">1.5x</option><option value="2x" selected>2x</option><option value="3x">3x</option><option value="4x">4x</option></select></div>
 <div class="field" style="min-width:auto;flex:none"><label><input type="checkbox" id="chain-enable-interpolation" onchange="togglePostProc()" style="accent-color:#7c83ff;width:16px;height:16px;vertical-align:middle;margin-right:6px">RIFE 插帧</label></div>
@@ -1238,6 +1258,7 @@ function toLocalUrl(url) {
 let i2vSelectedFile = null;
 let storySelectedFile = null;
 let chainSelectedFile = null;
+let segmentCounter = 0;
 let modelPresets = [];
 let t5Presets = [];
 
@@ -1275,13 +1296,13 @@ function framesToDuration(frames, fps) {
 const FORM_FIELDS = {
   t2v: ['t2v-prompt','t2v-neg','t2v-model','t2v-preset','t2v-t5preset','t2v-w','t2v-h','t2v-duration','t2v-fps','t2v-steps','t2v-cfg','t2v-shift','t2v-seed','t2v-sched'],
   i2v: ['i2v-prompt','i2v-neg','i2v-model','i2v-preset','i2v-t5preset','i2v-w','i2v-h','i2v-duration','i2v-fps','i2v-steps','i2v-cfg','i2v-shift','i2v-seed','i2v-sched','i2v-noise','i2v-motion','i2v-colormatch','i2v-colormatch-method','i2v-resize'],
-  chain: ['chain-prompt','chain-neg','chain-model','chain-preset','chain-t5preset','chain-w','chain-h','chain-total','chain-seg','chain-fps','chain-steps','chain-cfg','chain-shift','chain-seed','chain-sched','chain-noise','chain-motion','chain-transition','chain-colormatch','chain-colormatch-method','chain-resize','chain-story-motion-frames','chain-story-boundary','chain-story-clip','chain-upscale-resize','chain-interpolation-multiplier','chain-mmaudio-prompt','chain-mmaudio-neg','chain-mmaudio-steps','chain-mmaudio-cfg'],
+  chain: ['chain-prompt','chain-neg','chain-model','chain-preset','chain-t5preset','chain-w','chain-h','chain-total','chain-seg','chain-fps','chain-steps','chain-cfg','chain-shift','chain-seed','chain-sched','chain-noise','chain-motion','chain-transition','chain-colormatch','chain-colormatch-method','chain-resize','chain-story-motion-frames','chain-story-boundary','chain-story-clip','chain-upscale-resize','chain-interpolation-multiplier','chain-mmaudio-prompt','chain-mmaudio-neg','chain-mmaudio-steps','chain-mmaudio-cfg','chain-face-swap-strength'],
   story: ['story-shift','story-motion','story-motion-frames','story-seed','story-seg-1-prompt','story-seg-1-duration','story-seg-2-prompt','story-seg-2-duration','story-seg-3-prompt','story-seg-3-duration','story-seg-4-prompt','story-seg-4-duration']
 };
 const CHECKBOX_FIELDS = {
   t2v: ['t2v-auto-lora','t2v-auto-prompt'],
   i2v: ['i2v-auto-lora','i2v-auto-prompt'],
-  chain: ['chain-auto-lora','chain-auto-prompt','chain-auto-continue','chain-upscale','chain-story-mode','chain-story-match-ratio','chain-enable-upscale','chain-enable-interpolation','chain-enable-mmaudio'],
+  chain: ['chain-auto-lora','chain-auto-prompt','chain-auto-continue','chain-story-match-ratio','chain-enable-upscale','chain-enable-interpolation','chain-enable-mmaudio'],
   story: []
 };
 function saveFormParams(prefix) {
@@ -1294,6 +1315,11 @@ function saveFormParams(prefix) {
     const el = document.getElementById(id);
     if (el) data[id] = el.checked;
   });
+  // Save radio buttons (image mode for chain)
+  if (prefix === 'chain') {
+    const imageMode = document.querySelector('input[name="chain-image-mode"]:checked');
+    if (imageMode) data['chain-image-mode'] = imageMode.value;
+  }
   // Save LoRA selections
   const loraData = [];
   document.querySelectorAll('#' + prefix + '-loras .lora-item').forEach(item => {
@@ -1317,6 +1343,16 @@ function restoreFormParams(prefix) {
       const el = document.getElementById(id);
       if (el && data[id] !== undefined) el.checked = data[id];
     });
+    // Restore radio buttons (image mode for chain)
+    if (prefix === 'chain' && data['chain-image-mode']) {
+      const radio = document.querySelector(`input[name="chain-image-mode"][value="${data['chain-image-mode']}"]`);
+      if (radio) {
+        radio.checked = true;
+        // Trigger change event to update UI
+        const event = new Event('change');
+        radio.dispatchEvent(event);
+      }
+    }
     // Restore LoRA selections after loras are loaded
     if (data._loras) {
       window['_pendingLoras_'+prefix] = data._loras;
@@ -2113,11 +2149,32 @@ document.getElementById('chain-file').addEventListener('change', function() {
     preview.src = e.target.result;
     preview.style.display = 'block';
     text.style.display = 'none';
-    // Cache image to localStorage
-    try { localStorage.setItem('wan22_chain_image', e.target.result); localStorage.setItem('wan22_chain_image_name', file.name); } catch(e) {}
   };
   reader.readAsDataURL(file);
 });
+
+// Chain image mode radio buttons
+document.querySelectorAll('input[name="chain-image-mode"]').forEach(radio => {
+  radio.addEventListener('change', function() {
+    const isFaceRef = this.value === 'face_reference';
+    document.getElementById('chain-face-swap-strength-field').style.display = isFaceRef ? '' : 'none';
+
+    // Re-render first segment's LoRAs to apply filtering
+    const container = document.getElementById('segments-container');
+    if (container) {
+      const firstSegment = container.querySelector('[data-segment-id]');
+      if (firstSegment) {
+        const segId = firstSegment.dataset.segmentId;
+        const loraContainer = document.getElementById(`seg-${segId}-loras`);
+        if (loraContainer && loraContainer.children.length > 0) {
+          renderLoras(`seg-${segId}-loras`);
+        }
+      }
+    }
+  });
+});
+
+// Chain face image upload (for face_reference mode) - removed, use chainSelectedFile directly
 
 // Story image upload
 document.getElementById('story-file').addEventListener('change', function() {
@@ -2218,6 +2275,18 @@ function _isI2VLora(l) {
   // Otherwise, check for I2V markers
   return n.includes('i2v') || f.includes('i2v') || f.includes('_high_noise') || f.includes('_low_noise');
 }
+
+function _isT2VLora(l) {
+  const n = (l.name || '').toLowerCase();
+  const f = (l.file || '').toLowerCase();
+  // T2V LoRAs: contain 't2v' in name/file, or don't have i2v markers
+  if (n.includes('t2v') || f.includes('t2v')) return true;
+  // If it has I2V markers, it's not T2V-compatible
+  if (n.includes('i2v') || f.includes('i2v') || f.includes('_high_noise') || f.includes('_low_noise')) return false;
+  // No mode markers: assume compatible with both
+  return true;
+}
+
 function renderLoras(cid) {
   const c = document.getElementById(cid);
   if (!c) {
@@ -2225,10 +2294,40 @@ function renderLoras(cid) {
     return;
   }
   if (!allLoras.length) { c.innerHTML = '<span style="color:#666;font-size:13px">暂无可用 LoRA</span>'; return; }
-  // Filter: t2v panel hides I2V-only loras, i2v/chain panels show all
+
+  // Filter logic
   const isT2V = cid.startsWith('t2v-');
+
+  // For chain segments, check if this is the first segment (index 0)
+  let isChainSeg0 = false;
+  if (cid.startsWith('seg-') && cid.endsWith('-loras')) {
+    // Extract segment ID from cid (e.g., "seg-1-loras" -> "1")
+    const match = cid.match(/^seg-(\d+)-loras$/);
+    if (match) {
+      const segId = match[1];
+      // Check if this segment is the first one in the container
+      const container = document.getElementById('segments-container');
+      if (container) {
+        const firstSegment = container.querySelector('[data-segment-id]');
+        if (firstSegment && firstSegment.dataset.segmentId === segId) {
+          isChainSeg0 = true;
+        }
+      }
+    }
+  }
+
+  // For chain segment 0, check image mode
+  let filterForT2V = isT2V;
+  if (isChainSeg0) {
+    const imageMode = document.querySelector('input[name="chain-image-mode"]:checked')?.value;
+    filterForT2V = (imageMode === 'face_reference');
+  }
+
   c.innerHTML = allLoras.map((l, i) => {
+    // Filter based on mode
+    if (filterForT2V && !_isT2VLora(l)) return '';
     if (isT2V && _isI2VLora(l)) return '';
+
     const twText = (l.trigger_words||[]).join(', ');
     const isI2V = _isI2VLora(l);
     let previewHtml = '';
@@ -3436,11 +3535,28 @@ loadLoras();
 restoreFormParams('t2v');
 restoreFormParams('i2v');
 restoreFormParams('chain');
-// Restore story mode UI state after form params are restored (don't overwrite saved values)
-if (document.getElementById('chain-story-mode').checked) {
-  toggleStoryMode(false);
-  togglePostProc();
-}
+console.log('[init] chain-image-mode after restoreFormParams:', document.querySelector('input[name="chain-image-mode"]:checked')?.value);
+// Story mode is always enabled now, initialize story mode and post-processing UI
+toggleStoryMode(false);
+console.log('[init] chain-image-mode after toggleStoryMode:', document.querySelector('input[name="chain-image-mode"]:checked')?.value);
+togglePostProc();
+
+// Auto-save chain form params on change
+FORM_FIELDS.chain.forEach(id => {
+  const el = document.getElementById(id);
+  if (el) {
+    el.addEventListener('change', () => saveFormParams('chain'));
+    el.addEventListener('input', () => saveFormParams('chain'));
+  }
+});
+CHECKBOX_FIELDS.chain.forEach(id => {
+  const el = document.getElementById(id);
+  if (el) el.addEventListener('change', () => saveFormParams('chain'));
+});
+// Auto-save image mode radio buttons
+document.querySelectorAll('input[name="chain-image-mode"]').forEach(radio => {
+  radio.addEventListener('change', () => saveFormParams('chain'));
+});
 
 // Restore cached chain image from localStorage
 try {
@@ -3576,30 +3692,26 @@ async function submitExtend() {
 }
 
 // --- Chain (long video) ---
-let segmentCounter = 0;
 
 // Toggle Story mode fields visibility
-// setDefaults=true when user clicks the checkbox, false when restoring from localStorage
+// Story mode is now always enabled, this function is kept for compatibility
 function toggleStoryMode(setDefaults) {
-  if (setDefaults === undefined) setDefaults = true;
-  const isStory = document.getElementById('chain-story-mode').checked;
-  // Show story-specific fields
-  document.getElementById('chain-story-motion-frames-field').style.display = isStory ? '' : 'none';
-  document.getElementById('chain-story-boundary-field').style.display = isStory ? '' : 'none';
-  document.getElementById('chain-story-clip-field').style.display = isStory ? '' : 'none';
-  document.getElementById('chain-story-match-ratio-field').style.display = isStory ? '' : 'none';
-  document.getElementById('chain-postproc-row').style.display = isStory ? '' : 'none';
-  if (!isStory) document.getElementById('chain-mmaudio-row').style.display = 'none';
+  // Story mode is always on, no need to check checkbox
+  const isStory = true;
+  // Show story-specific fields (always visible now)
+  document.getElementById('chain-story-motion-frames-field').style.display = '';
+  document.getElementById('chain-story-boundary-field').style.display = '';
+  document.getElementById('chain-story-clip-field').style.display = '';
+  document.getElementById('chain-story-match-ratio-field').style.display = '';
+  document.getElementById('chain-postproc-row').style.display = '';
+  document.getElementById('chain-image-mode-row').style.display = '';
   // Hide fields not applicable to story mode
-  const noiseField = document.getElementById('chain-noise').closest('.field');
-  const colormatchField = document.getElementById('chain-colormatch').closest('.field');
-  const colormatchMethodField = document.getElementById('chain-colormatch-method').closest('.field');
+  const noiseField = document.getElementById('chain-noise')?.closest('.field');
+  const colormatchField = document.getElementById('chain-colormatch')?.closest('.field');
+  const colormatchMethodField = document.getElementById('chain-colormatch-method')?.closest('.field');
   if (noiseField) noiseField.style.display = isStory ? 'none' : '';
   if (colormatchField) colormatchField.style.display = isStory ? 'none' : '';
   if (colormatchMethodField) colormatchMethodField.style.display = isStory ? 'none' : '';
-  // Hide old PyTorch upscale in Story mode (use TRT upscale instead)
-  const oldUpscaleField = document.getElementById('chain-upscale').closest('.field');
-  if (oldUpscaleField) oldUpscaleField.style.display = isStory ? 'none' : '';
   // Always enforce Story mode defaults when enabled (overrides localStorage)
   if (isStory) {
     document.getElementById('chain-steps').value = '5';
@@ -3996,15 +4108,14 @@ async function generateSingleSegment(segId) {
     seed: seed >= 0 ? seed : null,
     scheduler: document.getElementById('chain-sched').value,
     loras: loras,
-    upscale: document.getElementById('chain-upscale').checked,
   };
 
   const statusBox = document.getElementById(`seg-${segId}-status`);
   statusBox.innerHTML = '<div style="color:#aaa;font-size:13px">提交中...</div>';
 
   try {
-    // Check if Story Mode is enabled
-    const isStoryMode = document.getElementById('chain-story-mode').checked;
+    // Story Mode is always enabled
+    const isStoryMode = true;
 
     // Check if this is the first segment and has an uploaded image
     const allSegments = Array.from(document.querySelectorAll('.segment-card'));
@@ -4113,6 +4224,7 @@ async function generateSingleSegment(segId) {
         // Story Mode: use Chain API even for first segment (enables post-processing pipeline)
         endpoint = BASE + '/api/v1/generate/chain';
 
+        const imageMode = document.querySelector('input[name="chain-image-mode"]:checked').value;
         const chainParams = {
           segments: [{
             prompt: prompt,
@@ -4132,6 +4244,8 @@ async function generateSingleSegment(segId) {
           loras: params.loras,
           upscale: params.upscale,
           story_mode: true,
+          image_mode: imageMode,
+          face_swap_strength: parseFloat(document.getElementById('chain-face-swap-strength').value),
           motion_frames: parseInt(document.getElementById('chain-story-motion-frames').value),
           boundary: parseFloat(document.getElementById('chain-story-boundary').value),
           clip_preset: document.getElementById('chain-story-clip').value,
@@ -4152,7 +4266,12 @@ async function generateSingleSegment(segId) {
         };
 
         const fd = new FormData();
-        fd.append('image', chainSelectedFile);
+        if (imageMode === 'face_reference') {
+          fd.append('face_image', chainSelectedFile);
+        } else {
+          fd.append('image', chainSelectedFile);
+        }
+        console.log(`[generateSingleSegment] seg0 story: imageMode=${imageMode}, file field=${imageMode === 'face_reference' ? 'face_image' : 'image'}`);
         fd.append('params', JSON.stringify(chainParams));
         requestBody = fd;
 
@@ -4935,6 +5054,9 @@ async function submitChain() {
   }
 
   const seed = parseInt(document.getElementById('chain-seed').value);
+  const imageMode = document.querySelector('input[name="chain-image-mode"]:checked').value;
+  console.log('[submitChain] imageMode:', imageMode, '| chainSelectedFile:', chainSelectedFile?.name || null);
+
   const params = {
     segments: segments,
     negative_prompt: document.getElementById('chain-neg').value,
@@ -4958,8 +5080,8 @@ async function submitChain() {
     color_match: document.getElementById('chain-colormatch').value === 'true',
     color_match_method: document.getElementById('chain-colormatch-method').value,
     resize_mode: document.getElementById('chain-resize').value,
-    upscale: document.getElementById('chain-upscale').checked,
-    story_mode: document.getElementById('chain-story-mode').checked,
+    image_mode: imageMode,
+    face_swap_strength: parseFloat(document.getElementById('chain-face-swap-strength').value),
     motion_frames: parseInt(document.getElementById('chain-story-motion-frames').value),
     boundary: parseFloat(document.getElementById('chain-story-boundary').value),
     clip_preset: document.getElementById('chain-story-clip').value,
@@ -4978,7 +5100,17 @@ async function submitChain() {
   };
   saveFormParams('chain');
   const fd = new FormData();
-  if (chainSelectedFile) fd.append('image', chainSelectedFile);
+  if (chainSelectedFile) {
+    if (imageMode === 'first_frame') {
+      fd.append('image', chainSelectedFile);
+      console.log('[submitChain] appending image field (first_frame)');
+    } else if (imageMode === 'face_reference') {
+      fd.append('face_image', chainSelectedFile);
+      console.log('[submitChain] appending face_image field (face_reference)');
+    }
+  } else {
+    console.log('[submitChain] no file selected');
+  }
   fd.append('params', JSON.stringify(params));
   const box = document.getElementById('chain-status');
   box.innerHTML = '<div style="color:#aaa">提交中...</div>';
@@ -5245,16 +5377,7 @@ async function submitStoryWorkflow() {
   }
 }
 
-// Restore story params when tab is activated
-document.addEventListener('DOMContentLoaded', () => {
-  const storyTab = document.querySelector('[data-tab="story"]');
-  if (storyTab) {
-    storyTab.addEventListener('click', () => {
-      // Restore saved params
-      restoreFormParams('story');
-    });
-  }
-});
+// Story tab removed - functionality consolidated into chain tab
 
 // ═══════════════════════════════════════════════════════════════
 // TTS Functions

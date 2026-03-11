@@ -1,4 +1,5 @@
 from typing import Optional, Literal
+from enum import Enum
 from pydantic import BaseModel, Field, field_validator
 from .enums import ModelType, TaskStatus, GenerateMode
 
@@ -20,6 +21,12 @@ VALID_SCHEDULERS = [
     "rcm",
     "vibt_unipc",
 ]
+
+
+class ImageMode(str, Enum):
+    """Image upload mode for chain generation."""
+    FIRST_FRAME = "first_frame"
+    FACE_REFERENCE = "face_reference"
 
 
 class LoraInput(BaseModel):
@@ -255,6 +262,10 @@ class AutoChainRequest(BaseModel):
     parent_video_url: Optional[str] = Field(default=None, description="Parent video URL to extract last frame from")
     initial_reference_url: Optional[str] = Field(default=None, description="Initial reference image URL for identity consistency")
 
+    # Image mode: how to use uploaded image
+    image_mode: ImageMode = Field(default=ImageMode.FIRST_FRAME, description="Image usage mode: first_frame (I2V) or face_reference (T2V + Reactor)")
+    face_swap_strength: float = Field(default=1.0, ge=0.3, le=1.0, description="Face swap strength when using face_reference mode")
+
     # Shared parameters
     negative_prompt: str = Field(default="", max_length=2000)
     model: ModelType = ModelType.A14B
@@ -279,7 +290,6 @@ class AutoChainRequest(BaseModel):
     transition: str = Field(default="none", description="Transition between segments: none/crossfade")
     auto_continue: bool = Field(default=True, description="Use VLM to auto-generate continuation prompts")
     t5_preset: str = Field(default="", description="T5 text encoder preset, e.g. 'default', 'nsfw'")
-    story_mode: bool = Field(default=False, description="Use PainterLongVideo for identity consistency")
     motion_frames: int = Field(default=5, ge=1, le=73, description="Motion reference frames for story mode")
     boundary: float = Field(default=0.9, ge=0.0, le=1.0, description="Boundary for WanMoeKSampler in story mode")
     clip_preset: str = Field(default="", description="CLIP preset for story mode (e.g. 'nsfw', 'default')")

@@ -68,6 +68,64 @@ def _load_lora_name_map() -> dict[str, str]:
         return {}
 
 
+def _load_lora_modes() -> dict[str, list[str]]:
+    """Load LoRA mode compatibility from loras.yaml.
+
+    Returns dict mapping lora name -> list of compatible modes (e.g. ['t2v', 'i2v'])
+    """
+    try:
+        with open(LORAS_PATH) as f:
+            data = yaml.safe_load(f)
+
+        result = {}
+        for item in data.get("loras", []):
+            if "name" in item:
+                name = item["name"]
+                modes = item.get("modes", [])
+                if modes:
+                    result[name] = modes
+        return result
+    except Exception as e:
+        logger.warning(f"Failed to load LoRA modes from loras.yaml: {e}")
+        return {}
+
+
+def _filter_loras_by_mode(loras: list[LoraInput], mode: str) -> list[LoraInput]:
+    """Filter LoRAs to only include those compatible with the given mode (t2v/i2v).
+
+    Checks both the 'modes' field in loras.yaml and naming conventions.
+    """
+    if mode not in ["t2v", "i2v"]:
+        return loras
+
+    lora_modes = _load_lora_modes()
+    filtered = []
+
+    for lora in loras:
+        # Extract base name without variant suffix
+        base_name = lora.name.split(":")[0] if ":" in lora.name else lora.name
+
+        # Check modes field from loras.yaml
+        lora_mode_list = lora_modes.get(base_name, [])
+
+        # If no modes specified, check naming convention
+        if not lora_mode_list:
+            name_lower = base_name.lower()
+            if "t2v" in name_lower and mode == "t2v":
+                filtered.append(lora)
+            elif "i2v" in name_lower and mode == "i2v":
+                filtered.append(lora)
+            elif "t2v" not in name_lower and "i2v" not in name_lower:
+                # No mode in name, assume compatible with all
+                filtered.append(lora)
+        else:
+            # Use modes field
+            if mode in lora_mode_list:
+                filtered.append(lora)
+
+    return filtered
+
+
 def _load_lora_id_map() -> dict[str, dict]:
     """Load civitai_version_id -> {file, civitai_id} mapping from loras.yaml."""
     try:
@@ -749,9 +807,7 @@ def build_workflow(
 
     # Inject Reactor face swap if enabled
     if face_swap_config and face_swap_config.enabled and face_image_path:
-        # TODO: Fix Reactor node loading issue in ComfyUI
-        # workflow = _inject_reactor(workflow, face_image_path, face_swap_config.strength)
-        logger.warning("Face swap is temporarily disabled due to Reactor node loading issue")
+        workflow = _inject_reactor(workflow, face_image_path, face_swap_config.strength)
 
     return workflow
 
@@ -1097,7 +1153,7 @@ def build_story_workflow(
     if ref_image_node:
         workflow["cv_loader"] = {
             "class_type": "CLIPVisionLoader",
-            "inputs": {"clip_name": "clip_vision_h.safetensors"},
+            "inputs": {"clip_name": "CLIP-ViT-H-14-laion2B-s32B-b79K.safetensors"},
             "_meta": {"title": "Load CLIP Vision"},
         }
         workflow["cv_encode"] = {
@@ -1295,6 +1351,8 @@ def build_merged_story_workflow(
     mmaudio_negative_prompt: str = "",
     mmaudio_steps: int = 25,
     mmaudio_cfg: float = 4.5,
+    face_image_filename: str = "",
+    face_swap_strength: float = 1.0,
 ) -> dict:
     """Build a single merged ComfyUI workflow containing N story segments.
 
@@ -1401,17 +1459,19 @@ def build_merged_story_workflow(
         "_meta": {"title": "Model Patch Torch Settings"},
     }
 
-    # Node 9: LoadImage (seg0 only)
+    # Node 9: LoadImage (seg0 only) — used as start_image for I2V or identity anchor for story continuation
+    # In face_reference mode, use face image as identity anchor for PainterLongVideo segments
+    ref_image = image_filename if image_filename else face_image_filename
     workflow["97"] = {
         "class_type": "LoadImage",
-        "inputs": {"image": image_filename},
+        "inputs": {"image": ref_image},
         "_meta": {"title": "加载图像"},
     }
 
     # CLIP Vision: load model + encode reference image for character consistency
     workflow["cv_loader"] = {
         "class_type": "CLIPVisionLoader",
-        "inputs": {"clip_name": "clip_vision_h.safetensors"},
+        "inputs": {"clip_name": "CLIP-ViT-H-14-laion2B-s32B-b79K.safetensors"},
         "_meta": {"title": "Load CLIP Vision"},
     }
     workflow["cv_encode"] = {
@@ -1650,20 +1710,23 @@ def build_merged_story_workflow(
 
         # PainterI2V (seg0) or PainterLongVideo (seg1+)
         if seg_idx == 0:
+            painter_inputs = {
+                "width": painter_width,
+                "height": painter_height,
+                "length": ["1282", 0],
+                "batch_size": 1,
+                "motion_amplitude": ["604", 0],
+                "positive": [ids["clip_pos"], 0],
+                "negative": [ids["pre_vram"], 0],
+                "vae": ["916", 0],
+            }
+            # Only include start_image and clip_vision for I2V mode (not face_reference)
+            if image_filename:
+                painter_inputs["start_image"] = ["97", 0]
+                painter_inputs["clip_vision_output"] = ["cv_encode", 0]
             workflow[ids["painter"]] = {
                 "class_type": "PainterI2V",
-                "inputs": {
-                    "width": painter_width,
-                    "height": painter_height,
-                    "length": ["1282", 0],
-                    "batch_size": 1,
-                    "motion_amplitude": ["604", 0],
-                    "positive": [ids["clip_pos"], 0],
-                    "negative": [ids["pre_vram"], 0],
-                    "vae": ["916", 0],
-                    "start_image": ["97", 0],
-                    "clip_vision_output": ["cv_encode", 0],
-                },
+                "inputs": painter_inputs,
                 "_meta": {"title": "PainterI2V"},
             }
         else:
@@ -1911,6 +1974,56 @@ def build_merged_story_workflow(
     }
 
     # LoRAs are injected per-segment in the loop above (not globally)
+
+    # ── Optional: Reactor Face Swap (for face_reference mode) ────────────
+    if face_image_filename:
+        # Find VHS_VideoCombine node
+        combine_id = "1609"
+        current_image_source = workflow[combine_id]["inputs"]["images"]
+
+        # Find max numeric ID for new nodes
+        max_id = 0
+        for k in workflow.keys():
+            if ':' in k:
+                for part in k.split(':'):
+                    if part.isdigit():
+                        max_id = max(max_id, int(part))
+            elif k.isdigit():
+                max_id = max(max_id, int(k))
+
+        # Add LoadImage node for face image
+        face_loader_id = str(max_id + 1)
+        workflow[face_loader_id] = {
+            "class_type": "LoadImage",
+            "inputs": {"image": face_image_filename},
+            "_meta": {"title": "Load Face Image"},
+        }
+
+        # Add Reactor face swap node
+        reactor_id = str(max_id + 2)
+        workflow[reactor_id] = {
+            "class_type": "ReActorFaceSwap",
+            "inputs": {
+                "enabled": True,
+                "input_image": current_image_source,
+                "swap_model": "inswapper_128.onnx",
+                "facedetection": "retinaface_resnet50",
+                "face_restore_model": "codeformer-v0.1.0.pth",
+                "face_restore_visibility": 1.0,
+                "codeformer_weight": face_swap_strength,
+                "detect_gender_input": "no",
+                "detect_gender_source": "no",
+                "input_faces_index": "0",
+                "source_faces_index": "0",
+                "console_log_level": 1,
+                "source_image": [face_loader_id, 0],
+            },
+            "_meta": {"title": "Reactor Face Swap"},
+        }
+
+        # Rewire VHS_VideoCombine to use Reactor output
+        workflow[combine_id]["inputs"]["images"] = [reactor_id, 0]
+        logger.info(f"Injected Reactor face swap with strength {face_swap_strength}")
 
     logger.info(f"Built fully aligned story workflow with {len(workflow)} nodes for {len(segments)} segments")
 
