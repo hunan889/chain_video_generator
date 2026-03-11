@@ -185,7 +185,25 @@ h1{text-align:center;color:#7c83ff;margin-bottom:24px;font-size:1.6em}
 <div class="field"><label>Scheduler</label><select id="t2v-sched"><option value="unipc">UniPC</option><option value="unipc/beta">UniPC/Beta</option><option value="dpm++">DPM++</option><option value="dpm++/beta">DPM++/Beta</option><option value="euler">Euler</option><option value="euler/beta">Euler/Beta</option><option value="deis">DEIS</option><option value="lcm">LCM</option><option value="res_multistep">Res Multistep</option></select></div>
 </div>
 <div class="lora-section"><label>LoRA 选择</label><div style="margin-top:6px;margin-bottom:6px"><button class="btn btn-sm" style="background:#0f3460" onclick="recommendLoras('t2v', this)">AI 推荐 LoRA</button></div><div class="lora-grid" id="t2v-loras"></div></div>
-<div class="row" style="margin-top:12px"><div class="field" style="min-width:auto;flex:none"><label><input type="checkbox" id="t2v-upscale" style="accent-color:#7c83ff;width:16px;height:16px;vertical-align:middle;margin-right:6px">超分辨率 (2x upscale)</label></div></div>
+<div class="row" style="margin-top:12px">
+<div class="field" style="min-width:auto;flex:none"><label><input type="checkbox" id="t2v-upscale" style="accent-color:#7c83ff;width:16px;height:16px;vertical-align:middle;margin-right:6px">超分辨率 (2x upscale)</label></div>
+<div class="field" style="min-width:auto;flex:none"><label><input type="checkbox" id="t2v-faceswap" onchange="toggleT2VFaceSwap()" style="accent-color:#7c83ff;width:16px;height:16px;vertical-align:middle;margin-right:6px">人脸替换 (Reactor)</label></div>
+</div>
+<div id="t2v-faceswap-panel" style="display:none;margin-top:12px;padding:12px;background:#0a0a23;border:1px solid #555;border-radius:8px">
+<div class="row">
+<div class="field" style="flex:1;max-width:200px"><label>目标人脸</label>
+<div id="t2v-face-box" onclick="document.getElementById('t2v-face-file').click()" style="width:120px;height:120px;border:2px dashed #555;border-radius:8px;display:flex;align-items:center;justify-content:center;cursor:pointer;color:#888;font-size:28px;margin-top:6px;overflow:hidden;position:relative" title="上传目标人脸照片">+
+<img id="t2v-face-preview" style="display:none;width:100%;height:100%;object-fit:cover;position:absolute">
+</div>
+<input type="file" id="t2v-face-file" accept="image/*" style="display:none" onchange="previewT2VFace(this)">
+</div>
+<div class="field" style="flex:2">
+<label>换脸强度 <span id="t2v-face-strength-val">0.8</span></label>
+<input type="range" id="t2v-face-strength" min="0.3" max="1.0" step="0.05" value="0.8" oninput="document.getElementById('t2v-face-strength-val').textContent=this.value" style="width:100%">
+<div style="font-size:11px;color:#666;margin-top:4px">0.3=轻度换脸 | 0.8=推荐 | 1.0=完全替换</div>
+</div>
+</div>
+</div>
 <div class="btn-row" style="display:flex;align-items:center;justify-content:center;gap:20px;flex-wrap:wrap">
 <label style="font-size:13px;color:#aaa;cursor:pointer"><input type="checkbox" id="t2v-auto-lora" style="accent-color:#7c83ff;width:16px;height:16px;vertical-align:middle;margin-right:4px">AI 推荐 LoRA</label>
 <label style="font-size:13px;color:#aaa;cursor:pointer"><input type="checkbox" id="t2v-auto-prompt" style="accent-color:#7c83ff;width:16px;height:16px;vertical-align:middle;margin-right:4px">AI 优化 Prompt</label>
@@ -243,7 +261,25 @@ h1{text-align:center;color:#7c83ff;margin-bottom:24px;font-size:1.6em}
 <div class="field"><label>图片适配</label><select id="i2v-resize"><option value="crop_to_new">裁剪适配</option><option value="stretch_to_new">拉伸适配</option><option value="keep_input">保持原比例</option></select></div>
 </div>
 <div class="lora-section"><label>LoRA 选择</label><div style="margin-top:6px;margin-bottom:6px"><button class="btn btn-sm" style="background:#0f3460" onclick="recommendLoras('i2v', this)">AI 推荐 LoRA</button></div><div class="lora-grid" id="i2v-loras"></div></div>
-<div class="row" style="margin-top:12px"><div class="field" style="min-width:auto;flex:none"><label><input type="checkbox" id="i2v-upscale" style="accent-color:#7c83ff;width:16px;height:16px;vertical-align:middle;margin-right:6px">超分辨率 (2x upscale)</label></div></div>
+<div class="row" style="margin-top:12px">
+<div class="field" style="min-width:auto;flex:none"><label><input type="checkbox" id="i2v-upscale" style="accent-color:#7c83ff;width:16px;height:16px;vertical-align:middle;margin-right:6px">超分辨率 (2x upscale)</label></div>
+<div class="field" style="min-width:auto;flex:none"><label><input type="checkbox" id="i2v-faceswap" onchange="toggleI2VFaceSwap()" style="accent-color:#7c83ff;width:16px;height:16px;vertical-align:middle;margin-right:6px">人脸替换 (Reactor)</label></div>
+</div>
+<div id="i2v-faceswap-panel" style="display:none;margin-top:12px;padding:12px;background:#0a0a23;border:1px solid #555;border-radius:8px">
+<div class="row">
+<div class="field" style="flex:1;max-width:200px"><label>目标人脸</label>
+<div id="i2v-face-box" onclick="document.getElementById('i2v-face-file').click()" style="width:120px;height:120px;border:2px dashed #555;border-radius:8px;display:flex;align-items:center;justify-content:center;cursor:pointer;color:#888;font-size:28px;margin-top:6px;overflow:hidden;position:relative" title="上传目标人脸照片">+
+<img id="i2v-face-preview" style="display:none;width:100%;height:100%;object-fit:cover;position:absolute">
+</div>
+<input type="file" id="i2v-face-file" accept="image/*" style="display:none" onchange="previewI2VFace(this)">
+</div>
+<div class="field" style="flex:2">
+<label>换脸强度 <span id="i2v-face-strength-val">0.8</span></label>
+<input type="range" id="i2v-face-strength" min="0.3" max="1.0" step="0.05" value="0.8" oninput="document.getElementById('i2v-face-strength-val').textContent=this.value" style="width:100%">
+<div style="font-size:11px;color:#666;margin-top:4px">0.3=轻度换脸 | 0.8=推荐 | 1.0=完全替换</div>
+</div>
+</div>
+</div>
 <div class="btn-row" style="display:flex;align-items:center;justify-content:center;gap:20px;flex-wrap:wrap">
 <label style="font-size:13px;color:#aaa;cursor:pointer"><input type="checkbox" id="i2v-auto-lora" style="accent-color:#7c83ff;width:16px;height:16px;vertical-align:middle;margin-right:4px">AI 推荐 LoRA</label>
 <label style="font-size:13px;color:#aaa;cursor:pointer"><input type="checkbox" id="i2v-auto-prompt" style="accent-color:#7c83ff;width:16px;height:16px;vertical-align:middle;margin-right:4px">AI 优化 Prompt</label>
@@ -2236,6 +2272,15 @@ async function submitT2V() {
   let prompt = document.getElementById('t2v-prompt').value;
   if (!prompt) { alert('请输入提示词'); return; }
   const loras = getSelectedLoras('t2v-loras');
+
+  // Check face swap
+  const faceSwapEnabled = document.getElementById('t2v-faceswap').checked;
+  const faceFile = document.getElementById('t2v-face-file').files[0];
+  if (faceSwapEnabled && !faceFile) {
+    alert('请上传目标人脸照片');
+    return;
+  }
+
   const body = {
     prompt,
     negative_prompt: document.getElementById('t2v-neg').value,
@@ -2256,15 +2301,41 @@ async function submitT2V() {
     auto_lora: document.getElementById('t2v-auto-lora').checked,
     auto_prompt: document.getElementById('t2v-auto-prompt').checked
   };
+
+  // Add face swap parameters
+  if (faceSwapEnabled) {
+    body.face_swap = {
+      enabled: true,
+      strength: parseFloat(document.getElementById('t2v-face-strength').value)
+    };
+  }
+
   if (!body.prompt) { alert('请输入提示词'); return; }
   saveFormParams('t2v');
+
   try {
-    const r = await fetch(BASE + '/api/v1/generate', {
-      method: 'POST', headers: {'Content-Type':'application/json','X-API-Key':getKey()},
-      body: JSON.stringify(body)
-    });
-    const d = await r.json();
-    if (!r.ok) { alert('Error: ' + (d.detail || JSON.stringify(d))); return; }
+    // If face swap enabled, use FormData to upload face image
+    let response;
+    if (faceSwapEnabled && faceFile) {
+      const formData = new FormData();
+      formData.append('face_image', faceFile);
+      formData.append('params', JSON.stringify(body));
+
+      response = await fetch(BASE + '/api/v1/generate', {
+        method: 'POST',
+        headers: {'X-API-Key': getKey()},
+        body: formData
+      });
+    } else {
+      response = await fetch(BASE + '/api/v1/generate', {
+        method: 'POST',
+        headers: {'Content-Type':'application/json','X-API-Key':getKey()},
+        body: JSON.stringify(body)
+      });
+    }
+
+    const d = await response.json();
+    if (!response.ok) { alert('Error: ' + (d.detail || JSON.stringify(d))); return; }
     addTask(d.task_id, 'T2V', body.prompt);
   } catch(e) { alert('请求失败: ' + e.message); }
 }
@@ -2277,6 +2348,15 @@ async function submitI2V() {
   const fps = parseInt(document.getElementById('i2v-fps').value);
   const duration = parseFloat(document.getElementById('i2v-duration').value);
   const loras = getSelectedLoras('i2v-loras');
+
+  // Check face swap
+  const faceSwapEnabled = document.getElementById('i2v-faceswap').checked;
+  const faceFile = document.getElementById('i2v-face-file').files[0];
+  if (faceSwapEnabled && !faceFile) {
+    alert('请上传目标人脸照片');
+    return;
+  }
+
   const params = {
     prompt, negative_prompt: document.getElementById('i2v-neg').value,
     model: document.getElementById('i2v-model').value,
@@ -2301,9 +2381,21 @@ async function submitI2V() {
     auto_lora: document.getElementById('i2v-auto-lora').checked,
     auto_prompt: document.getElementById('i2v-auto-prompt').checked
   };
+
+  // Add face swap parameters
+  if (faceSwapEnabled) {
+    params.face_swap = {
+      enabled: true,
+      strength: parseFloat(document.getElementById('i2v-face-strength').value)
+    };
+  }
+
   saveFormParams('i2v');
   const fd = new FormData();
   fd.append('image', i2vSelectedFile);
+  if (faceSwapEnabled && faceFile) {
+    fd.append('face_image', faceFile);
+  }
   fd.append('params', JSON.stringify(params));
   try {
     const r = await fetch(BASE + '/api/v1/generate/i2v', {
@@ -6291,6 +6383,41 @@ function loadMoreFavorites() {
   if (favoritesPage < favoritesTotalPages) {
     favoritesPage++;
     loadFavorites(true);
+  }
+}
+
+// T2V/I2V Face Swap Functions
+function toggleT2VFaceSwap() {
+  const checked = document.getElementById('t2v-faceswap').checked;
+  document.getElementById('t2v-faceswap-panel').style.display = checked ? 'block' : 'none';
+}
+
+function toggleI2VFaceSwap() {
+  const checked = document.getElementById('i2v-faceswap').checked;
+  document.getElementById('i2v-faceswap-panel').style.display = checked ? 'block' : 'none';
+}
+
+function previewT2VFace(input) {
+  if (input.files && input.files[0]) {
+    const reader = new FileReader();
+    reader.onload = function(e) {
+      const preview = document.getElementById('t2v-face-preview');
+      preview.src = e.target.result;
+      preview.style.display = 'block';
+    };
+    reader.readAsDataURL(input.files[0]);
+  }
+}
+
+function previewI2VFace(input) {
+  if (input.files && input.files[0]) {
+    const reader = new FileReader();
+    reader.onload = function(e) {
+      const preview = document.getElementById('i2v-face-preview');
+      preview.src = e.target.result;
+      preview.style.display = 'block';
+    };
+    reader.readAsDataURL(input.files[0]);
   }
 }
 
