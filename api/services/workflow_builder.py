@@ -20,11 +20,49 @@ _lora_cache_built = False
 
 
 def _load_lora_name_map() -> dict[str, str]:
-    """Load name -> file mapping from loras.yaml."""
+    """Load name -> file mapping from loras.yaml.
+
+    For LoRAs with HIGH/LOW variants, returns a mapping that includes variant suffix:
+    - "lora_name" -> "base_file" (for single-file LoRAs)
+    - "lora_name:high" -> "base_file_high_noise" (for HIGH variant)
+    - "lora_name:low" -> "base_file_low_noise" (for LOW variant)
+    """
     try:
         with open(LORAS_PATH) as f:
             data = yaml.safe_load(f)
-        return {item["name"]: item["file"] for item in data.get("loras", []) if "name" in item and "file" in item}
+
+        result = {}
+        name_counts = {}  # Track how many times each name appears
+
+        # First pass: count occurrences
+        for item in data.get("loras", []):
+            if "name" in item and "file" in item:
+                name = item["name"]
+                name_counts[name] = name_counts.get(name, 0) + 1
+
+        # Second pass: build mapping with variant suffixes for duplicates
+        for item in data.get("loras", []):
+            if "name" not in item or "file" not in item:
+                continue
+
+            name = item["name"]
+            file = item["file"]
+
+            # If this name appears multiple times, add variant suffix
+            if name_counts[name] > 1:
+                file_upper = file.upper()
+                if "HIGH" in file_upper or "HIGH_NOISE" in file_upper:
+                    result[f"{name}:high"] = file
+                elif "LOW" in file_upper or "LOW_NOISE" in file_upper:
+                    result[f"{name}:low"] = file
+                else:
+                    # Fallback: use the file as-is
+                    result[name] = file
+            else:
+                # Single-file LoRA: use name directly
+                result[name] = file
+
+        return result
     except Exception as e:
         logger.warning(f"Failed to load loras config: {e}")
         return {}
@@ -169,18 +207,26 @@ T5_PRESETS = {
     },
 }
 
-# Model presets: name -> {high: filename, low: filename, quantization: str, recommended_params: dict}
+# Model presets: name -> {high: filename, low: filename, quantization: str, recommended_params: dict, mode: str}
 MODEL_PRESETS = {
     "default": {
         "high": "Wan2_2-I2V-A14B-HIGH_bf16.safetensors",
         "low": "Wan2_2-I2V-A14B-LOW_bf16.safetensors",
         "quantization": "fp8_e4m3fn",
+        "mode": "i2v",  # This is an I2V model (36 channels)
     },
     "nsfw_v2": {
         "high": "wan22EnhancedNSFWSVICamera_nsfwV2FP8H.safetensors",
         "low": "wan22EnhancedNSFWSVICamera_nsfwV2FP8L.safetensors",
         "quantization": "disabled",
         "recommended_params": {"steps": 4, "cfg": 1.0, "scheduler": "euler"},
+        "mode": "i2v",  # This is an I2V model (36 channels) - MUST use with I2V workflow
+    },
+    "t2v_standard": {
+        "high": "wan2.2_t2v_high_noise_14B_fp8_scaled.safetensors",
+        "low": "wan2.2_t2v_low_noise_14B_fp8_scaled.safetensors",
+        "quantization": "disabled",  # Already FP8 quantized
+        "mode": "t2v",  # This is a T2V model (16 channels) - works with T2V workflow
     },
 }
 
@@ -207,6 +253,7 @@ def get_model_presets() -> list[dict]:
             "low": info["low"],
             "quantization": info["quantization"],
             "available": h_exists and l_exists,
+            "mode": info.get("mode", "i2v"),  # Default to i2v if not specified
         }
         if "recommended_params" in info:
             entry["recommended_params"] = info["recommended_params"]
@@ -317,17 +364,24 @@ def _inject_loras(workflow: dict, loras: list[LoraInput], model_node_ids: list[s
         # Determine if this is a HIGH or LOW model node
         model_name = workflow[model_node_id].get("inputs", {}).get("model", "")
         model_upper = model_name.upper()
-        if "HIGH" in model_upper:
+        # Check for HIGH/LOW markers: "HIGH", "FP8H", "_H.", etc.
+        if "HIGH" in model_upper or "FP8H" in model_upper or "_H." in model_upper:
             variant = "high"
-        elif "LOW" in model_upper:
+        elif "LOW" in model_upper or "FP8L" in model_upper or "_L." in model_upper:
             variant = "low"
         else:
             variant = None  # single-stage (5B), use any available
 
+        logger.debug(f"Processing model node {model_node_id}: {model_name}, variant={variant}")
+
         prev_output = [model_node_id, 0]
         for i, lora in enumerate(loras):
             # Resolve config name to file base name
-            base_name = _lora_name_map.get(lora.name, lora.name)
+            # Try variant-specific key first (e.g., "lora_name:high"), then fallback to plain name
+            if variant:
+                base_name = _lora_name_map.get(f"{lora.name}:{variant}", _lora_name_map.get(lora.name, lora.name))
+            else:
+                base_name = _lora_name_map.get(lora.name, lora.name)
 
             # Try to get civitai_version_id from loras.yaml
             civitai_version_id = None
@@ -344,6 +398,9 @@ def _inject_loras(workflow: dict, loras: list[LoraInput], model_node_ids: list[s
                 lora_file = _find_lora_file(base_name, "high", civitai_version_id)
                 if not lora_file:
                     lora_file = _find_lora_file(base_name, "", civitai_version_id)
+
+            logger.debug(f"  LoRA {lora.name}: base_name={base_name}, variant={variant}, resolved_file={lora_file}")
+
             if not lora_file:
                 logger.warning(f"LoRA file not found for {lora.name} (resolved={base_name}) variant={variant}, skipping")
                 continue
@@ -378,6 +435,7 @@ def _inject_loras(workflow: dict, loras: list[LoraInput], model_node_ids: list[s
             },
         }
         # Rewire: find nodes that consume this model and point them to set_id
+        logger.debug(f"Rewiring consumers of model {model_node_id} to WanVideoSetLoRAs {set_id}")
         for nid, node in workflow.items():
             if nid == set_id:
                 continue
@@ -385,6 +443,7 @@ def _inject_loras(workflow: dict, loras: list[LoraInput], model_node_ids: list[s
             for key, val in inputs.items():
                 if isinstance(val, list) and len(val) == 2 and val[0] == model_node_id and val[1] == 0:
                     if nid != set_id and key == "model":
+                        logger.debug(f"  Rewiring node {nid} ({node.get('class_type')}).{key}: {val} → [{set_id}, 0]")
                         inputs[key] = [set_id, 0]
     return workflow
 
@@ -410,6 +469,79 @@ def _bypass_color_match(workflow: dict):
 
 
 UPSCALE_MODEL = "RealESRGAN_x2plus.pth"
+
+
+def _inject_reactor(workflow: dict, face_image_path: str, strength: float) -> dict:
+    """Insert Reactor face swap nodes between video decode and VHS_VideoCombine.
+
+    Args:
+        workflow: ComfyUI workflow dict
+        face_image_path: ComfyUI filename of the face image (already uploaded)
+        strength: Face swap strength (0.3-1.0), used as codeformer_weight
+
+    Returns:
+        Modified workflow with Reactor nodes injected
+    """
+    # Find VHS_VideoCombine and its image source
+    combine_id = None
+    for nid, node in workflow.items():
+        if node.get("class_type") == "VHS_VideoCombine":
+            combine_id = nid
+            break
+    if not combine_id:
+        logger.warning("No VHS_VideoCombine found, skipping Reactor injection")
+        return workflow
+
+    images_input = workflow[combine_id]["inputs"].get("images")
+    if not isinstance(images_input, list) or len(images_input) != 2:
+        logger.warning("VHS_VideoCombine images input unexpected, skipping Reactor")
+        return workflow
+
+    # Find max numeric ID
+    max_id = 0
+    for k in workflow.keys():
+        if ':' in k:
+            for part in k.split(':'):
+                if part.isdigit():
+                    max_id = max(max_id, int(part))
+        elif k.isdigit():
+            max_id = max(max_id, int(k))
+
+    # Add LoadImage node for face image
+    face_loader_id = str(max_id + 1)
+    workflow[face_loader_id] = {
+        "class_type": "LoadImage",
+        "inputs": {"image": face_image_path},
+        "_meta": {"title": "Load Face Image"},
+    }
+
+    # Add reactor (ReActor face swap) node
+    reactor_id = str(max_id + 2)
+    workflow[reactor_id] = {
+        "class_type": "reactor",
+        "inputs": {
+            "enabled": True,
+            "input_image": images_input,  # video frames from decode
+            "swap_model": "inswapper_128.onnx",
+            "facedetection": "retinaface_resnet50",
+            "face_restore_model": "codeformer-v0.1.0.pth",
+            "face_restore_visibility": 1.0,
+            "codeformer_weight": strength,
+            "detect_gender_input": "no",
+            "detect_gender_source": "no",
+            "input_faces_index": "0",
+            "source_faces_index": "0",
+            "console_log_level": 1,
+            "source_image": [face_loader_id, 0],  # face image
+        },
+        "_meta": {"title": "Reactor Face Swap"},
+    }
+
+    # Rewire VHS_VideoCombine to use Reactor output (first output is SWAPPED_IMAGE)
+    workflow[combine_id]["inputs"]["images"] = [reactor_id, 0]
+
+    logger.info(f"Injected Reactor face swap with strength {strength}")
+    return workflow
 
 
 def _inject_upscale(workflow: dict) -> dict:
@@ -488,10 +620,13 @@ def build_workflow(
     resize_mode: str = "crop_to_new",
     upscale: bool = False,
     t5_preset: str = "",
+    face_swap_config = None,
+    face_image_path: Optional[str] = None,
 ) -> dict:
     # Normalize loras: accept both LoraInput objects and dicts
     if loras:
         loras = [l if isinstance(l, LoraInput) else LoraInput(**l) for l in loras]
+
     # Always use standard workflow (enhanced workflow causes scene jumping issues)
     template_name = WORKFLOW_MAP[(mode, model)]
     workflow = _load_template(template_name)
@@ -612,6 +747,10 @@ def build_workflow(
     if upscale:
         workflow = _inject_upscale(workflow)
 
+    # Inject Reactor face swap if enabled
+    if face_swap_config and face_swap_config.enabled and face_image_path:
+        workflow = _inject_reactor(workflow, face_image_path, face_swap_config.strength)
+
     return workflow
 
 
@@ -716,7 +855,9 @@ def _inject_story_loras(workflow: dict, loras: list[LoraInput]) -> dict:
 
         last_lora_id = None
         for lora in loras:
-            base_name = _lora_name_map.get(lora.name, lora.name)
+            # Resolve config name to file base name
+            # Try variant-specific key first (e.g., "lora_name:high"), then fallback to plain name
+            base_name = _lora_name_map.get(f"{lora.name}:{variant}", _lora_name_map.get(lora.name, lora.name))
 
             # Try to get civitai_version_id from loras.yaml
             civitai_version_id = None
@@ -1415,16 +1556,19 @@ def build_merged_story_workflow(
 
         if seg_loras:
             for li, sl in enumerate(seg_loras):
-                base_name = _lora_name_map.get(sl.name, sl.name)
-
-                # Try to get civitai_version_id from loras.yaml
-                civitai_version_id = None
-                for version_id, info in lora_id_map.items():
-                    if info["file"] == base_name:
-                        civitai_version_id = int(version_id)
-                        break
-
+                # Process HIGH and LOW variants separately
                 for variant, upstream_ref, ref_key in [("high", model_high_ref, "high"), ("low", model_low_ref, "low")]:
+                    # Resolve config name to file base name
+                    # Try variant-specific key first (e.g., "lora_name:high"), then fallback to plain name
+                    base_name = _lora_name_map.get(f"{sl.name}:{variant}", _lora_name_map.get(sl.name, sl.name))
+
+                    # Try to get civitai_version_id from loras.yaml
+                    civitai_version_id = None
+                    for version_id, info in lora_id_map.items():
+                        if info["file"] == base_name:
+                            civitai_version_id = int(version_id)
+                            break
+
                     lora_file = _find_lora_file(base_name, variant, civitai_version_id)
                     if not lora_file:
                         lora_file = _find_lora_file(base_name, "", civitai_version_id)
