@@ -38,6 +38,15 @@ class FaceSwapConfig(BaseModel):
     """Face swap configuration for Reactor"""
     enabled: bool = Field(default=False)
     strength: float = Field(default=0.8, ge=0.3, le=1.0, description="Face swap strength, 0.3=light, 0.8=recommended, 1.0=full")
+    detect_gender_source: str = Field(default="no", description="Source face gender filter: no/female/male")
+    detect_gender_input: str = Field(default="no", description="Target face gender filter: no/female/male")
+
+    @field_validator("detect_gender_source", "detect_gender_input")
+    @classmethod
+    def validate_gender(cls, v):
+        if v not in ["no", "female", "male"]:
+            raise ValueError(f"Invalid gender '{v}'. Valid: no, female, male")
+        return v
 
 
 class GenerateRequest(BaseModel):
@@ -265,6 +274,8 @@ class AutoChainRequest(BaseModel):
     # Image mode: how to use uploaded image
     image_mode: ImageMode = Field(default=ImageMode.FIRST_FRAME, description="Image usage mode: first_frame (I2V) or face_reference (T2V + Reactor)")
     face_swap_strength: float = Field(default=1.0, ge=0.3, le=1.0, description="Face swap strength when using face_reference mode")
+    detect_gender_source: str = Field(default="no", description="Source face gender filter: no/female/male")
+    detect_gender_input: str = Field(default="no", description="Target face gender filter: no/female/male")
 
     # Shared parameters
     negative_prompt: str = Field(default="", max_length=2000)

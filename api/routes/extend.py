@@ -270,6 +270,8 @@ async def generate_chain(
                 "motion_frames": req.motion_frames,
                 "image_mode": req.image_mode.value,
                 "face_swap_strength": req.face_swap_strength,
+                "detect_gender_source": req.detect_gender_source,
+                "detect_gender_input": req.detect_gender_input,
                 "boundary": req.boundary,
                 "clip_preset": req.clip_preset,
                 "match_image_ratio": req.match_image_ratio,

@@ -585,8 +585,8 @@ def _inject_reactor(workflow: dict, face_image_path: str, strength: float) -> di
             "face_restore_model": "none",  # Disabled for speed - swap quality is usually good enough
             "face_restore_visibility": 1.0,
             "codeformer_weight": strength,
-            "detect_gender_input": "no",
-            "detect_gender_source": "no",
+            "detect_gender_input": face_swap_config.detect_gender_input if hasattr(face_swap_config, 'detect_gender_input') else "no",
+            "detect_gender_source": face_swap_config.detect_gender_source if hasattr(face_swap_config, 'detect_gender_source') else "no",
             "input_faces_index": "0",
             "source_faces_index": "0",
             "console_log_level": 1,
@@ -1362,6 +1362,8 @@ def build_merged_story_workflow(
     mmaudio_cfg: float = 4.5,
     face_image_filename: str = "",
     face_swap_strength: float = 1.0,
+    detect_gender_source: str = "no",
+    detect_gender_input: str = "no",
 ) -> dict:
     """Build a single merged ComfyUI workflow containing N story segments.
 
@@ -2031,8 +2033,8 @@ def build_merged_story_workflow(
                 "face_restore_model": "none",  # Disabled for speed - swap quality is usually good enough
                 "face_restore_visibility": 1.0,
                 "codeformer_weight": face_swap_strength,
-                "detect_gender_input": "no",
-                "detect_gender_source": "no",
+                "detect_gender_input": detect_gender_input,
+                "detect_gender_source": detect_gender_source,
                 "input_faces_index": "0",
                 "source_faces_index": "0",
                 "console_log_level": 1,

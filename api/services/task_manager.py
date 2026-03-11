@@ -888,6 +888,8 @@ class TaskManager:
         # Extract face_image_filename from segment 0 if present
         face_image_filename = seg0.get("face_image_filename", "")
         face_swap_strength = seg0.get("face_swap_strength", 1.0)
+        detect_gender_source = seg0.get("detect_gender_source", "no")
+        detect_gender_input = seg0.get("detect_gender_input", "no")
 
         # Build single merged workflow
         workflow = build_merged_story_workflow(
@@ -920,6 +922,8 @@ class TaskManager:
             mmaudio_cfg=seg0.get("mmaudio_cfg", 4.5),
             face_image_filename=face_image_filename,
             face_swap_strength=face_swap_strength,
+            detect_gender_source=detect_gender_source,
+            detect_gender_input=detect_gender_input,
         )
 
         # Create a single task for the entire merged workflow
