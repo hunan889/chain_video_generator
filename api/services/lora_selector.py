@@ -104,7 +104,7 @@ class LoraSelector:
                             {"role": "user", "content": prompt},
                         ],
                         "temperature": 0.3,
-                        "max_tokens": 256,
+                        "max_tokens": 512,  # Increased from 256 to avoid JSON truncation
                         "chat_template_kwargs": {"enable_thinking": False},
                     },
                 )
@@ -118,6 +118,9 @@ class LoraSelector:
                 if text.startswith("json"):
                     text = text[4:]
                 text = text.strip()
+            # Fix incomplete JSON (missing closing brace)
+            if text.startswith("{") and not text.endswith("}"):
+                text = text + "}"
             result = json.loads(text)
             loras = []
             for item in result.get("loras", []):

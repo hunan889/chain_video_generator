@@ -518,7 +518,7 @@ def _inject_reactor(workflow: dict, face_image_path: str, strength: float) -> di
     # Add reactor (ReActor face swap) node
     reactor_id = str(max_id + 2)
     workflow[reactor_id] = {
-        "class_type": "reactor",
+        "class_type": "ReActorFaceSwap",
         "inputs": {
             "enabled": True,
             "input_image": images_input,  # video frames from decode
@@ -749,7 +749,9 @@ def build_workflow(
 
     # Inject Reactor face swap if enabled
     if face_swap_config and face_swap_config.enabled and face_image_path:
-        workflow = _inject_reactor(workflow, face_image_path, face_swap_config.strength)
+        # TODO: Fix Reactor node loading issue in ComfyUI
+        # workflow = _inject_reactor(workflow, face_image_path, face_swap_config.strength)
+        logger.warning("Face swap is temporarily disabled due to Reactor node loading issue")
 
     return workflow
 

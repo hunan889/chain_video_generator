@@ -214,7 +214,7 @@ class PromptOptimizer:
 
         return detected
 
-    async def _llm_call(self, system: str, user: str, max_tokens: int = 8192, temperature: float = 0.8) -> str:
+    async def _llm_call(self, system: str, user: str, max_tokens: int = 2048, temperature: float = 0.8) -> str:
         """Make a single LLM call and return cleaned text."""
         async with httpx.AsyncClient(timeout=120) as client:
             resp = await client.post(
