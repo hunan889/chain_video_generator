@@ -1721,8 +1721,12 @@ def build_merged_story_workflow(
                 "vae": ["916", 0],
             }
             # Only include start_image and clip_vision for I2V mode (not face_reference)
+            # In face_reference mode, we still need clip_vision for identity consistency
             if image_filename:
                 painter_inputs["start_image"] = ["97", 0]
+                painter_inputs["clip_vision_output"] = ["cv_encode", 0]
+            elif face_image_filename:
+                # Face reference mode: use CLIP Vision for identity but no start_image
                 painter_inputs["clip_vision_output"] = ["cv_encode", 0]
             workflow[ids["painter"]] = {
                 "class_type": "PainterI2V",
