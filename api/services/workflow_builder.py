@@ -529,13 +529,15 @@ def _bypass_color_match(workflow: dict):
 UPSCALE_MODEL = "RealESRGAN_x2plus.pth"
 
 
-def _inject_reactor(workflow: dict, face_image_path: str, strength: float) -> dict:
+def _inject_reactor(workflow: dict, face_image_path: str, strength: float, detect_gender_source: str = "no", detect_gender_input: str = "no") -> dict:
     """Insert Reactor face swap nodes between video decode and VHS_VideoCombine.
 
     Args:
         workflow: ComfyUI workflow dict
         face_image_path: ComfyUI filename of the face image (already uploaded)
         strength: Face swap strength (0.3-1.0), used as codeformer_weight
+        detect_gender_source: Source face gender filter (no/female/male)
+        detect_gender_input: Target face gender filter (no/female/male)
 
     Returns:
         Modified workflow with Reactor nodes injected
@@ -807,7 +809,9 @@ def build_workflow(
 
     # Inject Reactor face swap if enabled
     if face_swap_config and face_swap_config.enabled and face_image_path:
-        workflow = _inject_reactor(workflow, face_image_path, face_swap_config.strength)
+        detect_gender_source = getattr(face_swap_config, 'detect_gender_source', 'no')
+        detect_gender_input = getattr(face_swap_config, 'detect_gender_input', 'no')
+        workflow = _inject_reactor(workflow, face_image_path, face_swap_config.strength, detect_gender_source, detect_gender_input)
 
     return workflow
 
