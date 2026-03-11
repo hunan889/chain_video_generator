@@ -2213,6 +2213,9 @@ function restoreLoraSelections(prefix) {
 function _isI2VLora(l) {
   const n = (l.name || '').toLowerCase();
   const f = (l.file || '').toLowerCase();
+  // If it contains 't2v', it's not I2V-only (even if it has high/low noise variants)
+  if (n.includes('t2v') || f.includes('t2v')) return false;
+  // Otherwise, check for I2V markers
   return n.includes('i2v') || f.includes('i2v') || f.includes('_high_noise') || f.includes('_low_noise');
 }
 function renderLoras(cid) {

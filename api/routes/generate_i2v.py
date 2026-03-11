@@ -17,9 +17,13 @@ _lora_selector = LoraSelector()
 async def generate_i2v(
     image: UploadFile = File(...),
     params: str = Form(...),
+    face_image: UploadFile = File(None),
     _=Depends(verify_api_key),
 ):
     from api.main import task_manager
+    import uuid
+    from pathlib import Path
+    from api.config import UPLOADS_DIR
 
     try:
         req = GenerateI2VRequest(**json.loads(params))
@@ -63,6 +67,22 @@ async def generate_i2v(
     upload_result = await client.upload_image(image_data, local_name)
     comfy_filename = upload_result.get("name", local_name)
 
+    # Save and upload face image if provided
+    face_image_path = None
+    comfy_face_filename = None
+    if face_image and req.face_swap and req.face_swap.enabled:
+        UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
+        face_image_path = UPLOADS_DIR / f"face_{uuid.uuid4().hex}.png"
+        face_data = await face_image.read()
+        with open(face_image_path, "wb") as f:
+            f.write(face_data)
+        logger.info(f"Saved face image to {face_image_path}")
+
+        # Upload to ComfyUI
+        upload_result = await client.upload_image(face_data, face_image_path.name)
+        comfy_face_filename = upload_result.get("name", face_image_path.name)
+        logger.info(f"Uploaded face image to ComfyUI as {comfy_face_filename}")
+
     workflow = build_workflow(
         mode=GenerateMode.I2V,
         model=req.model,
@@ -87,6 +107,8 @@ async def generate_i2v(
         resize_mode=req.resize_mode,
         upscale=req.upscale,
         t5_preset=req.t5_preset,
+        face_swap_config=req.face_swap,
+        face_image_path=comfy_face_filename,
     )
 
     params_dict = req.model_dump()
@@ -94,6 +116,9 @@ async def generate_i2v(
     # Store final prompt with trigger keywords for display
     if req.loras:
         params_dict["final_prompt"] = _inject_trigger_words(req.prompt, req.loras)
+    if face_image_path:
+        params_dict["face_image"] = str(face_image_path)
+        params_dict["comfy_face_filename"] = comfy_face_filename
     params_dict.update(params_extra)
     task_id = await task_manager.create_task(GenerateMode.I2V, req.model, workflow, params=params_dict)
     return GenerateResponse(task_id=task_id, status=TaskStatus.QUEUED)

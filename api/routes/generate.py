@@ -1,11 +1,13 @@
 import logging
 import random
-from fastapi import APIRouter, Depends, HTTPException
+import json
+from fastapi import APIRouter, Depends, HTTPException, File, UploadFile, Form, Body, Request
 from api.models.schemas import GenerateRequest, GenerateResponse, LoraInput
 from api.models.enums import GenerateMode, TaskStatus
 from api.middleware.auth import verify_api_key
 from api.services.workflow_builder import build_workflow, _inject_trigger_words
 from api.services.lora_selector import LoraSelector
+from api.config import UPLOADS_DIR
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -34,8 +36,37 @@ async def _optimize_prompt(
 
 
 @router.post("/generate", response_model=GenerateResponse)
-async def generate_t2v(req: GenerateRequest, _=Depends(verify_api_key)):
+async def generate_t2v(
+    request: Request,
+    _=Depends(verify_api_key)
+):
+    """
+    Generate T2V video. Supports both JSON and FormData:
+    - JSON: standard GenerateRequest body
+    - FormData: params (JSON string) + optional face_image file
+    """
     from api.main import task_manager
+    import uuid
+    from pathlib import Path
+
+    # Parse request based on Content-Type
+    content_type = request.headers.get("content-type", "")
+    face_image = None
+
+    if "application/json" in content_type:
+        # JSON body
+        body = await request.json()
+        req = GenerateRequest(**body)
+    elif "multipart/form-data" in content_type:
+        # FormData
+        form = await request.form()
+        params = form.get("params")
+        if not params:
+            raise HTTPException(400, "Missing params in FormData")
+        req = GenerateRequest.model_validate_json(params)
+        face_image = form.get("face_image")
+    else:
+        raise HTTPException(400, "Unsupported Content-Type. Use application/json or multipart/form-data")
 
     params_extra = {}
 
@@ -64,6 +95,22 @@ async def generate_t2v(req: GenerateRequest, _=Depends(verify_api_key)):
     if not client or not await client.is_alive():
         raise HTTPException(503, f"ComfyUI {req.model.value} instance is not available")
 
+    # Save and upload face image if provided
+    face_image_path = None
+    comfy_face_filename = None
+    if face_image and req.face_swap and req.face_swap.enabled:
+        UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
+        face_image_path = UPLOADS_DIR / f"face_{uuid.uuid4().hex}.png"
+        face_data = await face_image.read()
+        with open(face_image_path, "wb") as f:
+            f.write(face_data)
+        logger.info(f"Saved face image to {face_image_path}")
+
+        # Upload to ComfyUI
+        upload_result = await client.upload_image(face_data, face_image_path.name)
+        comfy_face_filename = upload_result.get("name", face_image_path.name)
+        logger.info(f"Uploaded face image to ComfyUI as {comfy_face_filename}")
+
     workflow = build_workflow(
         mode=GenerateMode.T2V,
         model=req.model,
@@ -82,12 +129,17 @@ async def generate_t2v(req: GenerateRequest, _=Depends(verify_api_key)):
         model_preset=req.model_preset,
         upscale=req.upscale,
         t5_preset=req.t5_preset,
+        face_swap_config=req.face_swap,
+        face_image_path=comfy_face_filename,
     )
 
     params_dict = req.model_dump()
     # Store final prompt with trigger keywords for display
     if req.loras:
         params_dict["final_prompt"] = _inject_trigger_words(req.prompt, req.loras)
+    if face_image_path:
+        params_dict["face_image"] = str(face_image_path)
+        params_dict["comfy_face_filename"] = comfy_face_filename
     params_dict.update(params_extra)
     task_id = await task_manager.create_task(GenerateMode.T2V, req.model, workflow, params=params_dict)
     return GenerateResponse(task_id=task_id, status=TaskStatus.QUEUED)

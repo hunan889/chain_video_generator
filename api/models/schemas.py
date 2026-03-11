@@ -27,6 +27,12 @@ class LoraInput(BaseModel):
     strength: float = Field(default=0.8, ge=-2.0, le=2.0)
 
 
+class FaceSwapConfig(BaseModel):
+    """Face swap configuration for Reactor"""
+    enabled: bool = Field(default=False)
+    strength: float = Field(default=0.8, ge=0.3, le=1.0, description="Face swap strength, 0.3=light, 0.8=recommended, 1.0=full")
+
+
 class GenerateRequest(BaseModel):
     prompt: str = Field(..., min_length=1, max_length=2000)
     negative_prompt: str = Field(default="", max_length=2000)
@@ -46,6 +52,7 @@ class GenerateRequest(BaseModel):
     scheduler: str = Field(default="unipc")
     upscale: bool = Field(default=False, description="Enable 2x upscaling after generation")
     t5_preset: str = Field(default="", description="T5 text encoder preset, e.g. 'default', 'nsfw'")
+    face_swap: Optional[FaceSwapConfig] = Field(default=None, description="Face swap configuration using Reactor")
 
     @field_validator("scheduler")
     @classmethod
@@ -79,6 +86,7 @@ class GenerateI2VRequest(BaseModel):
     resize_mode: str = Field(default="crop_to_new", description="Image resize mode: crop_to_new/stretch_to_new/keep_input")
     upscale: bool = Field(default=False, description="Enable 2x upscaling after generation")
     t5_preset: str = Field(default="", description="T5 text encoder preset, e.g. 'default', 'nsfw'")
+    face_swap: Optional[FaceSwapConfig] = Field(default=None, description="Face swap configuration using Reactor")
 
     @field_validator("scheduler")
     @classmethod

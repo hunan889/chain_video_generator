@@ -32,3 +32,17 @@ python -m uvicorn api.main:app --host 0.0.0.0 --port 8000  # Run API directly
 
 ## Tech stack
 Python 3.11, FastAPI, Redis, aiohttp, websockets, ComfyUI, PyTorch (CUDA)
+
+## Work Methodology
+
+**Core Principle: Never assume. Always verify. Evidence over intuition.**
+
+When debugging, fixing, or deploying changes:
+1. Gather evidence before diagnosing
+2. Verify process actually restarted (check timestamps)
+3. Test that the fix actually works (functional verification)
+4. Report with evidence, not assumptions
+
+**Golden Rule: If you can't prove it with evidence, don't claim it.**
+
+See [METHODOLOGY.md](./METHODOLOGY.md) for the complete problem diagnosis and fix verification methodology.
