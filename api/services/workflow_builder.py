@@ -587,8 +587,8 @@ def _inject_reactor(workflow: dict, face_image_path: str, strength: float, detec
             "face_restore_model": "none",  # Disabled for speed - swap quality is usually good enough
             "face_restore_visibility": 1.0,
             "codeformer_weight": strength,
-            "detect_gender_input": face_swap_config.detect_gender_input if hasattr(face_swap_config, 'detect_gender_input') else "no",
-            "detect_gender_source": face_swap_config.detect_gender_source if hasattr(face_swap_config, 'detect_gender_source') else "no",
+            "detect_gender_input": detect_gender_input,
+            "detect_gender_source": detect_gender_source,
             "input_faces_index": "0",
             "source_faces_index": "0",
             "console_log_level": 1,
