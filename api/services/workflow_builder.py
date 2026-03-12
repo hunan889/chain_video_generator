@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Optional
 from api.config import WORKFLOWS_DIR, COMFYUI_PATH, LORAS_PATH
 from api.models.enums import ModelType, GenerateMode
-from api.models.schemas import LoraInput
+from api.models.schemas import LoraInput, FaceSwapConfig
 
 logger = logging.getLogger(__name__)
 
@@ -680,7 +680,7 @@ def build_workflow(
     resize_mode: str = "crop_to_new",
     upscale: bool = False,
     t5_preset: str = "",
-    face_swap_config = None,
+    face_swap_config: Optional['FaceSwapConfig'] = None,
     face_image_path: Optional[str] = None,
 ) -> dict:
     # Normalize loras: accept both LoraInput objects and dicts
