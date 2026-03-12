@@ -294,6 +294,11 @@ async def generate_chain(
                     ref = face_image_filename or image_filename
                     if ref:
                         seg["face_image_filename"] = ref
+                        # Add face_swap config for T2V workflow
+                        seg["face_swap"] = {
+                            "enabled": True,
+                            "strength": req.face_swap_strength,
+                        }
                     logger.info("Chain seg0 face_reference: face_image=%s image=%s -> face_image_filename=%s",
                                 face_image_filename, image_filename, ref)
             # Add parent video filename for Story Mode continuation (multi-frame reference)

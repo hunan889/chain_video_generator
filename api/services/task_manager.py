@@ -595,7 +595,10 @@ class TaskManager:
             await self.redis.hset(f"chain:{chain_id}", "status", "running")
 
             # ── Merged story mode: single ComfyUI prompt with shared models ──
-            if story_mode and (segments[0].get("image_filename") or segments[0].get("face_image_filename")):
+            # Only use merged story workflow if first_frame mode (has image_filename AND image_mode is first_frame)
+            # For face_reference mode (only face_image_filename), use standard T2V workflow
+            seg0_image_mode = segments[0].get("image_mode", "first_frame")
+            if story_mode and segments[0].get("image_filename") and seg0_image_mode == "first_frame":
                 await self._chain_worker_merged_story(
                     chain_id, segments, segment_prompts,
                 )
@@ -819,6 +822,66 @@ class TaskManager:
                 seg["prompt"] = segment_prompts[i]
             seg["segment_index"] = i
             seg["final_prompt"] = seg["prompt"]
+
+        # Check if this is face_reference mode
+        # If so, use T2V workflow instead of merged story workflow
+        image_filename = seg0.get("image_filename", "")
+        face_image_filename = seg0.get("face_image_filename", "")
+        image_mode = seg0.get("image_mode", "first_frame")
+
+        if image_mode == "face_reference" and total == 1:
+            # Single segment face_reference mode: use T2V workflow
+            logger.info("Chain %s: single segment face_reference mode, using T2V workflow", chain_id)
+            from api.models.enums import GenerateMode
+            from api.models.schemas import FaceSwapConfig
+
+            # Prepare face_swap_config
+            face_swap_cfg = seg0.get("face_swap")
+            if face_swap_cfg and isinstance(face_swap_cfg, dict):
+                face_swap_cfg = FaceSwapConfig(**face_swap_cfg)
+
+            workflow = build_workflow(
+                mode=GenerateMode.T2V,
+                model=model,
+                prompt=seg0["prompt"],
+                negative_prompt=seg0.get("negative_prompt", ""),
+                width=seg0["width"], height=seg0["height"],
+                num_frames=seg0["num_frames"], fps=seg0.get("fps", 16),
+                steps=seg0.get("steps", 20), cfg=seg0.get("cfg", 6.0), shift=seg0.get("shift", 5.0),
+                seed=seg0.get("seed"), loras=seg0.get("loras", []),
+                scheduler=seg0.get("scheduler", "unipc"),
+                model_preset=seg0.get("model_preset", ""),
+                upscale=seg0.get("upscale", False),
+                t5_preset=seg0.get("t5_preset", ""),
+                face_swap_config=face_swap_cfg,
+                face_image_path=face_image_filename or image_filename,
+            )
+
+            # Create task and wait for completion
+            task_id = await self.create_task(
+                GenerateMode.T2V, model, workflow,
+                params={"face_reference_t2v": True},
+                chain_id=chain_id,
+            )
+            task_ids = [task_id]
+            await self.redis.hset(f"chain:{chain_id}", mapping={
+                "segment_task_ids": json.dumps(task_ids),
+                "current_segment": "0",
+            })
+
+            video_path = await self._wait_for_task_completion(task_id, timeout=1800)
+            if not video_path:
+                raise RuntimeError(f"T2V face_reference workflow (task {task_id}) failed")
+
+            task_data = await self.redis.hgetall(f"task:{task_id}")
+            video_url = task_data.get("video_url", "")
+
+            await self.redis.hset(f"chain:{chain_id}", mapping={
+                "status": "completed",
+                "completed_at": str(int(asyncio.get_event_loop().time())),
+                "final_video_url": video_url,
+            })
+            return
 
         logger.info("Chain %s: building merged story workflow for %d segments", chain_id, total)
 
@@ -1052,8 +1115,40 @@ class TaskManager:
                 loras=seg.get("loras", []),
             )
         elif i == 0:
-            # First segment: PainterI2V
+            # First segment: check image mode
             image_filename = seg.get("image_filename", "")
+            face_image_filename = seg.get("face_image_filename", "")
+            image_mode = seg.get("image_mode", "first_frame")
+
+            # If face_reference mode, use T2V workflow
+            if image_mode == "face_reference":
+                logger.info("Chain %s: seg 0 face_reference mode, using T2V workflow", chain_id)
+                from api.models.enums import GenerateMode
+                from api.models.schemas import FaceSwapConfig
+
+                # Prepare face_swap_config
+                face_swap_cfg = seg.get("face_swap")
+                if face_swap_cfg and isinstance(face_swap_cfg, dict):
+                    face_swap_cfg = FaceSwapConfig(**face_swap_cfg)
+
+                workflow = build_workflow(
+                    mode=GenerateMode.T2V,
+                    model=ModelType(seg["model"]),
+                    prompt=seg["prompt"],
+                    negative_prompt=seg.get("negative_prompt", ""),
+                    width=seg["width"], height=seg["height"],
+                    num_frames=seg["num_frames"], fps=seg["fps"],
+                    steps=seg["steps"], cfg=seg["cfg"], shift=seg["shift"],
+                    seed=seg.get("seed"), loras=seg.get("loras", []),
+                    scheduler=seg.get("scheduler", "unipc"),
+                    model_preset=seg.get("model_preset", ""),
+                    upscale=seg.get("upscale", False),
+                    t5_preset=seg.get("t5_preset", ""),
+                    face_swap_config=face_swap_cfg,
+                    face_image_path=face_image_filename or image_filename,
+                )
+                return workflow
+
             if not image_filename:
                 # No start image — fall back to standard T2V for first segment
                 logger.info("Chain %s: story mode seg 0 has no image, using T2V fallback", chain_id)
@@ -1074,6 +1169,7 @@ class TaskManager:
                 )
                 return workflow
 
+            # First_frame mode: use PainterI2V
             workflow = build_story_workflow(
                 is_first_segment=True,
                 prompt=seg["prompt"],

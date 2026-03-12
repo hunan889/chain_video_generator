@@ -277,7 +277,7 @@ MODEL_PRESETS = {
         "high": "wan22EnhancedNSFWSVICamera_nsfwV2FP8H.safetensors",
         "low": "wan22EnhancedNSFWSVICamera_nsfwV2FP8L.safetensors",
         "quantization": "disabled",
-        "recommended_params": {"steps": 4, "cfg": 1.0, "scheduler": "euler"},
+        "recommended_params": {"steps": 8, "cfg": 2.0, "scheduler": "euler"},
         "mode": "i2v",  # This is an I2V model (36 channels) - MUST use with I2V workflow
     },
     "t2v_standard": {
@@ -819,10 +819,12 @@ STORY_MODEL_PRESETS = {
     "nsfw_v2": {
         "high": "wan22EnhancedNSFWSVICamera_nsfwV2FP8H.safetensors",
         "low": "wan22EnhancedNSFWSVICamera_nsfwV2FP8L.safetensors",
+        "recommended_params": {"steps": 8, "cfg": 2.0, "scheduler": "euler"},
     },
     "default": {
         "high": "Wan2_2-I2V-A14B-HIGH_bf16.safetensors",
         "low": "Wan2_2-I2V-A14B-LOW_bf16.safetensors",
+        "recommended_params": {"steps": 20, "cfg": 6.0, "scheduler": "unipc"},
     },
 }
 
@@ -1023,6 +1025,13 @@ def build_story_workflow(
     # Resolve model preset
     model_info = STORY_MODEL_PRESETS.get(model_preset, STORY_MODEL_PRESETS["nsfw_v2"])
     clip_file = STORY_CLIP_PRESETS.get(clip_preset, STORY_CLIP_PRESETS["nsfw"])
+
+    # Apply recommended sampling params from preset (if available)
+    rec = model_info.get("recommended_params")
+    if rec:
+        steps = rec.get("steps", steps)
+        cfg = rec.get("cfg", cfg)
+        # Note: scheduler is not used in story workflow (WanMoeKSamplerAdvanced uses fixed euler+simple)
 
     # Inject trigger words from LoRAs into prompt
     if loras:
@@ -1329,7 +1338,7 @@ def build_merged_story_workflow(
     height: int,
     shift: float,
     cfg: float,
-    steps: int = 5,
+    steps: int = 20,
     motion_amplitude: float = 1.15,
     motion_frames: int = 5,
     boundary: float = 0.9,
@@ -1370,6 +1379,13 @@ def build_merged_story_workflow(
     # Resolve presets
     model_info = STORY_MODEL_PRESETS.get(model_preset, STORY_MODEL_PRESETS["nsfw_v2"])
     clip_file = STORY_CLIP_PRESETS.get(clip_preset, STORY_CLIP_PRESETS["nsfw"])
+
+    # Apply recommended sampling params from preset (if available)
+    rec = model_info.get("recommended_params")
+    if rec:
+        steps = rec.get("steps", steps)
+        cfg = rec.get("cfg", cfg)
+        # Note: scheduler is not used in story workflow (WanMoeKSamplerAdvanced uses fixed euler+simple)
 
     workflow: dict = {}
 
