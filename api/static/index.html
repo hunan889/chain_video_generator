@@ -200,6 +200,25 @@ h1{text-align:center;color:#7c83ff;margin-bottom:24px;font-size:1.6em}
 <label>换脸强度 <span id="t2v-face-strength-val">0.8</span></label>
 <input type="range" id="t2v-face-strength" min="0.3" max="1.0" step="0.05" value="0.8" oninput="document.getElementById('t2v-face-strength-val').textContent=this.value" style="width:100%">
 <div style="font-size:11px;color:#666;margin-top:4px">0.3=轻度换脸 | 0.8=推荐 | 1.0=完全替换</div>
+<div style="margin-top:12px;display:flex;gap:12px">
+<div style="flex:1">
+<label style="font-size:12px">源图性别</label>
+<select id="t2v-gender-source" style="width:100%;padding:6px;background:#0a0a23;border:1px solid #444;border-radius:4px;color:#e0e0e0;font-size:13px">
+<option value="no">不限</option>
+<option value="female">女性</option>
+<option value="male">男性</option>
+</select>
+</div>
+<div style="flex:1">
+<label style="font-size:12px">目标性别</label>
+<select id="t2v-gender-input" style="width:100%;padding:6px;background:#0a0a23;border:1px solid #444;border-radius:4px;color:#e0e0e0;font-size:13px">
+<option value="no">不限</option>
+<option value="female">女性</option>
+<option value="male">男性</option>
+</select>
+</div>
+</div>
+<div style="font-size:11px;color:#666;margin-top:4px">性别过滤：只替换匹配性别的人脸</div>
 </div>
 </div>
 </div>
@@ -276,6 +295,25 @@ h1{text-align:center;color:#7c83ff;margin-bottom:24px;font-size:1.6em}
 <label>换脸强度 <span id="i2v-face-strength-val">0.8</span></label>
 <input type="range" id="i2v-face-strength" min="0.3" max="1.0" step="0.05" value="0.8" oninput="document.getElementById('i2v-face-strength-val').textContent=this.value" style="width:100%">
 <div style="font-size:11px;color:#666;margin-top:4px">0.3=轻度换脸 | 0.8=推荐 | 1.0=完全替换</div>
+<div style="margin-top:12px;display:flex;gap:12px">
+<div style="flex:1">
+<label style="font-size:12px">源图性别</label>
+<select id="i2v-gender-source" style="width:100%;padding:6px;background:#0a0a23;border:1px solid #444;border-radius:4px;color:#e0e0e0;font-size:13px">
+<option value="no">不限</option>
+<option value="female">女性</option>
+<option value="male">男性</option>
+</select>
+</div>
+<div style="flex:1">
+<label style="font-size:12px">目标性别</label>
+<select id="i2v-gender-input" style="width:100%;padding:6px;background:#0a0a23;border:1px solid #444;border-radius:4px;color:#e0e0e0;font-size:13px">
+<option value="no">不限</option>
+<option value="female">女性</option>
+<option value="male">男性</option>
+</select>
+</div>
+</div>
+<div style="font-size:11px;color:#666;margin-top:4px">性别过滤：只替换匹配性别的人脸</div>
 </div>
 </div>
 </div>
@@ -325,6 +363,24 @@ h1{text-align:center;color:#7c83ff;margin-bottom:24px;font-size:1.6em}
 <label>换脸强度</label>
 <input type="range" id="chain-face-swap-strength" min="0.3" max="1.0" step="0.1" value="1.0" oninput="document.getElementById('chain-face-swap-value').textContent=this.value">
 <span id="chain-face-swap-value" style="margin-left:8px;color:#7c83ff">1.0</span>
+<div style="margin-top:12px;display:flex;gap:12px">
+<div style="flex:1">
+<label style="font-size:12px">源图性别</label>
+<select id="chain-gender-source" style="width:100%;padding:6px;background:#0a0a23;border:1px solid #444;border-radius:4px;color:#e0e0e0;font-size:13px">
+<option value="no">不限</option>
+<option value="female">女性</option>
+<option value="male">男性</option>
+</select>
+</div>
+<div style="flex:1">
+<label style="font-size:12px">目标性别</label>
+<select id="chain-gender-input" style="width:100%;padding:6px;background:#0a0a23;border:1px solid #444;border-radius:4px;color:#e0e0e0;font-size:13px">
+<option value="no">不限</option>
+<option value="female">女性</option>
+<option value="male">男性</option>
+</select>
+</div>
+</div>
 </div>
 </div>
 
@@ -1296,7 +1352,7 @@ function framesToDuration(frames, fps) {
 const FORM_FIELDS = {
   t2v: ['t2v-prompt','t2v-neg','t2v-model','t2v-preset','t2v-t5preset','t2v-w','t2v-h','t2v-duration','t2v-fps','t2v-steps','t2v-cfg','t2v-shift','t2v-seed','t2v-sched'],
   i2v: ['i2v-prompt','i2v-neg','i2v-model','i2v-preset','i2v-t5preset','i2v-w','i2v-h','i2v-duration','i2v-fps','i2v-steps','i2v-cfg','i2v-shift','i2v-seed','i2v-sched','i2v-noise','i2v-motion','i2v-colormatch','i2v-colormatch-method','i2v-resize'],
-  chain: ['chain-prompt','chain-neg','chain-model','chain-preset','chain-t5preset','chain-w','chain-h','chain-total','chain-seg','chain-fps','chain-steps','chain-cfg','chain-shift','chain-seed','chain-sched','chain-noise','chain-motion','chain-transition','chain-colormatch','chain-colormatch-method','chain-resize','chain-story-motion-frames','chain-story-boundary','chain-story-clip','chain-upscale-resize','chain-interpolation-multiplier','chain-mmaudio-prompt','chain-mmaudio-neg','chain-mmaudio-steps','chain-mmaudio-cfg','chain-face-swap-strength'],
+  chain: ['chain-prompt','chain-neg','chain-model','chain-preset','chain-t5preset','chain-w','chain-h','chain-total','chain-seg','chain-fps','chain-steps','chain-cfg','chain-shift','chain-seed','chain-sched','chain-noise','chain-motion','chain-transition','chain-colormatch','chain-colormatch-method','chain-resize','chain-story-motion-frames','chain-story-boundary','chain-story-clip','chain-upscale-resize','chain-interpolation-multiplier','chain-mmaudio-prompt','chain-mmaudio-neg','chain-mmaudio-steps','chain-mmaudio-cfg','chain-face-swap-strength','chain-gender-source','chain-gender-input'],
   story: ['story-shift','story-motion','story-motion-frames','story-seed','story-seg-1-prompt','story-seg-1-duration','story-seg-2-prompt','story-seg-2-duration','story-seg-3-prompt','story-seg-3-duration','story-seg-4-prompt','story-seg-4-duration']
 };
 const CHECKBOX_FIELDS = {
@@ -2408,7 +2464,9 @@ async function submitT2V() {
   if (faceSwapEnabled) {
     body.face_swap = {
       enabled: true,
-      strength: parseFloat(document.getElementById('t2v-face-strength').value)
+      strength: parseFloat(document.getElementById('t2v-face-strength').value),
+      detect_gender_source: document.getElementById('t2v-gender-source').value,
+      detect_gender_input: document.getElementById('t2v-gender-input').value
     };
   }
 
@@ -2488,7 +2546,9 @@ async function submitI2V() {
   if (faceSwapEnabled) {
     params.face_swap = {
       enabled: true,
-      strength: parseFloat(document.getElementById('i2v-face-strength').value)
+      strength: parseFloat(document.getElementById('i2v-face-strength').value),
+      detect_gender_source: document.getElementById('i2v-gender-source').value,
+      detect_gender_input: document.getElementById('i2v-gender-input').value
     };
   }
 
@@ -4246,6 +4306,8 @@ async function generateSingleSegment(segId) {
           story_mode: true,
           image_mode: imageMode,
           face_swap_strength: parseFloat(document.getElementById('chain-face-swap-strength').value),
+          detect_gender_source: document.getElementById('chain-gender-source').value,
+          detect_gender_input: document.getElementById('chain-gender-input').value,
           motion_frames: parseInt(document.getElementById('chain-story-motion-frames').value),
           boundary: parseFloat(document.getElementById('chain-story-boundary').value),
           clip_preset: document.getElementById('chain-story-clip').value,
@@ -5082,6 +5144,8 @@ async function submitChain() {
     resize_mode: document.getElementById('chain-resize').value,
     image_mode: imageMode,
     face_swap_strength: parseFloat(document.getElementById('chain-face-swap-strength').value),
+    detect_gender_source: document.getElementById('chain-gender-source').value,
+    detect_gender_input: document.getElementById('chain-gender-input').value,
     motion_frames: parseInt(document.getElementById('chain-story-motion-frames').value),
     boundary: parseFloat(document.getElementById('chain-story-boundary').value),
     clip_preset: document.getElementById('chain-story-clip').value,
