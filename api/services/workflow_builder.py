@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Optional
 from api.config import WORKFLOWS_DIR, COMFYUI_PATH, LORAS_PATH
 from api.models.enums import ModelType, GenerateMode
-from api.models.schemas import LoraInput, FaceSwapConfig
+from api.models.schemas import LoraInput
 
 logger = logging.getLogger(__name__)
 
@@ -277,7 +277,7 @@ MODEL_PRESETS = {
         "high": "wan22EnhancedNSFWSVICamera_nsfwV2FP8H.safetensors",
         "low": "wan22EnhancedNSFWSVICamera_nsfwV2FP8L.safetensors",
         "quantization": "disabled",
-        "recommended_params": {"steps": 8, "cfg": 2.0, "scheduler": "euler"},
+        "recommended_params": {"steps": 5, "cfg": 2.0, "scheduler": "euler"},
         "mode": "i2v",  # This is an I2V model (36 channels) - MUST use with I2V workflow
     },
     "t2v_standard": {
@@ -529,15 +529,13 @@ def _bypass_color_match(workflow: dict):
 UPSCALE_MODEL = "RealESRGAN_x2plus.pth"
 
 
-def _inject_reactor(workflow: dict, face_image_path: str, strength: float, detect_gender_source: str = "no", detect_gender_input: str = "no") -> dict:
+def _inject_reactor(workflow: dict, face_image_path: str, strength: float) -> dict:
     """Insert Reactor face swap nodes between video decode and VHS_VideoCombine.
 
     Args:
         workflow: ComfyUI workflow dict
         face_image_path: ComfyUI filename of the face image (already uploaded)
         strength: Face swap strength (0.3-1.0), used as codeformer_weight
-        detect_gender_source: Source face gender filter (no/female/male)
-        detect_gender_input: Target face gender filter (no/female/male)
 
     Returns:
         Modified workflow with Reactor nodes injected
@@ -587,8 +585,8 @@ def _inject_reactor(workflow: dict, face_image_path: str, strength: float, detec
             "face_restore_model": "none",  # Disabled for speed - swap quality is usually good enough
             "face_restore_visibility": 1.0,
             "codeformer_weight": strength,
-            "detect_gender_input": detect_gender_input,
-            "detect_gender_source": detect_gender_source,
+            "detect_gender_input": "no",
+            "detect_gender_source": "no",
             "input_faces_index": "0",
             "source_faces_index": "0",
             "console_log_level": 1,
@@ -680,7 +678,7 @@ def build_workflow(
     resize_mode: str = "crop_to_new",
     upscale: bool = False,
     t5_preset: str = "",
-    face_swap_config: Optional['FaceSwapConfig'] = None,
+    face_swap_config = None,
     face_image_path: Optional[str] = None,
 ) -> dict:
     # Normalize loras: accept both LoraInput objects and dicts
@@ -719,12 +717,6 @@ def build_workflow(
                 elif "LOW" in cur_model:
                     inputs["model"] = preset["low"]
                 inputs["quantization"] = preset["quantization"]
-        # Apply recommended sampling params from preset
-        rec = preset.get("recommended_params")
-        if rec:
-            steps = rec.get("steps", steps)
-            cfg = rec.get("cfg", cfg)
-            scheduler = rec.get("scheduler", scheduler)
 
     # Apply T5 text encoder preset
     t5_info = T5_PRESETS.get(t5_preset) if t5_preset else None
@@ -809,9 +801,7 @@ def build_workflow(
 
     # Inject Reactor face swap if enabled
     if face_swap_config and face_swap_config.enabled and face_image_path:
-        detect_gender_source = getattr(face_swap_config, 'detect_gender_source', 'no')
-        detect_gender_input = getattr(face_swap_config, 'detect_gender_input', 'no')
-        workflow = _inject_reactor(workflow, face_image_path, face_swap_config.strength, detect_gender_source, detect_gender_input)
+        workflow = _inject_reactor(workflow, face_image_path, face_swap_config.strength)
 
     return workflow
 
@@ -823,7 +813,7 @@ STORY_MODEL_PRESETS = {
     "nsfw_v2": {
         "high": "wan22EnhancedNSFWSVICamera_nsfwV2FP8H.safetensors",
         "low": "wan22EnhancedNSFWSVICamera_nsfwV2FP8L.safetensors",
-        "recommended_params": {"steps": 8, "cfg": 2.0, "scheduler": "euler"},
+        "recommended_params": {"steps": 5, "cfg": 2.0, "scheduler": "euler"},
     },
     "default": {
         "high": "Wan2_2-I2V-A14B-HIGH_bf16.safetensors",
@@ -1029,13 +1019,6 @@ def build_story_workflow(
     # Resolve model preset
     model_info = STORY_MODEL_PRESETS.get(model_preset, STORY_MODEL_PRESETS["nsfw_v2"])
     clip_file = STORY_CLIP_PRESETS.get(clip_preset, STORY_CLIP_PRESETS["nsfw"])
-
-    # Apply recommended sampling params from preset (if available)
-    rec = model_info.get("recommended_params")
-    if rec:
-        steps = rec.get("steps", steps)
-        cfg = rec.get("cfg", cfg)
-        # Note: scheduler is not used in story workflow (WanMoeKSamplerAdvanced uses fixed euler+simple)
 
     # Inject trigger words from LoRAs into prompt
     if loras:
@@ -1366,8 +1349,6 @@ def build_merged_story_workflow(
     mmaudio_cfg: float = 4.5,
     face_image_filename: str = "",
     face_swap_strength: float = 1.0,
-    detect_gender_source: str = "no",
-    detect_gender_input: str = "no",
 ) -> dict:
     """Build a single merged ComfyUI workflow containing N story segments.
 
@@ -1385,13 +1366,6 @@ def build_merged_story_workflow(
     # Resolve presets
     model_info = STORY_MODEL_PRESETS.get(model_preset, STORY_MODEL_PRESETS["nsfw_v2"])
     clip_file = STORY_CLIP_PRESETS.get(clip_preset, STORY_CLIP_PRESETS["nsfw"])
-
-    # Apply recommended sampling params from preset (if available)
-    rec = model_info.get("recommended_params")
-    if rec:
-        steps = rec.get("steps", steps)
-        cfg = rec.get("cfg", cfg)
-        # Note: scheduler is not used in story workflow (WanMoeKSamplerAdvanced uses fixed euler+simple)
 
     workflow: dict = {}
 
@@ -2037,8 +2011,8 @@ def build_merged_story_workflow(
                 "face_restore_model": "none",  # Disabled for speed - swap quality is usually good enough
                 "face_restore_visibility": 1.0,
                 "codeformer_weight": face_swap_strength,
-                "detect_gender_input": detect_gender_input,
-                "detect_gender_source": detect_gender_source,
+                "detect_gender_input": "no",
+                "detect_gender_source": "no",
                 "input_faces_index": "0",
                 "source_faces_index": "0",
                 "console_log_level": 1,
@@ -2067,6 +2041,49 @@ def build_interpolate_workflow(
     fps: float = 16.0,
 ) -> dict:
     """Build a ComfyUI workflow for standalone RIFE frame interpolation."""
+    # Auto-detect video resolution and validate profile
+    try:
+        import subprocess
+        result = subprocess.run(
+            ["ffprobe", "-v", "error", "-select_streams", "v:0",
+             "-show_entries", "stream=width,height",
+             "-of", "csv=p=0", video_path],
+            capture_output=True, text=True, timeout=5
+        )
+        if result.returncode == 0:
+            width, height = map(int, result.stdout.strip().split(','))
+            max_dim = max(width, height)
+
+            # Resolution profiles from RIFE config
+            # small: 384-1080, medium: 672-1312, large: 720-1920
+            profile_ranges = {
+                "small": (384, 1080),
+                "medium": (672, 1312),
+                "large": (720, 1920),
+            }
+
+            # Validate and auto-correct profile
+            if resolution_profile in profile_ranges:
+                min_res, max_res = profile_ranges[resolution_profile]
+                if max_dim < min_res or max_dim > max_res:
+                    # Auto-select appropriate profile
+                    if max_dim < 672:
+                        resolution_profile = "small"
+                    elif max_dim < 720:
+                        resolution_profile = "medium"
+                    elif max_dim <= 1080:
+                        resolution_profile = "small"  # small can handle up to 1080
+                    elif max_dim <= 1312:
+                        resolution_profile = "medium"
+                    else:
+                        resolution_profile = "large"
+                    logger.warning(
+                        f"Video resolution {width}x{height} incompatible with requested profile, "
+                        f"auto-selected '{resolution_profile}'"
+                    )
+    except Exception as e:
+        logger.warning(f"Could not detect video resolution: {e}, using profile '{resolution_profile}'")
+
     workflow = {}
 
     # Load video
