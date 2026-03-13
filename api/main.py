@@ -7,7 +7,7 @@ from fastapi.responses import FileResponse
 from pathlib import Path
 from api.config import API_HOST, API_PORT, VIDEOS_DIR, UPLOADS_DIR
 from api.services.task_manager import TaskManager
-from api.routes import generate, generate_i2v, tasks, loras, civitai, prompt, lora_recommend, extend, workflow, tts, postprocess, image, chat, resources
+from api.routes import generate, generate_i2v, tasks, loras, civitai, prompt, lora_recommend, extend, workflow, tts, postprocess, image, chat, resources, lora_admin, search, recommend, embeddings
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
 logger = logging.getLogger(__name__)
@@ -48,6 +48,10 @@ app.include_router(tts.router, prefix="/api/v1", tags=["tts"])
 app.include_router(postprocess.router, prefix="/api/v1", tags=["postprocess"])
 app.include_router(image.router, prefix="/api/v1", tags=["image"])
 app.include_router(chat.router, prefix="/api/v1", tags=["chat"])
+app.include_router(lora_admin.router, prefix="/api/v1", tags=["lora_admin"])
+app.include_router(search.router, prefix="/api/v1", tags=["search"])
+app.include_router(recommend.router, prefix="/api/v1", tags=["recommend"])
+app.include_router(embeddings.router, prefix="/api/v1", tags=["embeddings"])
 app.include_router(resources.router)
 
 STATIC_DIR = Path(__file__).parent / "static"
@@ -71,6 +75,21 @@ async def search():
 @app.get("/favorites.html")
 async def favorites():
     return FileResponse(STATIC_DIR / "favorites.html")
+
+
+@app.get("/lora_manager.html")
+async def lora_manager():
+    return FileResponse(STATIC_DIR / "lora_manager.html")
+
+
+@app.get("/search_debug.html")
+async def search_debug():
+    return FileResponse(STATIC_DIR / "search_debug.html")
+
+
+@app.get("/advanced_workflow.html")
+async def advanced_workflow():
+    return FileResponse(STATIC_DIR / "advanced_workflow.html")
 
 
 app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")

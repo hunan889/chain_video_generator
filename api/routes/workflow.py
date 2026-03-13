@@ -1,14 +1,801 @@
 import logging
 import json
+import asyncio
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Literal
+from enum import Enum
 from fastapi import APIRouter, Depends, HTTPException, Body, UploadFile, File, Form
+from pydantic import BaseModel, Field
 from api.models.schemas import GenerateResponse
 from api.models.enums import GenerateMode, ModelType, TaskStatus
 from api.middleware.auth import verify_api_key
+from api.services.embedding_service import get_embedding_service
+import pymysql
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
+
+# Database config
+DB_CONFIG = {
+    'host': 'use-cdb-b9nvte6o.sql.tencentcdb.com',
+    'port': 20603,
+    'user': 'user_soga',
+    'password': '1IvO@*#68',
+    'database': 'tudou_soga',
+    'charset': 'utf8mb4'
+}
+
+
+# ============================================================================
+# Advanced Workflow API - Phase 1
+# ============================================================================
+
+class WorkflowAnalyzeRequest(BaseModel):
+    """Workflow analysis request"""
+    prompt: str = Field(..., min_length=1, max_length=2000, description="User prompt")
+    mode: Literal["face_reference", "full_body_reference", "first_frame"] = Field(
+        ..., description="Workflow mode"
+    )
+    top_k_image_loras: int = Field(default=5, ge=1, le=20, description="Top K image LORAs")
+    top_k_video_loras: int = Field(default=5, ge=1, le=20, description="Top K video LORAs")
+
+
+class ImageLoraRecommendation(BaseModel):
+    """Image LORA recommendation"""
+    lora_id: int
+    name: str
+    description: Optional[str]
+    trigger_words: list[str]
+    category: Optional[str]
+    similarity: float
+    preview_url: Optional[str]
+
+
+class VideoLoraRecommendation(BaseModel):
+    """Video LORA recommendation"""
+    lora_id: int
+    name: str
+    description: Optional[str]
+    trigger_words: list[str]
+    mode: str  # I2V, T2V, both
+    noise_stage: str  # high, low, single
+    category: Optional[str]
+    similarity: float
+    preview_url: Optional[str]
+
+
+class WorkflowAnalyzeResponse(BaseModel):
+    """Workflow analysis response"""
+    original_prompt: str
+    optimized_t2i_prompt: Optional[str] = None
+    optimized_i2v_prompt: Optional[str] = None
+    image_loras: list[ImageLoraRecommendation]
+    video_loras: list[VideoLoraRecommendation]
+    mode: str
+
+
+@router.post("/workflow/analyze", response_model=WorkflowAnalyzeResponse)
+async def analyze_workflow(req: WorkflowAnalyzeRequest, _=Depends(verify_api_key)):
+    """
+    Analyze user prompt and recommend LORAs for T2I and I2V stages.
+
+    This is Phase 1 of the advanced workflow system.
+    """
+    try:
+        if not req.prompt.strip():
+            raise HTTPException(400, "Prompt cannot be empty")
+
+        embedding_service = get_embedding_service()
+
+        # Parallel semantic search for image LORAs and video LORAs
+        image_lora_task = _search_image_loras(
+            embedding_service,
+            req.prompt,
+            req.top_k_image_loras
+        )
+        video_lora_task = _search_video_loras(
+            embedding_service,
+            req.prompt,
+            req.mode,
+            req.top_k_video_loras
+        )
+
+        image_loras, video_loras = await asyncio.gather(
+            image_lora_task,
+            video_lora_task
+        )
+
+        # Optimize prompts with Qwen3-14B
+        optimized_t2i_prompt, optimized_i2v_prompt = await _optimize_prompt_with_llm(
+            req.prompt,
+            image_loras,
+            video_loras,
+            req.mode
+        )
+
+        return WorkflowAnalyzeResponse(
+            original_prompt=req.prompt,
+            optimized_t2i_prompt=optimized_t2i_prompt,
+            optimized_i2v_prompt=optimized_i2v_prompt,
+            image_loras=image_loras,
+            video_loras=video_loras,
+            mode=req.mode
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Workflow analysis failed: {e}", exc_info=True)
+        raise HTTPException(500, f"Workflow analysis failed: {str(e)}")
+
+
+async def _search_image_loras(
+    embedding_service,
+    query: str,
+    top_k: int
+) -> list[ImageLoraRecommendation]:
+    """Search for similar image LORAs using semantic search"""
+    try:
+        # Use semantic search if available
+        search_results = await embedding_service.search_similar_image_loras(
+            query=query,
+            top_k=top_k * 2  # Get more for filtering
+        )
+
+        if not search_results:
+            logger.info("No image LORAs found via semantic search")
+            return []
+
+        # Get image_lora_ids from search results
+        image_lora_ids = [item['image_lora_id'] for item in search_results]
+        similarity_map = {item['image_lora_id']: item['similarity'] for item in search_results}
+
+        # Query database for LORA details
+        conn = pymysql.connect(**DB_CONFIG)
+        cursor = conn.cursor(pymysql.cursors.DictCursor)
+
+        placeholders = ','.join(['%s'] * len(image_lora_ids))
+        cursor.execute(f"""
+            SELECT id, name, description, trigger_prompt, category, tags
+            FROM image_lora_metadata
+            WHERE id IN ({placeholders})
+            AND (enabled = 1 OR enabled = TRUE)
+        """, image_lora_ids)
+
+        lora_data = cursor.fetchall()
+        cursor.close()
+        conn.close()
+
+        if not lora_data:
+            logger.info("No enabled image LORAs found in database")
+            return []
+
+        image_loras = []
+        for lora in lora_data:
+            lora_id = str(lora['id'])
+
+            # Parse trigger_prompt as trigger_words
+            trigger_words = []
+            trigger_prompt = lora.get('trigger_prompt')
+            if trigger_prompt:
+                trigger_words = [w.strip() for w in trigger_prompt.replace(',', ' ').split() if w.strip()]
+
+            # Parse tags JSON
+            tags = lora.get('tags')
+            if isinstance(tags, str):
+                try:
+                    tags = json.loads(tags)
+                except:
+                    tags = []
+            if tags and isinstance(tags, list):
+                trigger_words.extend(tags)
+
+            # Remove duplicates
+            trigger_words = list(dict.fromkeys(trigger_words))
+
+            image_loras.append(ImageLoraRecommendation(
+                lora_id=int(lora_id) if lora_id.isdigit() else hash(lora_id) % 1000000,
+                name=lora['name'],
+                description=lora.get('description'),
+                trigger_words=trigger_words[:10],
+                category=lora.get('category'),
+                similarity=similarity_map.get(lora_id, 0.0),
+                preview_url=None
+            ))
+
+        # Sort by similarity
+        image_loras.sort(key=lambda x: x.similarity, reverse=True)
+
+        logger.info(f"Found {len(image_loras)} image LORAs via semantic search")
+        return image_loras[:top_k]
+
+    except Exception as e:
+        logger.error(f"Image LORA search failed: {e}", exc_info=True)
+        return []
+
+
+async def _optimize_prompt_with_llm(
+    prompt: str,
+    image_loras: list[ImageLoraRecommendation],
+    video_loras: list[VideoLoraRecommendation],
+    mode: str
+) -> tuple[Optional[str], Optional[str]]:
+    """
+    Optimize prompts using Qwen3-14B LLM.
+
+    Returns: (optimized_t2i_prompt, optimized_i2v_prompt)
+    """
+    try:
+        from api.services.prompt_optimizer import PromptOptimizer
+        from api.config import LLM_API_KEY
+
+        if not LLM_API_KEY:
+            logger.warning("LLM_API_KEY not configured, skipping prompt optimization")
+            return None, None
+
+        optimizer = PromptOptimizer()
+
+        # Collect trigger words
+        image_trigger_words = []
+        for lora in image_loras[:3]:  # Top 3 image LORAs
+            image_trigger_words.extend(lora.trigger_words[:2])
+
+        video_trigger_words = []
+        for lora in video_loras[:3]:  # Top 3 video LORAs
+            video_trigger_words.extend(lora.trigger_words[:2])
+
+        # Build LORA info for context
+        lora_info = []
+        for lora in video_loras[:3]:
+            lora_info.append({
+                "name": lora.name,
+                "description": lora.description or "",
+                "trigger_words": lora.trigger_words[:5],
+                "example_prompts": []
+            })
+
+        # Optimize T2I prompt (for first frame generation)
+        optimized_t2i = None
+        if mode in ["face_reference", "full_body_reference"] and image_trigger_words:
+            try:
+                result = await optimizer.optimize(
+                    prompt=prompt,
+                    trigger_words=image_trigger_words,
+                    mode="t2v",  # Use t2v mode for static image
+                    duration=0.0,  # Single frame
+                    lora_info=[]
+                )
+                optimized_t2i = result.get("optimized_prompt")
+
+                # Add emphasis on front face for T2I
+                if optimized_t2i and mode == "face_reference":
+                    optimized_t2i = "front view, looking at camera, detailed face, " + optimized_t2i
+
+                logger.info(f"T2I prompt optimized: {optimized_t2i[:100]}...")
+            except Exception as e:
+                logger.warning(f"T2I prompt optimization failed: {e}")
+
+        # Optimize I2V prompt (for video generation)
+        optimized_i2v = None
+        if video_trigger_words:
+            try:
+                result = await optimizer.optimize(
+                    prompt=prompt,
+                    trigger_words=video_trigger_words,
+                    mode="i2v",
+                    duration=5.0,  # Default 5 seconds
+                    lora_info=lora_info
+                )
+                optimized_i2v = result.get("optimized_prompt")
+                logger.info(f"I2V prompt optimized: {optimized_i2v[:100]}...")
+            except Exception as e:
+                logger.warning(f"I2V prompt optimization failed: {e}")
+
+        return optimized_t2i, optimized_i2v
+
+    except Exception as e:
+        logger.error(f"Prompt optimization failed: {e}", exc_info=True)
+        return None, None
+
+
+async def _search_video_loras(
+    embedding_service,
+    query: str,
+    mode: str,
+    top_k: int
+) -> list[VideoLoraRecommendation]:
+    """Search for similar video LORAs using semantic search"""
+    try:
+        # Map workflow mode to video LORA mode filter
+        lora_mode = None
+        if mode == "first_frame":
+            lora_mode = "T2V"  # First frame mode uses T2V
+        # face_reference and full_body_reference use I2V, so no filter needed
+
+        # Search using existing embedding service
+        results = await embedding_service.search_similar_loras(
+            query=query,
+            mode=lora_mode,
+            top_k=top_k * 2  # Get more results for filtering
+        )
+
+        if not results:
+            logger.warning("No video LORAs found via semantic search")
+            return []
+
+        # Get LORA details from database
+        lora_ids = [item['lora_id'] for item in results]
+        similarity_map = {item['lora_id']: item['similarity'] for item in results}
+
+        conn = pymysql.connect(**DB_CONFIG)
+        cursor = conn.cursor(pymysql.cursors.DictCursor)
+
+        placeholders = ','.join(['%s'] * len(lora_ids))
+        cursor.execute(f"""
+            SELECT id, name, description, trigger_words, mode, noise_stage, category, preview_url
+            FROM lora_metadata
+            WHERE id IN ({placeholders})
+            AND (enabled = 1 OR enabled = TRUE)
+        """, lora_ids)
+
+        lora_data = cursor.fetchall()
+        cursor.close()
+        conn.close()
+
+        # Build response
+        video_loras = []
+        for lora in lora_data:
+            trigger_words = lora.get('trigger_words')
+            if isinstance(trigger_words, str):
+                try:
+                    trigger_words = json.loads(trigger_words)
+                except:
+                    trigger_words = []
+            if not trigger_words:
+                trigger_words = []
+
+            video_loras.append(VideoLoraRecommendation(
+                lora_id=lora['id'],
+                name=lora['name'],
+                description=lora.get('description'),
+                trigger_words=trigger_words,
+                mode=lora['mode'],
+                noise_stage=lora['noise_stage'],
+                category=lora.get('category'),
+                similarity=similarity_map.get(lora['id'], 0.0),
+                preview_url=lora.get('preview_url')
+            ))
+
+        # Sort by similarity
+        video_loras.sort(key=lambda x: x.similarity, reverse=True)
+
+        logger.info(f"Found {len(video_loras)} video LORAs via semantic search")
+        return video_loras[:top_k]
+
+    except Exception as e:
+        logger.error(f"Video LORA search failed: {e}", exc_info=True)
+        return []
+
+
+# ============================================================================
+# Advanced Workflow API - Phase 2: SeeDream Editing
+# ============================================================================
+
+class SeeDreamEditRequest(BaseModel):
+    """SeeDream image editing request"""
+    scene_image: str = Field(..., description="Scene image (base64 or URL)")
+    reference_face: Optional[str] = Field(None, description="Reference face image (base64 or URL)")
+    mode: Literal["face_only", "face_wearings", "full_body"] = Field(
+        ..., description="Edit mode"
+    )
+    enable_face_swap: bool = Field(default=True, description="Enable Reactor face swap before SeeDream")
+    prompt: Optional[str] = Field(None, description="Custom prompt for SeeDream")
+    size: str = Field(default="1024x1024", description="Output size")
+    seed: Optional[int] = Field(None, description="Random seed")
+
+
+class SeeDreamEditResponse(BaseModel):
+    """SeeDream image editing response"""
+    url: str
+    edit_mode: str
+    face_swapped: bool
+    size: str
+    seed: Optional[int]
+    error: Optional[str] = None
+
+
+@router.post("/workflow/seedream-edit", response_model=SeeDreamEditResponse)
+async def seedream_edit(req: SeeDreamEditRequest, _=Depends(verify_api_key)):
+    """
+    Edit image using SeeDream with three modes.
+
+    Modes:
+    - face_only: Only face replacement
+    - face_wearings: Face + accessories (jewelry, glasses, hair accessories)
+    - full_body: Face + accessories + clothing
+
+    This is Phase 2 of the advanced workflow system.
+    """
+    try:
+        import base64
+        import requests as http_requests
+        from api.config import UPLOADS_DIR
+
+        # Import SeeDream helper from image.py
+        from api.routes.image import (
+            _crop_and_resize, _save_result_image, _call_byteplus,
+            _parse_size, FORGE_URL, SEEDREAM_MODEL, SCENE_SWAP_DEFAULT_PROMPT
+        )
+
+        # Decode or fetch scene image
+        if req.scene_image.startswith('data:image'):
+            scene_b64 = req.scene_image.split(',')[1]
+            scene_data = base64.b64decode(scene_b64)
+        elif req.scene_image.startswith('http'):
+            resp = http_requests.get(req.scene_image, timeout=30)
+            if resp.status_code != 200:
+                raise HTTPException(400, f"Failed to fetch scene image: {resp.status_code}")
+            scene_data = resp.content
+        else:
+            scene_data = base64.b64decode(req.scene_image)
+
+        # Parse size
+        size = _parse_size(req.size)
+        output_w, output_h = map(int, size.lower().split("x"))
+        crop_w = min(output_w, 1024)
+        crop_h = min(output_h, 1024)
+
+        # Preserve aspect ratio
+        if output_w != crop_w or output_h != crop_h:
+            ratio = output_w / output_h
+            if crop_w / crop_h > ratio:
+                crop_w = int(crop_h * ratio)
+            else:
+                crop_h = int(crop_w / ratio)
+        target_w, target_h = crop_w, crop_h
+
+        # Crop scene image
+        scene_cropped = _crop_and_resize(scene_data, target_w, target_h)
+        scene_b64 = base64.b64encode(scene_cropped).decode()
+
+        face_swapped = False
+        swapped_data = scene_cropped
+
+        # Step 1: Face swap with Reactor (if enabled and reference face provided)
+        if req.enable_face_swap and req.reference_face:
+            # Decode or fetch reference face
+            if req.reference_face.startswith('data:image'):
+                face_b64 = req.reference_face.split(',')[1]
+                face_data = base64.b64decode(face_b64)
+            elif req.reference_face.startswith('http'):
+                resp = http_requests.get(req.reference_face, timeout=30)
+                if resp.status_code != 200:
+                    logger.warning(f"Failed to fetch reference face: {resp.status_code}")
+                    face_data = None
+                else:
+                    face_data = resp.content
+            else:
+                face_data = base64.b64decode(req.reference_face)
+
+            if face_data:
+                # Crop face image
+                face_cropped = _crop_and_resize(face_data, target_w, target_h)
+                face_b64 = base64.b64encode(face_cropped).decode()
+
+                # Call Reactor
+                reactor_payload = {
+                    "source_image": face_b64,
+                    "target_image": scene_b64,
+                    "source_faces_index": [0],
+                    "face_index": [0],
+                    "model": "inswapper_128.onnx",
+                    "face_restorer": "CodeFormer",
+                    "restorer_visibility": 1,
+                    "codeformer_weight": 0.7,
+                    "restore_first": 1,
+                    "upscaler": "None",
+                    "scale": 1,
+                    "upscale_visibility": 1,
+                    "device": "CUDA",
+                    "mask_face": 1,
+                    "det_thresh": 0.5,
+                    "det_maxnum": 0,
+                }
+
+                logger.info(f"SeeDream Edit: Reactor face swap ({target_w}x{target_h})...")
+                try:
+                    reactor_resp = http_requests.post(
+                        f"{FORGE_URL}/reactor/image", json=reactor_payload, timeout=120
+                    )
+
+                    if reactor_resp.status_code == 200:
+                        swapped_b64 = reactor_resp.json()["image"]
+                        swapped_data = base64.b64decode(swapped_b64)
+                        face_swapped = True
+                        logger.info("Reactor face swap completed")
+                    else:
+                        logger.warning(f"Reactor failed: {reactor_resp.status_code}, using original")
+                except Exception as e:
+                    logger.warning(f"Reactor error: {e}, using original")
+
+        # Step 2: SeeDream editing with mode-specific prompts
+        swapped_b64_out = base64.b64encode(swapped_data).decode()
+
+        # Build prompt based on mode
+        if req.prompt:
+            full_prompt = req.prompt
+        else:
+            if req.mode == "face_only":
+                full_prompt = "edit image 2, keep the position and pose of image 2, swap face to image 1, only change the face, keep everything else exactly the same including clothing, accessories, background"
+            elif req.mode == "face_wearings":
+                full_prompt = "edit image 2, keep the position and pose of image 2, swap face to image 1, change face and accessories (jewelry, glasses, hair accessories) to match image 1, keep clothing and background the same"
+            elif req.mode == "full_body":
+                full_prompt = "edit image 2, keep the position and pose of image 2, swap face to image 1, change face, accessories, and clothing to match image 1, keep background the same"
+            else:
+                full_prompt = SCENE_SWAP_DEFAULT_PROMPT
+
+        # Prepare image list for SeeDream multiref
+        if req.reference_face and face_swapped:
+            image_list = [
+                f"data:image/jpeg;base64,{face_b64}",
+                f"data:image/jpeg;base64,{swapped_b64_out}",
+            ]
+        else:
+            # No face reference, just edit the scene
+            image_list = [f"data:image/jpeg;base64,{swapped_b64_out}"]
+
+        # Call SeeDream
+        model_name = SEEDREAM_MODEL
+        payload = {
+            "model": model_name,
+            "prompt": full_prompt,
+            "image": image_list,
+            "size": size,
+            "response_format": "url",
+            "watermark": False,
+        }
+        if req.seed is not None:
+            payload["seed"] = req.seed
+
+        logger.info(f"SeeDream Edit: mode={req.mode}, prompt={full_prompt[:100]}")
+
+        try:
+            url = _call_byteplus(payload)
+            logger.info(f"SeeDream edit completed: {url[:120]}")
+
+            return SeeDreamEditResponse(
+                url=url,
+                edit_mode=req.mode,
+                face_swapped=face_swapped,
+                size=size,
+                seed=req.seed
+            )
+        except HTTPException as e:
+            # Fallback: return Reactor result if available
+            if face_swapped:
+                logger.warning(f"SeeDream failed, returning Reactor result as fallback")
+                url = _save_result_image(swapped_b64_out)
+                return SeeDreamEditResponse(
+                    url=url,
+                    edit_mode=req.mode,
+                    face_swapped=face_swapped,
+                    size=f"{target_w}x{target_h}",
+                    seed=req.seed,
+                    error="SeeDream failed, using Reactor result"
+                )
+            else:
+                # No fallback available
+                logger.error(f"SeeDream failed and no Reactor result: {e}")
+                url = _save_result_image(scene_b64)
+                return SeeDreamEditResponse(
+                    url=url,
+                    edit_mode=req.mode,
+                    face_swapped=False,
+                    size=f"{target_w}x{target_h}",
+                    seed=req.seed,
+                    error=f"SeeDream failed: {str(e)}"
+                )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"SeeDream edit failed: {e}", exc_info=True)
+        raise HTTPException(500, f"SeeDream edit failed: {str(e)}")
+
+
+# ============================================================================
+# Advanced Workflow API - Phase 3: Complete Workflow Orchestration
+# ============================================================================
+
+class FirstFrameSource(str, Enum):
+    """First frame source options"""
+    USE_UPLOADED = "use_uploaded"
+    GENERATE = "generate"
+    SELECT_EXISTING = "select_existing"
+
+
+class WorkflowGenerateRequest(BaseModel):
+    """Advanced workflow generation request"""
+    mode: Literal["face_reference", "full_body_reference", "first_frame"] = Field(
+        ..., description="Workflow mode"
+    )
+    user_prompt: str = Field(..., min_length=1, max_length=2000, description="User prompt")
+    reference_image: Optional[str] = Field(None, description="Reference image (base64 or URL)")
+
+    # First frame acquisition
+    first_frame_source: FirstFrameSource = Field(
+        default=FirstFrameSource.USE_UPLOADED,
+        description="How to obtain first frame"
+    )
+    uploaded_first_frame: Optional[str] = Field(None, description="Uploaded first frame (base64 or URL)")
+    selected_image_url: Optional[str] = Field(None, description="Selected existing image URL")
+
+    # Auto features
+    auto_analyze: bool = Field(default=True, description="Auto analyze and recommend LORAs")
+    auto_lora: bool = Field(default=True, description="Auto select LORAs")
+    auto_prompt: bool = Field(default=True, description="Auto optimize prompts")
+
+    # T2I parameters (for generate mode)
+    t2i_params: Optional[dict] = Field(default=None, description="T2I generation parameters")
+
+    # SeeDream parameters
+    seedream_params: Optional[dict] = Field(
+        default_factory=lambda: {
+            "edit_mode": "face_wearings",
+            "enable_reactor_first": True,
+            "strength": 0.8
+        },
+        description="SeeDream editing parameters"
+    )
+
+    # Video generation parameters
+    video_params: Optional[dict] = Field(
+        default_factory=lambda: {
+            "model": "A14B",
+            "resolution": "720p_3:4",
+            "duration": "5s",
+            "steps": 20,
+            "cfg": 6.0
+        },
+        description="Video generation parameters"
+    )
+
+
+class WorkflowStage(BaseModel):
+    """Workflow stage status"""
+    name: str
+    status: Literal["pending", "running", "completed", "failed"]
+    sub_stage: Optional[str] = None
+    error: Optional[str] = None
+
+
+class WorkflowGenerateResponse(BaseModel):
+    """Advanced workflow generation response"""
+    workflow_id: str
+    status: Literal["queued", "running", "completed", "failed"]
+    current_stage: str
+    stages: list[WorkflowStage]
+    chain_id: Optional[str] = None
+    final_video_url: Optional[str] = None
+    first_frame_url: Optional[str] = None
+    edited_frame_url: Optional[str] = None
+    estimated_total_time: Optional[int] = None
+    error: Optional[str] = None
+
+
+@router.post("/workflow/generate-advanced", response_model=WorkflowGenerateResponse)
+async def generate_advanced_workflow(req: WorkflowGenerateRequest, _=Depends(verify_api_key)):
+    """
+    Generate video using advanced workflow with three modes.
+
+    This orchestrates the complete workflow:
+    1. Analyze prompt and recommend LORAs
+    2. Acquire first frame (upload/generate/select)
+    3. Edit first frame with SeeDream
+    4. Generate video with Chain workflow
+
+    This is Phase 3 of the advanced workflow system.
+    """
+    try:
+        import uuid
+        import asyncio
+        from api.main import task_manager
+        from api.routes.workflow_executor import _execute_workflow
+
+        # Generate workflow ID
+        workflow_id = f"wf_{uuid.uuid4().hex[:12]}"
+
+        # Initialize stages
+        stages = [
+            WorkflowStage(name="prompt_analysis", status="pending"),
+            WorkflowStage(name="first_frame_acquisition", status="pending"),
+            WorkflowStage(name="seedream_edit", status="pending"),
+            WorkflowStage(name="video_generation", status="pending")
+        ]
+
+        # Save initial workflow state to Redis
+        await task_manager.redis.hset(f"workflow:{workflow_id}", mapping={
+            "status": "running",
+            "current_stage": "prompt_analysis",
+            "mode": req.mode,
+            "user_prompt": req.user_prompt,
+            "first_frame_source": req.first_frame_source.value,
+            "created_at": str(int(asyncio.get_event_loop().time()))
+        })
+
+        logger.info(f"Advanced workflow {workflow_id} created: mode={req.mode}, source={req.first_frame_source}")
+
+        # Start async orchestration
+        asyncio.create_task(_execute_workflow(workflow_id, req, task_manager))
+
+        return WorkflowGenerateResponse(
+            workflow_id=workflow_id,
+            status="running",
+            current_stage="prompt_analysis",
+            stages=stages,
+            estimated_total_time=120
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Advanced workflow generation failed: {e}", exc_info=True)
+        raise HTTPException(500, f"Advanced workflow generation failed: {str(e)}")
+
+
+@router.get("/workflow/status/{workflow_id}")
+async def get_workflow_status(workflow_id: str, _=Depends(verify_api_key)):
+    """
+    Get workflow status by ID.
+
+    Returns current stage, progress, and results.
+    """
+    try:
+        from api.main import task_manager
+
+        # Query workflow state from Redis
+        workflow_data = await task_manager.redis.hgetall(f"workflow:{workflow_id}")
+        if not workflow_data:
+            raise HTTPException(404, f"Workflow {workflow_id} not found")
+
+        status = workflow_data.get("status", "running")
+        current_stage = workflow_data.get("current_stage", "prompt_analysis")
+
+        # Build stages list
+        stages = []
+        stage_names = ["prompt_analysis", "first_frame_acquisition", "seedream_edit", "video_generation"]
+
+        for stage_name in stage_names:
+            stage_status = workflow_data.get(f"stage_{stage_name}", "pending")
+            stage_error = workflow_data.get(f"stage_{stage_name}_error")
+            stages.append(WorkflowStage(
+                name=stage_name,
+                status=stage_status,
+                error=stage_error
+            ))
+
+        return WorkflowGenerateResponse(
+            workflow_id=workflow_id,
+            status=status,
+            current_stage=current_stage,
+            stages=stages,
+            chain_id=workflow_data.get("chain_id"),
+            final_video_url=workflow_data.get("final_video_url"),
+            first_frame_url=workflow_data.get("first_frame_url"),
+            edited_frame_url=workflow_data.get("edited_frame_url"),
+            error=workflow_data.get("error")
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to get workflow status: {e}", exc_info=True)
+        raise HTTPException(500, f"Failed to get workflow status: {str(e)}")
+
+
+# ============================================================================
+# Custom Workflow API (existing)
+# ============================================================================
 
 
 @router.post("/workflow/run", response_model=GenerateResponse)

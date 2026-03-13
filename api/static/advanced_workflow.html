@@ -1,0 +1,706 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>高级视频生成工作流</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 16px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+            overflow: hidden;
+        }
+
+        .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 30px;
+            text-align: center;
+        }
+
+        .header h1 {
+            font-size: 28px;
+            margin-bottom: 10px;
+        }
+
+        .header p {
+            opacity: 0.9;
+            font-size: 14px;
+        }
+
+        .content {
+            padding: 30px;
+        }
+
+        .section {
+            margin-bottom: 30px;
+        }
+
+        .section-title {
+            font-size: 18px;
+            font-weight: 600;
+            margin-bottom: 15px;
+            color: #333;
+            display: flex;
+            align-items: center;
+        }
+
+        .section-title::before {
+            content: "";
+            width: 4px;
+            height: 20px;
+            background: #667eea;
+            margin-right: 10px;
+            border-radius: 2px;
+        }
+
+        .mode-selector {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+            margin-bottom: 20px;
+        }
+
+        .mode-card {
+            border: 2px solid #e0e0e0;
+            border-radius: 12px;
+            padding: 20px;
+            cursor: pointer;
+            transition: all 0.3s;
+            text-align: center;
+        }
+
+        .mode-card:hover {
+            border-color: #667eea;
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(102, 126, 234, 0.2);
+        }
+
+        .mode-card.active {
+            border-color: #667eea;
+            background: #f0f4ff;
+        }
+
+        .mode-card h3 {
+            font-size: 16px;
+            margin-bottom: 8px;
+            color: #333;
+        }
+
+        .mode-card p {
+            font-size: 13px;
+            color: #666;
+            line-height: 1.5;
+        }
+
+        .form-group {
+            margin-bottom: 20px;
+        }
+
+        .form-label {
+            display: block;
+            font-size: 14px;
+            font-weight: 500;
+            margin-bottom: 8px;
+            color: #333;
+        }
+
+        .form-input, .form-textarea, .form-select {
+            width: 100%;
+            padding: 12px;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            font-size: 14px;
+            transition: border-color 0.3s;
+        }
+
+        .form-input:focus, .form-textarea:focus, .form-select:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+
+        .form-textarea {
+            min-height: 100px;
+            resize: vertical;
+        }
+
+        .upload-area {
+            border: 2px dashed #ddd;
+            border-radius: 12px;
+            padding: 40px;
+            text-align: center;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+
+        .upload-area:hover {
+            border-color: #667eea;
+            background: #f9fafb;
+        }
+
+        .upload-area.dragover {
+            border-color: #667eea;
+            background: #f0f4ff;
+        }
+
+        .upload-icon {
+            font-size: 48px;
+            color: #667eea;
+            margin-bottom: 10px;
+        }
+
+        .btn {
+            padding: 12px 24px;
+            border: none;
+            border-radius: 8px;
+            font-size: 14px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+
+        .btn-primary {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+        }
+
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+        }
+
+        .btn-primary:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .btn-secondary {
+            background: #f3f4f6;
+            color: #333;
+        }
+
+        .btn-secondary:hover {
+            background: #e5e7eb;
+        }
+
+        .progress-container {
+            display: none;
+            margin-top: 30px;
+            padding: 20px;
+            background: #f9fafb;
+            border-radius: 12px;
+        }
+
+        .progress-container.active {
+            display: block;
+        }
+
+        .progress-stage {
+            margin-bottom: 15px;
+        }
+
+        .progress-stage-header {
+            display: flex;
+            align-items: center;
+            margin-bottom: 8px;
+        }
+
+        .progress-stage-icon {
+            width: 24px;
+            height: 24px;
+            border-radius: 50%;
+            margin-right: 10px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 12px;
+        }
+
+        .progress-stage-icon.pending {
+            background: #e5e7eb;
+            color: #9ca3af;
+        }
+
+        .progress-stage-icon.running {
+            background: #667eea;
+            color: white;
+            animation: pulse 1.5s infinite;
+        }
+
+        .progress-stage-icon.completed {
+            background: #10b981;
+            color: white;
+        }
+
+        .progress-stage-icon.failed {
+            background: #ef4444;
+            color: white;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+
+        .progress-stage-name {
+            font-size: 14px;
+            font-weight: 500;
+            color: #333;
+        }
+
+        .progress-bar {
+            height: 4px;
+            background: #e5e7eb;
+            border-radius: 2px;
+            overflow: hidden;
+        }
+
+        .progress-bar-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #667eea 0%, #764ba2 100%);
+            transition: width 0.3s;
+        }
+
+        .result-container {
+            display: none;
+            margin-top: 30px;
+            padding: 20px;
+            background: #f9fafb;
+            border-radius: 12px;
+        }
+
+        .result-container.active {
+            display: block;
+        }
+
+        .result-video {
+            width: 100%;
+            border-radius: 12px;
+            margin-bottom: 15px;
+        }
+
+        .result-actions {
+            display: flex;
+            gap: 10px;
+        }
+
+        .lora-list {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+            gap: 15px;
+            margin-top: 15px;
+        }
+
+        .lora-card {
+            border: 1px solid #e0e0e0;
+            border-radius: 8px;
+            padding: 15px;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+
+        .lora-card:hover {
+            border-color: #667eea;
+            box-shadow: 0 2px 8px rgba(102, 126, 234, 0.2);
+        }
+
+        .lora-card.selected {
+            border-color: #667eea;
+            background: #f0f4ff;
+        }
+
+        .lora-card-name {
+            font-size: 14px;
+            font-weight: 500;
+            margin-bottom: 5px;
+            color: #333;
+        }
+
+        .lora-card-similarity {
+            font-size: 12px;
+            color: #667eea;
+        }
+
+        .hidden {
+            display: none;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🎬 高级视频生成工作流</h1>
+            <p>支持面部参考、全身参考和首帧三种模式</p>
+        </div>
+
+        <div class="content">
+            <!-- Mode Selection -->
+            <div class="section">
+                <div class="section-title">选择工作流模式</div>
+                <div class="mode-selector">
+                    <div class="mode-card active" data-mode="face_reference">
+                        <h3>👤 面部参考</h3>
+                        <p>使用参考人脸生成视频，保持面部特征</p>
+                    </div>
+                    <div class="mode-card" data-mode="full_body_reference">
+                        <h3>🧍 全身参考</h3>
+                        <p>使用全身参考图生成视频，保持整体形象</p>
+                    </div>
+                    <div class="mode-card" data-mode="first_frame">
+                        <h3>🖼️ 首帧模式</h3>
+                        <p>直接从首帧图片生成视频</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Prompt Input -->
+            <div class="section">
+                <div class="section-title">输入提示词</div>
+                <div class="form-group">
+                    <label class="form-label">视频描述</label>
+                    <textarea class="form-textarea" id="promptInput" placeholder="描述你想要生成的视频内容，例如：一个美丽的女孩在海边跳舞"></textarea>
+                </div>
+            </div>
+
+            <!-- Reference Image Upload -->
+            <div class="section" id="referenceSection">
+                <div class="section-title">上传参考图片</div>
+                <div class="upload-area" id="referenceUpload">
+                    <div class="upload-icon">📤</div>
+                    <p>点击或拖拽上传参考图片</p>
+                    <input type="file" id="referenceFile" accept="image/*" style="display: none;">
+                </div>
+                <div id="referencePreview" class="hidden" style="margin-top: 15px;">
+                    <img id="referenceImg" style="max-width: 100%; border-radius: 8px;">
+                </div>
+            </div>
+
+            <!-- First Frame Source -->
+            <div class="section" id="firstFrameSection">
+                <div class="section-title">首帧来源</div>
+                <div class="form-group">
+                    <select class="form-select" id="firstFrameSource">
+                        <option value="use_uploaded">使用上传的图片（默认）</option>
+                        <option value="generate">使用LORA生成</option>
+                        <option value="select_existing">从图库选择</option>
+                    </select>
+                </div>
+                <div class="upload-area" id="firstFrameUpload">
+                    <div class="upload-icon">🖼️</div>
+                    <p>点击或拖拽上传首帧图片</p>
+                    <input type="file" id="firstFrameFile" accept="image/*" style="display: none;">
+                </div>
+                <div id="firstFramePreview" class="hidden" style="margin-top: 15px;">
+                    <img id="firstFrameImg" style="max-width: 100%; border-radius: 8px;">
+                </div>
+            </div>
+
+            <!-- SeeDream Edit Mode -->
+            <div class="section" id="seedreamSection">
+                <div class="section-title">SeeDream 编辑模式</div>
+                <div class="form-group">
+                    <select class="form-select" id="editMode">
+                        <option value="face_only">仅换脸</option>
+                        <option value="face_wearings" selected>换脸 + 首饰</option>
+                        <option value="full_body">换脸 + 首饰 + 服装</option>
+                    </select>
+                </div>
+            </div>
+
+            <!-- Generate Button -->
+            <div class="section">
+                <button class="btn btn-primary" id="generateBtn" style="width: 100%;">
+                    🚀 开始生成
+                </button>
+            </div>
+
+            <!-- Progress -->
+            <div class="progress-container" id="progressContainer">
+                <div class="section-title">生成进度</div>
+                <div class="progress-stage">
+                    <div class="progress-stage-header">
+                        <div class="progress-stage-icon pending" id="stage1Icon">1</div>
+                        <div class="progress-stage-name">提示词分析</div>
+                    </div>
+                </div>
+                <div class="progress-stage">
+                    <div class="progress-stage-header">
+                        <div class="progress-stage-icon pending" id="stage2Icon">2</div>
+                        <div class="progress-stage-name">首帧获取</div>
+                    </div>
+                </div>
+                <div class="progress-stage">
+                    <div class="progress-stage-header">
+                        <div class="progress-stage-icon pending" id="stage3Icon">3</div>
+                        <div class="progress-stage-name">SeeDream 编辑</div>
+                    </div>
+                </div>
+                <div class="progress-stage">
+                    <div class="progress-stage-header">
+                        <div class="progress-stage-icon pending" id="stage4Icon">4</div>
+                        <div class="progress-stage-name">视频生成</div>
+                    </div>
+                </div>
+                <div class="progress-bar" style="margin-top: 15px;">
+                    <div class="progress-bar-fill" id="progressBarFill" style="width: 0%;"></div>
+                </div>
+            </div>
+
+            <!-- Result -->
+            <div class="result-container" id="resultContainer">
+                <div class="section-title">生成结果</div>
+                <video class="result-video" id="resultVideo" controls></video>
+                <div class="result-actions">
+                    <button class="btn btn-primary" id="downloadBtn">下载视频</button>
+                    <button class="btn btn-secondary" id="newBtn">生成新视频</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const API_KEY = 'wan22-default-key-change-me';
+        const API_BASE = '/api/v1';
+
+        let selectedMode = 'face_reference';
+        let referenceImage = null;
+        let firstFrameImage = null;
+        let currentWorkflowId = null;
+
+        // Mode selection
+        document.querySelectorAll('.mode-card').forEach(card => {
+            card.addEventListener('click', () => {
+                document.querySelectorAll('.mode-card').forEach(c => c.classList.remove('active'));
+                card.classList.add('active');
+                selectedMode = card.dataset.mode;
+                updateUIForMode();
+            });
+        });
+
+        function updateUIForMode() {
+            const referenceSection = document.getElementById('referenceSection');
+            const firstFrameSection = document.getElementById('firstFrameSection');
+            const seedreamSection = document.getElementById('seedreamSection');
+
+            if (selectedMode === 'first_frame') {
+                referenceSection.classList.add('hidden');
+                seedreamSection.classList.add('hidden');
+                firstFrameSection.classList.remove('hidden');
+            } else {
+                referenceSection.classList.remove('hidden');
+                seedreamSection.classList.remove('hidden');
+                firstFrameSection.classList.remove('hidden');
+            }
+        }
+
+        // File upload handlers
+        function setupUpload(uploadAreaId, fileInputId, previewId, imgId, callback) {
+            const uploadArea = document.getElementById(uploadAreaId);
+            const fileInput = document.getElementById(fileInputId);
+            const preview = document.getElementById(previewId);
+            const img = document.getElementById(imgId);
+
+            uploadArea.addEventListener('click', () => fileInput.click());
+
+            fileInput.addEventListener('change', (e) => {
+                const file = e.target.files[0];
+                if (file) {
+                    const reader = new FileReader();
+                    reader.onload = (e) => {
+                        img.src = e.target.result;
+                        preview.classList.remove('hidden');
+                        callback(e.target.result);
+                    };
+                    reader.readAsDataURL(file);
+                }
+            });
+
+            // Drag and drop
+            uploadArea.addEventListener('dragover', (e) => {
+                e.preventDefault();
+                uploadArea.classList.add('dragover');
+            });
+
+            uploadArea.addEventListener('dragleave', () => {
+                uploadArea.classList.remove('dragover');
+            });
+
+            uploadArea.addEventListener('drop', (e) => {
+                e.preventDefault();
+                uploadArea.classList.remove('dragover');
+                const file = e.dataTransfer.files[0];
+                if (file && file.type.startsWith('image/')) {
+                    const reader = new FileReader();
+                    reader.onload = (e) => {
+                        img.src = e.target.result;
+                        preview.classList.remove('hidden');
+                        callback(e.target.result);
+                    };
+                    reader.readAsDataURL(file);
+                }
+            });
+        }
+
+        setupUpload('referenceUpload', 'referenceFile', 'referencePreview', 'referenceImg', (data) => {
+            referenceImage = data;
+        });
+
+        setupUpload('firstFrameUpload', 'firstFrameFile', 'firstFramePreview', 'firstFrameImg', (data) => {
+            firstFrameImage = data;
+        });
+
+        // Generate button
+        document.getElementById('generateBtn').addEventListener('click', async () => {
+            const prompt = document.getElementById('promptInput').value.trim();
+            if (!prompt) {
+                alert('请输入提示词');
+                return;
+            }
+
+            if (selectedMode !== 'first_frame' && !referenceImage) {
+                alert('请上传参考图片');
+                return;
+            }
+
+            const firstFrameSource = document.getElementById('firstFrameSource').value;
+            if (firstFrameSource === 'use_uploaded' && !firstFrameImage) {
+                alert('请上传首帧图片');
+                return;
+            }
+
+            const editMode = document.getElementById('editMode').value;
+
+            // Show progress
+            document.getElementById('progressContainer').classList.add('active');
+            document.getElementById('resultContainer').classList.remove('active');
+            document.getElementById('generateBtn').disabled = true;
+
+            try {
+                // Call workflow API
+                const response = await fetch(`${API_BASE}/workflow/generate-advanced`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-API-Key': API_KEY
+                    },
+                    body: JSON.stringify({
+                        mode: selectedMode,
+                        user_prompt: prompt,
+                        reference_image: referenceImage,
+                        first_frame_source: firstFrameSource,
+                        uploaded_first_frame: firstFrameImage,
+                        seedream_params: {
+                            edit_mode: editMode,
+                            enable_reactor_first: true
+                        }
+                    })
+                });
+
+                const data = await response.json();
+                currentWorkflowId = data.workflow_id;
+
+                // Poll for status
+                pollWorkflowStatus(currentWorkflowId);
+
+            } catch (error) {
+                console.error('Error:', error);
+                alert('生成失败: ' + error.message);
+                document.getElementById('generateBtn').disabled = false;
+            }
+        });
+
+        async function pollWorkflowStatus(workflowId) {
+            const interval = setInterval(async () => {
+                try {
+                    const response = await fetch(`${API_BASE}/workflow/status/${workflowId}`, {
+                        headers: { 'X-API-Key': API_KEY }
+                    });
+                    const data = await response.json();
+
+                    updateProgress(data);
+
+                    if (data.status === 'completed') {
+                        clearInterval(interval);
+                        showResult(data);
+                    } else if (data.status === 'failed') {
+                        clearInterval(interval);
+                        alert('生成失败: ' + (data.error || '未知错误'));
+                        document.getElementById('generateBtn').disabled = false;
+                    }
+                } catch (error) {
+                    console.error('Poll error:', error);
+                }
+            }, 2000);
+        }
+
+        function updateProgress(data) {
+            const stages = data.stages || [];
+            const stageIcons = ['stage1Icon', 'stage2Icon', 'stage3Icon', 'stage4Icon'];
+
+            stages.forEach((stage, index) => {
+                const icon = document.getElementById(stageIcons[index]);
+                if (icon) {
+                    icon.className = `progress-stage-icon ${stage.status}`;
+                    if (stage.status === 'completed') {
+                        icon.textContent = '✓';
+                    } else if (stage.status === 'failed') {
+                        icon.textContent = '✗';
+                    } else {
+                        icon.textContent = index + 1;
+                    }
+                }
+            });
+
+            const progress = data.progress || 0;
+            document.getElementById('progressBarFill').style.width = (progress * 100) + '%';
+        }
+
+        function showResult(data) {
+            document.getElementById('progressContainer').classList.remove('active');
+            document.getElementById('resultContainer').classList.add('active');
+            document.getElementById('resultVideo').src = data.final_video_url;
+            document.getElementById('generateBtn').disabled = false;
+        }
+
+        // Download button
+        document.getElementById('downloadBtn').addEventListener('click', () => {
+            const video = document.getElementById('resultVideo');
+            const a = document.createElement('a');
+            a.href = video.src;
+            a.download = 'video.mp4';
+            a.click();
+        });
+
+        // New button
+        document.getElementById('newBtn').addEventListener('click', () => {
+            document.getElementById('resultContainer').classList.remove('active');
+            document.getElementById('progressContainer').classList.remove('active');
+            document.getElementById('promptInput').value = '';
+            referenceImage = null;
+            firstFrameImage = null;
+            document.getElementById('referencePreview').classList.add('hidden');
+            document.getElementById('firstFramePreview').classList.add('hidden');
+        });
+
+        // Initialize
+        updateUIForMode();
+    </script>
+</body>
+</html>
