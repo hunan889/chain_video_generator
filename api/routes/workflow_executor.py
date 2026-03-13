@@ -6,10 +6,171 @@ This module contains the async orchestration logic for the advanced workflow sys
 import logging
 import base64
 import json
-from typing import Optional
+from typing import Optional, Any
 import aiohttp
 
 logger = logging.getLogger(__name__)
+
+
+def _get_config(req, stage: str, key: str, default: Any = None) -> Any:
+    """
+    Get configuration value with priority: internal_config > legacy params > default
+
+    Args:
+        req: WorkflowGenerateRequest object
+        stage: Stage name (e.g., "stage1_prompt_analysis", "stage2_first_frame")
+        key: Configuration key
+        default: Default value if not found
+
+    Returns:
+        Configuration value
+    """
+    # Priority 1: internal_config
+    if req.internal_config and stage in req.internal_config:
+        stage_config = req.internal_config[stage]
+        if key in stage_config:
+            return stage_config[key]
+
+    # Priority 2: Legacy parameters
+    if stage == "stage1_prompt_analysis":
+        if key == "auto_analyze":
+            return req.auto_analyze
+        elif key == "auto_lora":
+            return req.auto_lora
+        elif key == "auto_prompt":
+            return req.auto_prompt
+
+    elif stage == "stage2_first_frame":
+        if key == "first_frame_source":
+            return req.first_frame_source.value
+        elif key == "t2i" and req.t2i_params:
+            return req.t2i_params
+
+    elif stage == "stage3_seedream":
+        if req.seedream_params:
+            if key == "mode":
+                return req.seedream_params.get("edit_mode", default)
+            elif key == "enable_reactor":
+                return req.seedream_params.get("enable_reactor_first", default)
+            elif key in req.seedream_params:
+                return req.seedream_params[key]
+
+    elif stage == "stage4_video":
+        if req.video_params and key in req.video_params:
+            return req.video_params[key]
+
+    # Priority 3: Default value
+    return default
+
+
+def get_default_seedream_prompt(mode: str) -> str:
+    """
+    Get default SeeDream prompt based on edit mode.
+
+    Args:
+        mode: Edit mode (face_only, face_wearings, full_body)
+
+    Returns:
+        Default prompt string
+    """
+    prompts = {
+        "face_only": "edit image 2, keep the position and pose of image 2, swap face to image 1, only change the face, keep everything else exactly the same including clothing, accessories, background",
+        "face_wearings": "edit image 2, keep the position and pose of image 2, swap face to image 1, change face and accessories (jewelry, glasses, hair accessories) to match image 1, keep clothing and background the same",
+        "full_body": "edit image 2, keep the position and pose of image 2, swap face to image 1, change face, accessories, and clothing to match image 1, keep background the same"
+    }
+    return prompts.get(mode, prompts["face_wearings"])
+
+
+async def _apply_face_swap_to_frame(
+    frame_url: str,
+    reference_face: str,
+    strength: float = 1.0,
+    task_manager = None
+) -> Optional[str]:
+    """
+    Apply face swap to a single frame using Reactor.
+
+    Args:
+        frame_url: URL of the frame image
+        reference_face: Reference face image (base64 or URL)
+        strength: Face swap strength (0.0-1.0)
+        task_manager: TaskManager instance
+
+    Returns:
+        URL of the face-swapped image, or None if failed
+    """
+    try:
+        import requests as http_requests
+        from api.config import FORGE_URL
+        from api.services import storage
+        import uuid
+
+        # Download frame image
+        async with aiohttp.ClientSession() as session:
+            async with session.get(frame_url) as resp:
+                if resp.status != 200:
+                    logger.error(f"Failed to download frame: {resp.status}")
+                    return None
+                frame_data = await resp.read()
+
+        frame_b64 = base64.b64encode(frame_data).decode()
+
+        # Decode reference face
+        if reference_face.startswith('data:image'):
+            face_b64 = reference_face.split(',')[1]
+        elif reference_face.startswith('http'):
+            async with aiohttp.ClientSession() as session:
+                async with session.get(reference_face) as resp:
+                    if resp.status != 200:
+                        logger.error(f"Failed to download reference face: {resp.status}")
+                        return None
+                    face_data = await resp.read()
+            face_b64 = base64.b64encode(face_data).decode()
+        else:
+            face_b64 = reference_face
+
+        # Call Reactor API
+        reactor_payload = {
+            "source_image": face_b64,
+            "target_image": frame_b64,
+            "source_faces_index": [0],
+            "face_index": [0],
+            "model": "inswapper_128.onnx",
+            "face_restorer": "CodeFormer",
+            "restorer_visibility": 1,
+            "codeformer_weight": 0.7,
+            "restore_first": 1,
+            "upscaler": "None",
+            "scale": 1,
+            "upscale_visibility": 1,
+            "device": "CUDA",
+            "mask_face": 1,
+            "det_thresh": 0.5,
+            "det_maxnum": 0,
+        }
+
+        logger.info(f"Applying face swap to frame with strength={strength}")
+        reactor_resp = http_requests.post(
+            f"{FORGE_URL}/reactor/image", json=reactor_payload, timeout=120
+        )
+
+        if reactor_resp.status_code == 200:
+            swapped_b64 = reactor_resp.json()["image"]
+            swapped_data = base64.b64decode(swapped_b64)
+
+            # Save result
+            filename = f"face_swap_{uuid.uuid4().hex[:8]}.png"
+            local_path, url = await storage.save_upload(swapped_data, filename)
+
+            logger.info(f"Face swap completed: {url}")
+            return url
+        else:
+            logger.error(f"Reactor failed: {reactor_resp.status_code}")
+            return None
+
+    except Exception as e:
+        logger.error(f"Face swap failed: {e}", exc_info=True)
+        return None
 
 
 async def _execute_workflow(workflow_id: str, req, task_manager):
@@ -27,7 +188,9 @@ async def _execute_workflow(workflow_id: str, req, task_manager):
         await _update_stage(task_manager, workflow_id, "prompt_analysis", "running")
 
         analysis_result = None
-        if req.auto_analyze:
+        auto_analyze = _get_config(req, "stage1_prompt_analysis", "auto_analyze", True)
+
+        if auto_analyze:
             analysis_result = await _analyze_prompt(req, task_manager)
             if analysis_result:
                 await task_manager.redis.hset(f"workflow:{workflow_id}", mapping={
@@ -44,7 +207,7 @@ async def _execute_workflow(workflow_id: str, req, task_manager):
 
                 await _update_stage(task_manager, workflow_id, "prompt_analysis", "completed", details=details)
             else:
-                await _update_stage(task_manager, workflow_id, "prompt_analysis", "completed", details="未启用自动分析")
+                await _update_stage(task_manager, workflow_id, "prompt_analysis", "completed", details="分析失败")
         else:
             await _update_stage(task_manager, workflow_id, "prompt_analysis", "completed", details="跳过（未启用）")
 
@@ -67,6 +230,24 @@ async def _execute_workflow(workflow_id: str, req, task_manager):
             "select_existing": "选择已有图片"
         }.get(req.first_frame_source.value, req.first_frame_source.value)
         details = f"来源: {source_text}\nURL: {first_frame_url}"
+
+        # Stage 2.1: 首帧换脸（可选）
+        face_swap_config = _get_config(req, "stage2_first_frame", "face_swap", {})
+        if face_swap_config.get("enabled") and req.reference_image:
+            logger.info("Applying face swap to first frame")
+            swapped_url = await _apply_face_swap_to_frame(
+                first_frame_url,
+                req.reference_image,
+                strength=face_swap_config.get("strength", 1.0),
+                task_manager=task_manager
+            )
+            if swapped_url:
+                first_frame_url = swapped_url
+                await task_manager.redis.hset(f"workflow:{workflow_id}", "first_frame_url", first_frame_url)
+                details += f"\n首帧换脸: 已应用 (强度: {face_swap_config.get('strength', 1.0)})"
+            else:
+                details += "\n首帧换脸: 失败，使用原图"
+
         await _update_stage(task_manager, workflow_id, "first_frame_acquisition", "completed", details=details)
 
         # Stage 3: SeeDream Editing
@@ -80,10 +261,17 @@ async def _execute_workflow(workflow_id: str, req, task_manager):
                 await task_manager.redis.hset(f"workflow:{workflow_id}", "edited_frame_url", edited_frame_url)
 
                 # 保存详细信息
-                seedream_params = req.seedream_params or {}
-                edit_mode = seedream_params.get("edit_mode", "face_wearings")
-                enable_reactor = seedream_params.get("enable_reactor_first", True)
-                details = f"编辑模式: {edit_mode}\n换脸: {'是' if enable_reactor else '否'}\n结果URL: {edited_frame_url}"
+                edit_mode = _get_config(req, "stage3_seedream", "mode", "face_wearings")
+                enable_reactor = _get_config(req, "stage3_seedream", "enable_reactor", True)
+                custom_prompt = _get_config(req, "stage3_seedream", "prompt", None)
+
+                details = f"编辑模式: {edit_mode}\n换脸: {'是' if enable_reactor else '否'}\n"
+                if custom_prompt:
+                    details += f"自定义Prompt: {custom_prompt[:80]}...\n"
+                else:
+                    details += f"默认Prompt: {get_default_seedream_prompt(edit_mode)[:80]}...\n"
+                details += f"结果URL: {edited_frame_url}"
+
                 await _update_stage(task_manager, workflow_id, "seedream_edit", "completed", details=details)
             else:
                 await _update_stage(task_manager, workflow_id, "seedream_edit", "completed", details="编辑失败，使用原图")
@@ -104,11 +292,29 @@ async def _execute_workflow(workflow_id: str, req, task_manager):
             await task_manager.redis.hset(f"workflow:{workflow_id}", "final_video_url", final_video_url)
 
         # 保存详细信息
-        video_params = req.video_params or {}
+        video_model = _get_config(req, "stage4_video", "model", "A14B")
+        video_resolution = _get_config(req, "stage4_video", "resolution", "720p_3:4")
+        video_duration = _get_config(req, "stage4_video", "duration", "5s")
+
+        # 检查视频换脸配置
+        video_face_swap_config = _get_config(req, "stage4_video", "face_swap", {})
+        face_swap_enabled = video_face_swap_config.get("enabled", False) if isinstance(video_face_swap_config, dict) else False
+
+        # 检查后处理配置
+        postprocess_config = _get_config(req, "stage4_video", "postprocess", {})
+        upscale_enabled = postprocess_config.get("upscale", {}).get("enabled", False) if isinstance(postprocess_config, dict) else False
+        interp_enabled = postprocess_config.get("interpolation", {}).get("enabled", False) if isinstance(postprocess_config, dict) else False
+
         details = f"Chain ID: {chain_id}\n"
-        details += f"模型: {video_params.get('model', 'A14B')}\n"
-        details += f"分辨率: {video_params.get('resolution', '720p_3:4')}\n"
-        details += f"时长: {video_params.get('duration', '5s')}\n"
+        details += f"模型: {video_model}\n"
+        details += f"分辨率: {video_resolution}\n"
+        details += f"时长: {video_duration}\n"
+        if face_swap_enabled:
+            details += f"视频换脸: 已启用\n"
+        if upscale_enabled:
+            details += f"超分: 已启用\n"
+        if interp_enabled:
+            details += f"插帧: 已启用\n"
         details += f"视频URL: {final_video_url}"
         await _update_stage(task_manager, workflow_id, "video_generation", "completed", details=details)
 
@@ -225,13 +431,17 @@ async def _generate_t2i_image(req, analysis_result: Optional[dict], task_manager
             if optimized_t2i:
                 prompt = optimized_t2i
 
-        # Get T2I parameters
-        t2i_params = req.t2i_params or {}
-        width = t2i_params.get("width", 832)
-        height = t2i_params.get("height", 1216)
-        steps = t2i_params.get("steps", 20)
-        cfg_scale = t2i_params.get("cfg_scale", 7.0)
-        sampler = t2i_params.get("sampler", "DPM++ 2M Karras")
+        # Get T2I parameters from internal_config or legacy params
+        t2i_config = _get_config(req, "stage2_first_frame", "t2i", {})
+        if not t2i_config and req.t2i_params:
+            t2i_config = req.t2i_params
+
+        width = t2i_config.get("width", 832)
+        height = t2i_config.get("height", 1216)
+        steps = t2i_config.get("steps", 20)
+        cfg_scale = t2i_config.get("cfg_scale", 7.0)
+        sampler = t2i_config.get("sampler", "DPM++ 2M Karras")
+        seed = t2i_config.get("seed", -1)
 
         # Call SD WebUI txt2img API
         payload = {
@@ -242,7 +452,7 @@ async def _generate_t2i_image(req, analysis_result: Optional[dict], task_manager
             "steps": steps,
             "cfg_scale": cfg_scale,
             "sampler_name": sampler,
-            "seed": -1
+            "seed": seed
         }
 
         logger.info(f"Generating T2I image: {prompt[:100]}...")
@@ -277,10 +487,18 @@ async def _edit_first_frame(workflow_id: str, req, first_frame_url: str, task_ma
     try:
         from api.routes.workflow import seedream_edit, SeeDreamEditRequest
 
-        # Get SeeDream parameters
-        seedream_params = req.seedream_params or {}
-        edit_mode = seedream_params.get("edit_mode", "face_wearings")
-        enable_reactor = seedream_params.get("enable_reactor_first", True)
+        # Get SeeDream parameters from internal_config or legacy params
+        edit_mode = _get_config(req, "stage3_seedream", "mode", "face_wearings")
+        enable_reactor = _get_config(req, "stage3_seedream", "enable_reactor", True)
+        custom_prompt = _get_config(req, "stage3_seedream", "prompt", None)
+        strength = _get_config(req, "stage3_seedream", "strength", 0.8)
+        seed = _get_config(req, "stage3_seedream", "seed", None)
+
+        # Use custom prompt or default prompt
+        if custom_prompt:
+            prompt = custom_prompt
+        else:
+            prompt = get_default_seedream_prompt(edit_mode)
 
         # Call SeeDream edit endpoint
         edit_req = SeeDreamEditRequest(
@@ -288,7 +506,9 @@ async def _edit_first_frame(workflow_id: str, req, first_frame_url: str, task_ma
             reference_face=req.reference_image,
             mode=edit_mode,
             enable_face_swap=enable_reactor,
-            size="1024x1024"
+            prompt=prompt,
+            size="1024x1024",
+            seed=seed
         )
 
         result = await seedream_edit(edit_req, _=None)
@@ -314,13 +534,22 @@ async def _generate_video(workflow_id: str, req, first_frame_url: str, analysis_
         from io import BytesIO
         from fastapi import UploadFile
 
-        # Get video parameters
-        video_params = req.video_params or {}
-        model = ModelType(video_params.get("model", "A14B"))
-        resolution = video_params.get("resolution", "720p_3:4")
-        duration = video_params.get("duration", "5s")
-        steps = video_params.get("steps", 20)
-        cfg = video_params.get("cfg", 6.0)
+        # Get video parameters from internal_config or legacy params
+        video_model = _get_config(req, "stage4_video", "model", "A14B")
+        video_resolution = _get_config(req, "stage4_video", "resolution", "720p_3:4")
+        video_duration = _get_config(req, "stage4_video", "duration", "5s")
+        video_steps = _get_config(req, "stage4_video", "steps", 20)
+        video_cfg = _get_config(req, "stage4_video", "cfg", 6.0)
+        video_shift = _get_config(req, "stage4_video", "shift", 5.0)
+        video_scheduler = _get_config(req, "stage4_video", "scheduler", "unipc")
+        video_noise_aug = _get_config(req, "stage4_video", "noise_aug_strength", 0.0)
+        video_motion_amp = _get_config(req, "stage4_video", "motion_amplitude", 0.0)
+
+        model = ModelType(video_model)
+        resolution = video_resolution
+        duration = video_duration
+        steps = video_steps
+        cfg = video_cfg
 
         # Parse resolution
         if resolution == "720p_3:4":
@@ -337,14 +566,16 @@ async def _generate_video(workflow_id: str, req, first_frame_url: str, analysis_
 
         # Build prompt
         prompt = req.user_prompt
-        if analysis_result and req.auto_prompt:
+        auto_prompt = _get_config(req, "stage1_prompt_analysis", "auto_prompt", True)
+        if analysis_result and auto_prompt:
             optimized_i2v = analysis_result.get("optimized_i2v_prompt")
             if optimized_i2v:
                 prompt = optimized_i2v
 
         # Build LORAs list
         loras = []
-        if analysis_result and req.auto_lora:
+        auto_lora = _get_config(req, "stage1_prompt_analysis", "auto_lora", True)
+        if analysis_result and auto_lora:
             video_loras = analysis_result.get("video_loras", [])
             for lora in video_loras[:3]:  # Top 3
                 loras.append(LoraInput(
@@ -382,15 +613,49 @@ async def _generate_video(workflow_id: str, req, first_frame_url: str, analysis_
             duration=duration_seconds,
             steps=steps,
             cfg=cfg,
+            shift=video_shift,
+            scheduler=video_scheduler,
             loras=loras,
             image_mode=image_mode,
             auto_continue=False,
+            noise_aug_strength=video_noise_aug,
+            motion_amplitude=video_motion_amp,
             segments=[ChainSegment(
                 prompt=prompt,
                 duration=duration_seconds,
                 loras=[]
             )]
         )
+
+        # Apply video face swap configuration
+        video_face_swap_config = _get_config(req, "stage4_video", "face_swap", {})
+        if isinstance(video_face_swap_config, dict) and video_face_swap_config.get("enabled"):
+            # Set face swap mode
+            face_swap_mode = video_face_swap_config.get("mode", "face_reference")
+            if face_swap_mode == "face_reference":
+                chain_req.image_mode = ImageMode.FACE_REFERENCE
+            elif face_swap_mode == "full_body_reference":
+                chain_req.image_mode = ImageMode.FULL_BODY_REFERENCE
+
+            # Set face swap strength
+            chain_req.face_swap_strength = video_face_swap_config.get("strength", 1.0)
+
+        # Apply postprocess configuration
+        postprocess_config = _get_config(req, "stage4_video", "postprocess", {})
+        if isinstance(postprocess_config, dict):
+            # Upscale
+            upscale_config = postprocess_config.get("upscale", {})
+            if upscale_config.get("enabled"):
+                chain_req.enable_upscale = True
+                chain_req.upscale_model = upscale_config.get("model", "RealESRGAN_x4plus")
+                chain_req.upscale_resize = upscale_config.get("resize", 2.0)
+
+            # Interpolation
+            interp_config = postprocess_config.get("interpolation", {})
+            if interp_config.get("enabled"):
+                chain_req.enable_interpolation = True
+                chain_req.interpolation_multiplier = interp_config.get("multiplier", 2)
+                chain_req.interpolation_profile = interp_config.get("profile", "auto")
 
         # Call chain generation endpoint
         params_json = chain_req.model_dump_json()
