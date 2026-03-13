@@ -660,6 +660,12 @@ class WorkflowGenerateRequest(BaseModel):
         description="Video generation parameters"
     )
 
+    # Internal configuration (for debugging, disabled in production)
+    internal_config: Optional[dict] = Field(
+        default=None,
+        description="Internal configuration parameters (debug only)"
+    )
+
 
 class WorkflowStage(BaseModel):
     """Workflow stage status"""
@@ -720,7 +726,8 @@ async def generate_advanced_workflow(req: WorkflowGenerateRequest, _=Depends(ver
             "mode": req.mode,
             "user_prompt": req.user_prompt,
             "first_frame_source": req.first_frame_source.value,
-            "created_at": str(int(asyncio.get_event_loop().time()))
+            "created_at": str(int(asyncio.get_event_loop().time())),
+            "internal_config": json.dumps(req.internal_config) if req.internal_config else "{}"
         })
 
         logger.info(f"Advanced workflow {workflow_id} created: mode={req.mode}, source={req.first_frame_source}")
@@ -768,9 +775,12 @@ async def get_workflow_status(workflow_id: str, _=Depends(verify_api_key)):
         for stage_name in stage_names:
             stage_status = workflow_data.get(f"stage_{stage_name}", "pending")
             stage_error = workflow_data.get(f"stage_{stage_name}_error")
+            stage_details = workflow_data.get(f"stage_{stage_name}_details")
+
             stages.append(WorkflowStage(
                 name=stage_name,
                 status=stage_status,
+                sub_stage=stage_details,
                 error=stage_error
             ))
 

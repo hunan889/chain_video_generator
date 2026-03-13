@@ -34,6 +34,20 @@ async def _execute_workflow(workflow_id: str, req, task_manager):
                     "analysis_result": json.dumps(analysis_result)
                 })
 
+                # 保存详细信息
+                details = f"推荐Video LORAs: {len(analysis_result.get('video_loras', []))}个\n"
+                details += f"推荐Image LORAs: {len(analysis_result.get('image_loras', []))}个\n"
+                if analysis_result.get('optimized_t2i_prompt'):
+                    details += f"T2I优化Prompt: {analysis_result['optimized_t2i_prompt'][:100]}...\n"
+                if analysis_result.get('optimized_i2v_prompt'):
+                    details += f"I2V优化Prompt: {analysis_result['optimized_i2v_prompt'][:100]}..."
+
+                await _update_stage(task_manager, workflow_id, "prompt_analysis", "completed", details=details)
+            else:
+                await _update_stage(task_manager, workflow_id, "prompt_analysis", "completed", details="未启用自动分析")
+        else:
+            await _update_stage(task_manager, workflow_id, "prompt_analysis", "completed", details="跳过（未启用）")
+
         await _update_stage(task_manager, workflow_id, "prompt_analysis", "completed")
 
         # Stage 2: First Frame Acquisition
@@ -45,7 +59,15 @@ async def _execute_workflow(workflow_id: str, req, task_manager):
             raise Exception("Failed to acquire first frame")
 
         await task_manager.redis.hset(f"workflow:{workflow_id}", "first_frame_url", first_frame_url)
-        await _update_stage(task_manager, workflow_id, "first_frame_acquisition", "completed")
+
+        # 保存详细信息
+        source_text = {
+            "use_uploaded": "使用上传图片",
+            "generate": "T2I生成",
+            "select_existing": "选择已有图片"
+        }.get(req.first_frame_source.value, req.first_frame_source.value)
+        details = f"来源: {source_text}\nURL: {first_frame_url}"
+        await _update_stage(task_manager, workflow_id, "first_frame_acquisition", "completed", details=details)
 
         # Stage 3: SeeDream Editing
         await _update_stage(task_manager, workflow_id, "seedream_edit", "running")
@@ -56,6 +78,17 @@ async def _execute_workflow(workflow_id: str, req, task_manager):
             edited_frame_url = await _edit_first_frame(workflow_id, req, first_frame_url, task_manager)
             if edited_frame_url:
                 await task_manager.redis.hset(f"workflow:{workflow_id}", "edited_frame_url", edited_frame_url)
+
+                # 保存详细信息
+                seedream_params = req.seedream_params or {}
+                edit_mode = seedream_params.get("edit_mode", "face_wearings")
+                enable_reactor = seedream_params.get("enable_reactor_first", True)
+                details = f"编辑模式: {edit_mode}\n换脸: {'是' if enable_reactor else '否'}\n结果URL: {edited_frame_url}"
+                await _update_stage(task_manager, workflow_id, "seedream_edit", "completed", details=details)
+            else:
+                await _update_stage(task_manager, workflow_id, "seedream_edit", "completed", details="编辑失败，使用原图")
+        else:
+            await _update_stage(task_manager, workflow_id, "seedream_edit", "completed", details="跳过（首帧模式）")
 
         await _update_stage(task_manager, workflow_id, "seedream_edit", "completed")
 
@@ -70,7 +103,14 @@ async def _execute_workflow(workflow_id: str, req, task_manager):
         if final_video_url:
             await task_manager.redis.hset(f"workflow:{workflow_id}", "final_video_url", final_video_url)
 
-        await _update_stage(task_manager, workflow_id, "video_generation", "completed")
+        # 保存详细信息
+        video_params = req.video_params or {}
+        details = f"Chain ID: {chain_id}\n"
+        details += f"模型: {video_params.get('model', 'A14B')}\n"
+        details += f"分辨率: {video_params.get('resolution', '720p_3:4')}\n"
+        details += f"时长: {video_params.get('duration', '5s')}\n"
+        details += f"视频URL: {final_video_url}"
+        await _update_stage(task_manager, workflow_id, "video_generation", "completed", details=details)
 
         # Mark workflow as completed
         await task_manager.redis.hset(f"workflow:{workflow_id}", "status", "completed")
@@ -84,11 +124,13 @@ async def _execute_workflow(workflow_id: str, req, task_manager):
         })
 
 
-async def _update_stage(task_manager, workflow_id: str, stage_name: str, status: str, error: str = None):
+async def _update_stage(task_manager, workflow_id: str, stage_name: str, status: str, error: str = None, details: str = None):
     """Update stage status in Redis"""
     mapping = {f"stage_{stage_name}": status}
     if error:
         mapping[f"stage_{stage_name}_error"] = error
+    if details:
+        mapping[f"stage_{stage_name}_details"] = details
     await task_manager.redis.hset(f"workflow:{workflow_id}", mapping=mapping)
 
 
