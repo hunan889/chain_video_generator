@@ -1130,14 +1130,33 @@ function updateProgress(status) {
                 }
                 if (details.face_swapped !== undefined) detailsHtml += `<div style="margin-bottom:8px"><span style="color:#888">是否换脸:</span> ${details.face_swapped ? '✅ 是' : '❌ 否'}</div>`;
             } else if (stageInfo.title.includes('Stage 3')) {
-                if (details.mode) detailsHtml += `<div style="margin-bottom:8px"><span style="color:#888">编辑模式:</span> ${details.mode}</div>`;
-                if (details.prompt) detailsHtml += `<div style="margin-bottom:8px"><span style="color:#888">使用的 Prompt:</span> ${details.prompt}</div>`;
-                if (details.url || status.edited_frame_url) {
-                    const imgUrl = details.url || status.edited_frame_url;
-                    detailsHtml += `<div style="margin-bottom:8px"><span style="color:#888">编辑后图片:</span><br><img src="${imgUrl}" style="max-width:200px;border-radius:8px;margin-top:8px"></div>`;
+                if (details.skipped) {
+                    detailsHtml += `<div style="margin-bottom:8px"><span style="color:#888">状态:</span> ${details.reason || '已跳过'}</div>`;
+                } else {
+                    if (details.mode) detailsHtml += `<div style="margin-bottom:8px"><span style="color:#888">编辑模式:</span> ${details.mode}</div>`;
+                    if (details.size) detailsHtml += `<div style="margin-bottom:8px"><span style="color:#888">图片尺寸:</span> ${details.size}</div>`;
+                    if (details.enable_reactor !== undefined) detailsHtml += `<div style="margin-bottom:8px"><span style="color:#888">启用 ReActor:</span> ${details.enable_reactor ? '✅ 是' : '❌ 否'}</div>`;
+                    if (details.strength !== undefined) detailsHtml += `<div style="margin-bottom:8px"><span style="color:#888">强度:</span> ${details.strength}</div>`;
+                    if (details.seed !== undefined && details.seed !== null) detailsHtml += `<div style="margin-bottom:8px"><span style="color:#888">种子:</span> ${details.seed}</div>`;
+                    if (details.prompt) detailsHtml += `<div style="margin-bottom:8px"><span style="color:#888">Prompt:</span> ${details.prompt}</div>`;
+                    if (details.reference_image) detailsHtml += `<div style="margin-bottom:8px"><span style="color:#888">参考图:</span><br><img src="${details.reference_image}" style="max-width:150px;border-radius:8px;margin-top:8px"></div>`;
+                    if (details.first_frame_url) detailsHtml += `<div style="margin-bottom:8px"><span style="color:#888">输入图:</span><br><img src="${details.first_frame_url}" style="max-width:150px;border-radius:8px;margin-top:8px"></div>`;
+                    if (details.url || status.edited_frame_url) {
+                        const imgUrl = details.url || status.edited_frame_url;
+                        detailsHtml += `<div style="margin-bottom:8px"><span style="color:#888">编辑后图片:</span><br><img src="${imgUrl}" style="max-width:200px;border-radius:8px;margin-top:8px"></div>`;
+                    }
+                    if (details.error) detailsHtml += `<div style="margin-bottom:8px;color:#ff6b6b"><span style="color:#888">错误:</span> ${details.error}</div>`;
                 }
             } else if (stageInfo.title.includes('Stage 4')) {
                 if (details.model) detailsHtml += `<div style="margin-bottom:8px"><span style="color:#888">视频模型:</span> ${details.model}</div>`;
+                if (details.resolution) detailsHtml += `<div style="margin-bottom:8px"><span style="color:#888">分辨率:</span> ${details.resolution}</div>`;
+                if (details.duration) detailsHtml += `<div style="margin-bottom:8px"><span style="color:#888">时长:</span> ${details.duration}</div>`;
+                if (details.prompt) detailsHtml += `<div style="margin-bottom:8px"><span style="color:#888">Prompt:</span> ${details.prompt}</div>`;
+                if (details.face_swap_enabled !== undefined) detailsHtml += `<div style="margin-bottom:8px"><span style="color:#888">视频换脸:</span> ${details.face_swap_enabled ? '✅ 启用' : '❌ 禁用'}</div>`;
+                if (details.upscale_enabled !== undefined) detailsHtml += `<div style="margin-bottom:8px"><span style="color:#888">超分:</span> ${details.upscale_enabled ? '✅ 启用' : '❌ 禁用'}</div>`;
+                if (details.interpolation_enabled !== undefined) detailsHtml += `<div style="margin-bottom:8px"><span style="color:#888">插帧:</span> ${details.interpolation_enabled ? '✅ 启用' : '❌ 禁用'}</div>`;
+                if (details.first_frame_url) detailsHtml += `<div style="margin-bottom:8px"><span style="color:#888">首帧:</span><br><img src="${details.first_frame_url}" style="max-width:150px;border-radius:8px;margin-top:8px"></div>`;
+                if (details.chain_id) detailsHtml += `<div style="margin-bottom:8px"><span style="color:#888">Chain ID:</span> ${details.chain_id}</div>`;
 
                 // Show progress bar and step info
                 if (status.video_progress !== undefined && status.video_progress !== null) {
@@ -1158,9 +1177,6 @@ function updateProgress(status) {
                     }
                     detailsHtml += `<div style="margin-bottom:8px"><span style="color:#888">当前步骤:</span> ${stepInfo}</div>`;
                 }
-
-                if (details.face_swapped !== undefined) detailsHtml += `<div style="margin-bottom:8px"><span style="color:#888">是否换脸:</span> ${details.face_swapped ? '✅ 是' : '❌ 否'}</div>`;
-                if (details.postprocess) detailsHtml += `<div style="margin-bottom:8px"><span style="color:#888">后处理:</span> ${details.postprocess}</div>`;
             }
 
             detailsHtml += '</div>';
@@ -1228,6 +1244,90 @@ function showResult(status) {
     const video = document.getElementById('resultVideo');
     video.src = videoUrl;
     video.load();
+
+    // 显示所有 stage 的详细信息
+    const stagesInfoHtml = status.stages ? status.stages.map((stage, index) => {
+        const stageNum = index + 1;
+        const stageTitle = stage.name === 'prompt_analysis' ? 'Stage 1: Prompt 分析' :
+                          stage.name === 'first_frame_acquisition' ? 'Stage 2: 首帧获取' :
+                          stage.name === 'seedream_edit' ? 'Stage 3: SeeDream 编辑' :
+                          stage.name === 'video_generation' ? 'Stage 4: 视频生成' : stage.name;
+
+        let details = {};
+        try {
+            details = stage.sub_stage ? JSON.parse(stage.sub_stage) : {};
+        } catch (e) {
+            details = { raw: stage.sub_stage };
+        }
+
+        let detailsHtml = '<div style="margin-top:12px;padding:12px;background:#0a0a23;border-radius:6px">';
+
+        if (stageNum === 1) {
+            if (details.original_prompt) detailsHtml += `<div style="margin-bottom:8px"><span style="color:#888">原始 Prompt:</span> ${details.original_prompt}</div>`;
+            if (details.optimized_prompt) detailsHtml += `<div style="margin-bottom:8px"><span style="color:#888">优化后 Prompt:</span> ${details.optimized_prompt}</div>`;
+            if (details.image_loras) detailsHtml += `<div style="margin-bottom:8px"><span style="color:#888">Image LoRAs:</span> ${Array.isArray(details.image_loras) ? details.image_loras.join(', ') : details.image_loras}</div>`;
+            if (details.video_loras) detailsHtml += `<div style="margin-bottom:8px"><span style="color:#888">Video LoRAs:</span> ${Array.isArray(details.video_loras) ? details.video_loras.join(', ') : details.video_loras}</div>`;
+        } else if (stageNum === 2) {
+            if (details.source) detailsHtml += `<div style="margin-bottom:8px"><span style="color:#888">首帧来源:</span> ${details.source}</div>`;
+            if (details.url || status.first_frame_url) {
+                const imgUrl = details.url || status.first_frame_url;
+                detailsHtml += `<div style="margin-bottom:8px"><span style="color:#888">首帧图片:</span><br><img src="${imgUrl}" style="max-width:300px;border-radius:8px;margin-top:8px"></div>`;
+            }
+            if (details.face_swapped !== undefined) detailsHtml += `<div style="margin-bottom:8px"><span style="color:#888">是否换脸:</span> ${details.face_swapped ? '✅ 是' : '❌ 否'}</div>`;
+        } else if (stageNum === 3) {
+            if (details.skipped) {
+                detailsHtml += `<div style="margin-bottom:8px"><span style="color:#888">状态:</span> ${details.reason || '已跳过'}</div>`;
+            } else {
+                if (details.mode) detailsHtml += `<div style="margin-bottom:8px"><span style="color:#888">编辑模式:</span> ${details.mode}</div>`;
+                if (details.size) detailsHtml += `<div style="margin-bottom:8px"><span style="color:#888">图片尺寸:</span> ${details.size}</div>`;
+                if (details.enable_reactor !== undefined) detailsHtml += `<div style="margin-bottom:8px"><span style="color:#888">启用 ReActor:</span> ${details.enable_reactor ? '✅ 是' : '❌ 否'}</div>`;
+                if (details.strength !== undefined) detailsHtml += `<div style="margin-bottom:8px"><span style="color:#888">强度:</span> ${details.strength}</div>`;
+                if (details.seed !== undefined && details.seed !== null) detailsHtml += `<div style="margin-bottom:8px"><span style="color:#888">种子:</span> ${details.seed}</div>`;
+                if (details.prompt) detailsHtml += `<div style="margin-bottom:8px"><span style="color:#888">Prompt:</span> ${details.prompt}</div>`;
+                if (details.url || status.edited_frame_url) {
+                    const imgUrl = details.url || status.edited_frame_url;
+                    detailsHtml += `<div style="margin-bottom:8px"><span style="color:#888">编辑后图片:</span><br><img src="${imgUrl}" style="max-width:300px;border-radius:8px;margin-top:8px"></div>`;
+                }
+            }
+        } else if (stageNum === 4) {
+            if (details.model) detailsHtml += `<div style="margin-bottom:8px"><span style="color:#888">视频模型:</span> ${details.model}</div>`;
+            if (details.resolution) detailsHtml += `<div style="margin-bottom:8px"><span style="color:#888">分辨率:</span> ${details.resolution}</div>`;
+            if (details.duration) detailsHtml += `<div style="margin-bottom:8px"><span style="color:#888">时长:</span> ${details.duration}</div>`;
+            if (details.prompt) detailsHtml += `<div style="margin-bottom:8px"><span style="color:#888">Prompt:</span> ${details.prompt}</div>`;
+            if (details.face_swap_enabled !== undefined) detailsHtml += `<div style="margin-bottom:8px"><span style="color:#888">视频换脸:</span> ${details.face_swap_enabled ? '✅ 启用' : '❌ 禁用'}</div>`;
+            if (details.upscale_enabled !== undefined) detailsHtml += `<div style="margin-bottom:8px"><span style="color:#888">超分:</span> ${details.upscale_enabled ? '✅ 启用' : '❌ 禁用'}</div>`;
+            if (details.interpolation_enabled !== undefined) detailsHtml += `<div style="margin-bottom:8px"><span style="color:#888">插帧:</span> ${details.interpolation_enabled ? '✅ 启用' : '❌ 禁用'}</div>`;
+            if (details.chain_id) detailsHtml += `<div style="margin-bottom:8px"><span style="color:#888">Chain ID:</span> ${details.chain_id}</div>`;
+        }
+
+        detailsHtml += '</div>';
+
+        return `
+            <div style="background:#1a1a1a;border-radius:8px;padding:16px;margin-bottom:12px">
+                <div style="font-size:16px;font-weight:600;color:#7c83ff;margin-bottom:8px">${stageTitle}</div>
+                <div style="color:#4caf50;font-size:13px">✅ ${stage.status}</div>
+                ${detailsHtml}
+            </div>
+        `;
+    }).join('') : '';
+
+    // 在视频下方显示所有 stage 信息
+    const resultContainer = document.getElementById('resultSection');
+    const existingStagesDiv = resultContainer.querySelector('.stages-summary');
+    if (existingStagesDiv) {
+        existingStagesDiv.remove();
+    }
+
+    if (stagesInfoHtml) {
+        const stagesDiv = document.createElement('div');
+        stagesDiv.className = 'stages-summary';
+        stagesDiv.style.cssText = 'margin-top:24px;padding:16px;background:#0a0a23;border-radius:12px';
+        stagesDiv.innerHTML = `
+            <div style="font-size:18px;font-weight:600;color:#e0e0e0;margin-bottom:16px">📊 生成详情</div>
+            ${stagesInfoHtml}
+        `;
+        resultContainer.appendChild(stagesDiv);
+    }
 
     // 更新历史记录状态
     if (currentTaskId) {

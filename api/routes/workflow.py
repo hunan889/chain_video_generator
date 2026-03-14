@@ -675,7 +675,7 @@ async def seedream_edit(req: SeeDreamEditRequest, _=Depends(verify_api_key)):
             logger.info("SeeDream: Using 1 image (scene only)")
 
         # Call SeeDream
-        model_name = "seedream-5-0-lite"  # Use lite version for faster processing
+        model_name = SEEDREAM_MODEL  # Use configured model from environment
         payload = {
             "model": model_name,
             "prompt": full_prompt,

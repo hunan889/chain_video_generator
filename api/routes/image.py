@@ -43,7 +43,7 @@ BYTEPLUS_API_KEY = os.getenv(
     "BYTEPLUS_API_KEY", "f3cb7588-0af7-4753-96c4-8ca992600bca"
 )
 BYTEPLUS_ENDPOINT = "https://ark.ap-southeast.bytepluses.com/api/v3/images/generations"
-SEEDREAM_MODEL = os.getenv("SEEDREAM_MODEL", "seedream-5-0-260128")
+SEEDREAM_MODEL = os.getenv("SEEDREAM_MODEL", "ep-20260302170919-cggr8")
 MIN_PIXELS = 3686400  # ~1920x1920
 
 SIZE_PRESETS = {

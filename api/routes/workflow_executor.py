@@ -333,42 +333,73 @@ async def _execute_workflow(workflow_id: str, req, task_manager):
                 skip_reason = "跳过（未启用）"
 
         if should_run_seedream and req.reference_image:
-            edited_frame_url = await _edit_first_frame(workflow_id, req, first_frame_url, task_manager)
+            # 获取首帧图片的实际尺寸
+            try:
+                from PIL import Image
+                import io
+
+                # 下载首帧图片获取尺寸
+                if first_frame_url.startswith('http'):
+                    async with aiohttp.ClientSession() as session:
+                        async with session.get(first_frame_url) as resp:
+                            if resp.status == 200:
+                                image_data = await resp.read()
+                                img = Image.open(io.BytesIO(image_data))
+                                detected_size = f"{img.width}x{img.height}"
+                            else:
+                                detected_size = "832x1216"  # fallback
+                else:
+                    # 本地文件路径
+                    from api.config import UPLOADS_DIR
+                    local_path = UPLOADS_DIR / first_frame_url.split('/')[-1]
+                    if local_path.exists():
+                        img = Image.open(local_path)
+                        detected_size = f"{img.width}x{img.height}"
+                    else:
+                        detected_size = "832x1216"  # fallback
+            except Exception as e:
+                logger.warning(f"Failed to detect image size: {e}, using default")
+                detected_size = "832x1216"
+
+            # 保存 SeeDream 参数（在开始时就显示）
+            edit_mode = _get_config(req, "stage3_seedream", "mode", "face_wearings")
+            enable_reactor = _get_config(req, "stage3_seedream", "enable_reactor", True)
+            custom_prompt = _get_config(req, "stage3_seedream", "prompt", None)
+            strength = _get_config(req, "stage3_seedream", "strength", 0.8)
+            seed = _get_config(req, "stage3_seedream", "seed", None)
+            # 优先使用配置的尺寸，如果没有配置则使用检测到的尺寸
+            size = _get_config(req, "stage3_seedream", "size", detected_size)
+
+            # 在 running 状态时就保存参数
+            running_details = {
+                "mode": edit_mode,
+                "enable_reactor": enable_reactor,
+                "prompt": custom_prompt or get_default_seedream_prompt(edit_mode),
+                "strength": strength,
+                "seed": seed,
+                "size": size,
+                "reference_image": req.reference_image,
+                "first_frame_url": first_frame_url
+            }
+            await _update_stage(task_manager, workflow_id, "seedream_edit", "running", details_dict=running_details)
+
+            edited_frame_url = await _edit_first_frame(workflow_id, req, first_frame_url, size, task_manager)
             if edited_frame_url:
                 await task_manager.redis.hset(f"workflow:{workflow_id}", "edited_frame_url", edited_frame_url)
 
-                # 保存结构化详细信息
-                edit_mode = _get_config(req, "stage3_seedream", "mode", "face_wearings")
-                enable_reactor = _get_config(req, "stage3_seedream", "enable_reactor", True)
-                custom_prompt = _get_config(req, "stage3_seedream", "prompt", None)
-
-                details_dict = {
-                    "mode": edit_mode,
-                    "enable_reactor": enable_reactor,
-                    "prompt": custom_prompt or get_default_seedream_prompt(edit_mode),
-                    "url": edited_frame_url
-                }
-
-                await _update_stage(task_manager, workflow_id, "seedream_edit", "completed", details_dict=details_dict)
+                # 完成时添加结果 URL
+                running_details["url"] = edited_frame_url
+                await _update_stage(task_manager, workflow_id, "seedream_edit", "completed", details_dict=running_details)
             else:
-                await _update_stage(task_manager, workflow_id, "seedream_edit", "completed", details_dict={"error": "编辑失败，使用原图"})
+                running_details["error"] = "编辑失败，使用原图"
+                await _update_stage(task_manager, workflow_id, "seedream_edit", "completed", details_dict=running_details)
         else:
             await _update_stage(task_manager, workflow_id, "seedream_edit", "completed", details_dict={"skipped": True, "reason": skip_reason})
 
-        await _update_stage(task_manager, workflow_id, "seedream_edit", "completed")
-
         # Stage 4: Video Generation
-        await _update_stage(task_manager, workflow_id, "video_generation", "running")
         await task_manager.redis.hset(f"workflow:{workflow_id}", "current_stage", "video_generation")
 
-        chain_id, final_video_url = await _generate_video(workflow_id, req, edited_frame_url, analysis_result, task_manager)
-
-        if chain_id:
-            await task_manager.redis.hset(f"workflow:{workflow_id}", "chain_id", chain_id)
-        if final_video_url:
-            await task_manager.redis.hset(f"workflow:{workflow_id}", "final_video_url", final_video_url)
-
-        # 保存结构化详细信息
+        # 获取所有视频生成参数
         video_model = _get_config(req, "stage4_video", "model", "A14B")
         video_resolution = _get_config(req, "stage4_video", "resolution", "480p_3:4")
         video_duration = _get_config(req, "stage4_video", "duration", "5s")
@@ -382,18 +413,31 @@ async def _execute_workflow(workflow_id: str, req, task_manager):
         upscale_enabled = postprocess_config.get("upscale", {}).get("enabled", False) if isinstance(postprocess_config, dict) else False
         interp_enabled = postprocess_config.get("interpolation", {}).get("enabled", False) if isinstance(postprocess_config, dict) else False
 
-        details_dict = {
-            "chain_id": chain_id,
+        # 在 running 状态时就保存所有参数
+        running_details = {
             "model": video_model,
             "resolution": video_resolution,
             "duration": video_duration,
             "face_swap_enabled": face_swap_enabled,
             "upscale_enabled": upscale_enabled,
             "interpolation_enabled": interp_enabled,
-            "video_url": final_video_url
+            "first_frame_url": edited_frame_url,
+            "prompt": req.user_prompt
         }
+        await _update_stage(task_manager, workflow_id, "video_generation", "running", details_dict=running_details)
 
-        await _update_stage(task_manager, workflow_id, "video_generation", "completed", details_dict=details_dict)
+        chain_id, final_video_url = await _generate_video(workflow_id, req, edited_frame_url, analysis_result, task_manager)
+
+        if chain_id:
+            await task_manager.redis.hset(f"workflow:{workflow_id}", "chain_id", chain_id)
+        if final_video_url:
+            await task_manager.redis.hset(f"workflow:{workflow_id}", "final_video_url", final_video_url)
+
+        # 完成时添加结果
+        running_details["chain_id"] = chain_id
+        running_details["video_url"] = final_video_url
+
+        await _update_stage(task_manager, workflow_id, "video_generation", "completed", details_dict=running_details)
 
         # Mark workflow as completed
         await task_manager.redis.hset(f"workflow:{workflow_id}", "status", "completed")
@@ -667,9 +711,16 @@ async def _generate_t2i_image(req, analysis_result: Optional[dict], task_manager
         return None
 
 
-async def _edit_first_frame(workflow_id: str, req, first_frame_url: str, task_manager) -> Optional[str]:
+async def _edit_first_frame(workflow_id: str, req, first_frame_url: str, size: str, task_manager) -> Optional[str]:
     """
     Edit first frame using SeeDream.
+
+    Args:
+        workflow_id: Workflow ID
+        req: Request object
+        first_frame_url: URL of the first frame image
+        size: Image size (e.g., "832x1216")
+        task_manager: Task manager instance
 
     Returns: URL of the edited image
     """
@@ -682,6 +733,7 @@ async def _edit_first_frame(workflow_id: str, req, first_frame_url: str, task_ma
         custom_prompt = _get_config(req, "stage3_seedream", "prompt", None)
         strength = _get_config(req, "stage3_seedream", "strength", 0.8)
         seed = _get_config(req, "stage3_seedream", "seed", None)
+        # Use the passed size parameter (already detected from first frame)
 
         # Use custom prompt or default prompt
         if custom_prompt:
@@ -696,7 +748,7 @@ async def _edit_first_frame(workflow_id: str, req, first_frame_url: str, task_ma
             mode=edit_mode,
             enable_face_swap=enable_reactor,
             prompt=prompt,
-            size="1024x1024",
+            size=size,
             seed=seed
         )
 
@@ -892,13 +944,35 @@ async def _generate_video(workflow_id: str, req, first_frame_url: str, analysis_
                     if resp.status != 200:
                         raise Exception(f"Failed to download first frame: {resp.status}")
                     image_data = await resp.read()
-        else:
-            # Local filename - read from disk
+        elif first_frame_url.startswith('/api/v1/results/'):
+            # Results path - extract filename and read from RESULTS_DIR
+            from api.config import RESULTS_DIR
+            filename = first_frame_url.split('/')[-1]
+            local_path = RESULTS_DIR / filename
+            if not local_path.exists():
+                raise Exception(f"First frame file not found in results: {first_frame_url}")
+            image_data = local_path.read_bytes()
+            logger.info(f"[{workflow_id}] Read first frame from results: {local_path}")
+        elif first_frame_url.startswith('/uploads/'):
+            # Uploads path - extract filename and read from UPLOADS_DIR
             from api.config import UPLOADS_DIR
-            local_path = UPLOADS_DIR / first_frame_url
+            filename = first_frame_url.split('/')[-1]
+            local_path = UPLOADS_DIR / filename
+            if not local_path.exists():
+                raise Exception(f"First frame file not found in uploads: {first_frame_url}")
+            image_data = local_path.read_bytes()
+            logger.info(f"[{workflow_id}] Read first frame from uploads: {local_path}")
+        else:
+            # Plain filename - try UPLOADS_DIR first, then RESULTS_DIR
+            from api.config import UPLOADS_DIR, RESULTS_DIR
+            filename = first_frame_url.split('/')[-1]
+            local_path = UPLOADS_DIR / filename
+            if not local_path.exists():
+                local_path = RESULTS_DIR / filename
             if not local_path.exists():
                 raise Exception(f"First frame file not found: {first_frame_url}")
             image_data = local_path.read_bytes()
+            logger.info(f"[{workflow_id}] Read first frame: {local_path}")
 
         # Create UploadFile object
         image_file = UploadFile(
