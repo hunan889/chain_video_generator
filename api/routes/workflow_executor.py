@@ -527,8 +527,16 @@ async def _acquire_first_frame(workflow_id: str, req, analysis_result: Optional[
             if not recommended_images:
                 raise Exception("No recommended images found for select_existing mode")
 
+            # Filter out videos, only keep images
+            image_extensions = ('.png', '.jpg', '.jpeg', '.webp', '.gif')
+            image_only = [img for img in recommended_images if img.get("url", "").lower().endswith(image_extensions)]
+
+            if not image_only:
+                logger.warning(f"[{workflow_id}] No image URLs found in recommendations, all are videos. Using first result anyway.")
+                image_only = recommended_images
+
             # Select the first (highest similarity) image
-            selected_image = recommended_images[0]
+            selected_image = image_only[0]
             selected_url = selected_image.get("url")
             logger.info(f"[{workflow_id}] Auto-selected image: {selected_url} (similarity: {selected_image.get('similarity', 0.0):.3f})")
 
