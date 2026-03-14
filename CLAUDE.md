@@ -74,6 +74,8 @@ Python 3.11, FastAPI, Redis, aiohttp, websockets, ComfyUI, PyTorch (CUDA)
 - Never modify code before understanding the full problem
 - Always document before executing
 - Prefer investigation over speculation
+- **Do NOT create excessive documentation files** unless explicitly requested by the user
+- **Do NOT start implementing fixes until the user explicitly confirms the plan and asks you to proceed**
 
 When debugging, fixing, or deploying changes:
 1. Gather evidence before diagnosing
@@ -82,3 +84,22 @@ When debugging, fixing, or deploying changes:
 4. Report with evidence, not assumptions
 
 See [METHODOLOGY.md](./METHODOLOGY.md) for the complete problem diagnosis and fix verification methodology.
+
+## Advanced Workflow Face Swap Logic
+
+**IMPORTANT: Face swap should only happen in Stage 2/3 (image processing), NOT in Stage 4 (video generation)**
+
+### `full_body_reference` Mode:
+- **Stage 2**: Acquire first frame (T2I or select) → **Optional** face swap (`stage2_first_frame.face_swap.enabled`)
+- **Stage 3**: **Required** SeeDream editing (replaces full body features from reference)
+- **Stage 4**: Video generation using edited frame → **NO face swap**
+
+### `face_reference` Mode:
+- **Stage 2**: Acquire first frame (T2I or select) → **Optional** face swap (`stage2_first_frame.face_swap.enabled`)
+- **Stage 3**: **Skip** SeeDream (not needed for face-only mode)
+- **Stage 4**: Video generation using frame → **NO face swap** (already done in Stage 2 if enabled)
+
+### Key Principle:
+- Face swap happens during **image preparation** (Stage 2/3)
+- Video generation (Stage 4) uses the **already-processed frame**
+- `stage4_video.face_swap` configuration should be **ignored/removed**

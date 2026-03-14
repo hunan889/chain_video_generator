@@ -447,41 +447,8 @@ async def _acquire_first_frame(workflow_id: str, req, analysis_result: Optional[
         from api.services import storage
         import uuid
 
-        def convert_video_to_first_frame(video_url: str, width: int, height: int) -> str:
-            """
-            Convert video URL to first frame screenshot URL using Tencent Cloud CI.
-
-            Args:
-                video_url: Video URL
-                width: Target width
-                height: Target height
-
-            Returns:
-                Screenshot URL with CI parameters
-            """
-            if not video_url:
-                return video_url
-
-            # Check if it's a video file
-            video_extensions = ('.mp4', '.avi', '.mov', '.mkv', '.flv', '.webm')
-            is_video = any(video_url.lower().endswith(ext) for ext in video_extensions)
-
-            if not is_video:
-                return video_url
-
-            # Check if it's Tencent Cloud CDN or our domain (which forwards to Tencent Cloud)
-            supported_domains = ['cdn.imagime.co', 'myqcloud.com', 'imagime.co']
-            is_supported = any(domain in video_url for domain in supported_domains)
-
-            if not is_supported:
-                raise Exception(f"Video URL from unsupported CDN: {video_url}. Only Tencent Cloud CDN is supported.")
-
-            # Add CI snapshot parameters
-            separator = '&' if '?' in video_url else '?'
-            screenshot_url = f"{video_url}{separator}ci-process=snapshot&time=1&format=png&width={width}&height={height}"
-
-            logger.info(f"Converted video URL to screenshot: {screenshot_url}")
-            return screenshot_url
+        # Import video frame extractor
+        from api.services.video_frame_extractor import convert_video_url_to_frame
 
         # Determine first_frame_source based on mode
         # In first_frame mode, uploaded image is always used as first frame
@@ -594,7 +561,7 @@ async def _acquire_first_frame(workflow_id: str, req, analysis_result: Optional[
             height = round(height / 8) * 8
 
             # Convert video to first frame if needed
-            selected_url = convert_video_to_first_frame(selected_url, width, height)
+            selected_url = await convert_video_url_to_frame(selected_url, width, height)
 
             return selected_url
 
