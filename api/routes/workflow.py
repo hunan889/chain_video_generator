@@ -803,6 +803,21 @@ async def generate_advanced_workflow(req: WorkflowGenerateRequest, _=Depends(ver
         from api.main import task_manager
         from api.routes.workflow_executor import _execute_workflow
 
+        # Validate required fields based on mode
+        if req.mode in ["face_reference", "full_body_reference"]:
+            if not req.reference_image:
+                raise HTTPException(
+                    400,
+                    f"reference_image is required for {req.mode} mode"
+                )
+
+        if req.mode == "first_frame":
+            if not req.uploaded_first_frame:
+                raise HTTPException(
+                    400,
+                    "uploaded_first_frame is required for first_frame mode"
+                )
+
         # Generate workflow ID
         workflow_id = f"wf_{uuid.uuid4().hex[:12]}"
 
