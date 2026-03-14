@@ -248,19 +248,19 @@ async def _execute_workflow(workflow_id: str, req, task_manager):
                     "analysis_result": json.dumps(analysis_result)
                 })
 
-                # 保存详细信息
-                details = f"推荐Video LORAs: {len(analysis_result.get('video_loras', []))}个\n"
-                details += f"推荐Image LORAs: {len(analysis_result.get('image_loras', []))}个\n"
-                if analysis_result.get('optimized_t2i_prompt'):
-                    details += f"T2I优化Prompt: {analysis_result['optimized_t2i_prompt'][:100]}...\n"
-                if analysis_result.get('optimized_i2v_prompt'):
-                    details += f"I2V优化Prompt: {analysis_result['optimized_i2v_prompt'][:100]}..."
+                # 保存结构化详细信息
+                details_dict = {
+                    "video_loras": analysis_result.get('video_loras', []),
+                    "image_loras": analysis_result.get('image_loras', []),
+                    "original_prompt": req.user_prompt,
+                    "optimized_prompt": analysis_result.get('optimized_i2v_prompt') or analysis_result.get('optimized_t2i_prompt')
+                }
 
-                await _update_stage(task_manager, workflow_id, "prompt_analysis", "completed", details=details)
+                await _update_stage(task_manager, workflow_id, "prompt_analysis", "completed", details_dict=details_dict)
             else:
-                await _update_stage(task_manager, workflow_id, "prompt_analysis", "completed", details="分析失败")
+                await _update_stage(task_manager, workflow_id, "prompt_analysis", "completed", details_dict={"error": "分析失败"})
         else:
-            await _update_stage(task_manager, workflow_id, "prompt_analysis", "completed", details="跳过（未启用）")
+            await _update_stage(task_manager, workflow_id, "prompt_analysis", "completed", details_dict={"skipped": True, "reason": "未启用"})
 
         await _update_stage(task_manager, workflow_id, "prompt_analysis", "completed")
 
@@ -274,17 +274,18 @@ async def _execute_workflow(workflow_id: str, req, task_manager):
 
         await task_manager.redis.hset(f"workflow:{workflow_id}", "first_frame_url", first_frame_url)
 
-        # 保存详细信息 - determine display text based on mode and first_frame_source
+        # 保存结构化详细信息
         if req.mode == "first_frame":
-            source_text = "使用上传图片"
+            source_text = "upload"
         else:
-            # Recalculate first_frame_source for display (same logic as in _acquire_first_frame)
             first_frame_source_for_display = req.first_frame_source or _get_config(req, "stage2_first_frame", "first_frame_source", "select_existing")
-            source_text = {
-                "generate": "T2I生成",
-                "select_existing": "选择已有图片"
-            }.get(first_frame_source_for_display, first_frame_source_for_display)
-        details = f"来源: {source_text}\nURL: {first_frame_url}"
+            source_text = first_frame_source_for_display
+
+        details_dict = {
+            "source": source_text,
+            "url": first_frame_url,
+            "face_swapped": False
+        }
 
         # Stage 2.1: 首帧换脸（可选）
         face_swap_config = _get_config(req, "stage2_first_frame", "face_swap", {})
@@ -299,11 +300,11 @@ async def _execute_workflow(workflow_id: str, req, task_manager):
             if swapped_url:
                 first_frame_url = swapped_url
                 await task_manager.redis.hset(f"workflow:{workflow_id}", "first_frame_url", first_frame_url)
-                details += f"\n首帧换脸: 已应用 (强度: {face_swap_config.get('strength', 1.0)})"
-            else:
-                details += "\n首帧换脸: 失败，使用原图"
+                details_dict["face_swapped"] = True
+                details_dict["face_swap_strength"] = face_swap_config.get("strength", 1.0)
+                details_dict["url"] = first_frame_url
 
-        await _update_stage(task_manager, workflow_id, "first_frame_acquisition", "completed", details=details)
+        await _update_stage(task_manager, workflow_id, "first_frame_acquisition", "completed", details_dict=details_dict)
 
         # Stage 3: SeeDream Editing
         await _update_stage(task_manager, workflow_id, "seedream_edit", "running")
@@ -336,23 +337,23 @@ async def _execute_workflow(workflow_id: str, req, task_manager):
             if edited_frame_url:
                 await task_manager.redis.hset(f"workflow:{workflow_id}", "edited_frame_url", edited_frame_url)
 
-                # 保存详细信息
+                # 保存结构化详细信息
                 edit_mode = _get_config(req, "stage3_seedream", "mode", "face_wearings")
                 enable_reactor = _get_config(req, "stage3_seedream", "enable_reactor", True)
                 custom_prompt = _get_config(req, "stage3_seedream", "prompt", None)
 
-                details = f"编辑模式: {edit_mode}\n换脸: {'是' if enable_reactor else '否'}\n"
-                if custom_prompt:
-                    details += f"自定义Prompt: {custom_prompt[:80]}...\n"
-                else:
-                    details += f"默认Prompt: {get_default_seedream_prompt(edit_mode)[:80]}...\n"
-                details += f"结果URL: {edited_frame_url}"
+                details_dict = {
+                    "mode": edit_mode,
+                    "enable_reactor": enable_reactor,
+                    "prompt": custom_prompt or get_default_seedream_prompt(edit_mode),
+                    "url": edited_frame_url
+                }
 
-                await _update_stage(task_manager, workflow_id, "seedream_edit", "completed", details=details)
+                await _update_stage(task_manager, workflow_id, "seedream_edit", "completed", details_dict=details_dict)
             else:
-                await _update_stage(task_manager, workflow_id, "seedream_edit", "completed", details="编辑失败，使用原图")
+                await _update_stage(task_manager, workflow_id, "seedream_edit", "completed", details_dict={"error": "编辑失败，使用原图"})
         else:
-            await _update_stage(task_manager, workflow_id, "seedream_edit", "completed", details=skip_reason)
+            await _update_stage(task_manager, workflow_id, "seedream_edit", "completed", details_dict={"skipped": True, "reason": skip_reason})
 
         await _update_stage(task_manager, workflow_id, "seedream_edit", "completed")
 
@@ -367,7 +368,7 @@ async def _execute_workflow(workflow_id: str, req, task_manager):
         if final_video_url:
             await task_manager.redis.hset(f"workflow:{workflow_id}", "final_video_url", final_video_url)
 
-        # 保存详细信息
+        # 保存结构化详细信息
         video_model = _get_config(req, "stage4_video", "model", "A14B")
         video_resolution = _get_config(req, "stage4_video", "resolution", "480p_3:4")
         video_duration = _get_config(req, "stage4_video", "duration", "5s")
@@ -381,18 +382,18 @@ async def _execute_workflow(workflow_id: str, req, task_manager):
         upscale_enabled = postprocess_config.get("upscale", {}).get("enabled", False) if isinstance(postprocess_config, dict) else False
         interp_enabled = postprocess_config.get("interpolation", {}).get("enabled", False) if isinstance(postprocess_config, dict) else False
 
-        details = f"Chain ID: {chain_id}\n"
-        details += f"模型: {video_model}\n"
-        details += f"分辨率: {video_resolution}\n"
-        details += f"时长: {video_duration}\n"
-        if face_swap_enabled:
-            details += f"视频换脸: 已启用\n"
-        if upscale_enabled:
-            details += f"超分: 已启用\n"
-        if interp_enabled:
-            details += f"插帧: 已启用\n"
-        details += f"视频URL: {final_video_url}"
-        await _update_stage(task_manager, workflow_id, "video_generation", "completed", details=details)
+        details_dict = {
+            "chain_id": chain_id,
+            "model": video_model,
+            "resolution": video_resolution,
+            "duration": video_duration,
+            "face_swap_enabled": face_swap_enabled,
+            "upscale_enabled": upscale_enabled,
+            "interpolation_enabled": interp_enabled,
+            "video_url": final_video_url
+        }
+
+        await _update_stage(task_manager, workflow_id, "video_generation", "completed", details_dict=details_dict)
 
         # Mark workflow as completed
         await task_manager.redis.hset(f"workflow:{workflow_id}", "status", "completed")
@@ -406,12 +407,21 @@ async def _execute_workflow(workflow_id: str, req, task_manager):
         })
 
 
-async def _update_stage(task_manager, workflow_id: str, stage_name: str, status: str, error: str = None, details: str = None):
-    """Update stage status in Redis"""
+async def _update_stage(task_manager, workflow_id: str, stage_name: str, status: str, error: str = None, details: str = None, details_dict: dict = None):
+    """Update stage status in Redis
+
+    Args:
+        details: Legacy text details (will be converted to dict if details_dict not provided)
+        details_dict: Structured details as dict (preferred)
+    """
     mapping = {f"stage_{stage_name}": status}
     if error:
         mapping[f"stage_{stage_name}_error"] = error
-    if details:
+    if details_dict:
+        # Use structured dict (preferred)
+        mapping[f"stage_{stage_name}_details"] = json.dumps(details_dict, ensure_ascii=False)
+    elif details:
+        # Legacy text details - save as-is for backward compatibility
         mapping[f"stage_{stage_name}_details"] = details
     await task_manager.redis.hset(f"workflow:{workflow_id}", mapping=mapping)
 

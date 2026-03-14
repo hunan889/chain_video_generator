@@ -437,7 +437,14 @@ class TaskManager:
                             overall = completed_steps + step
                             progress = round(0.05 + 0.85 * overall / max(total_steps, 1), 3)
                             progress = min(progress, 0.89)
-                            await self.redis.hset(f"task:{task_id}", "progress", str(progress))
+                            # Save detailed progress info
+                            await self.redis.hset(f"task:{task_id}", mapping={
+                                "progress": str(progress),
+                                "current_step": str(step),
+                                "max_step": str(max_step),
+                                "total_steps": str(total_steps),
+                                "completed_steps": str(completed_steps)
+                            })
                         elif msg_type == "executing":
                             if d.get("prompt_id") == prompt_id and d.get("node") is None:
                                 logger.info("Task %s: completion signal received via WebSocket", task_id)
@@ -1132,9 +1139,9 @@ class TaskManager:
             face_image_filename = seg.get("face_image_filename", "")
             image_mode = seg.get("image_mode", "first_frame")
 
-            # If face_reference mode, use I2V workflow (PainterI2V)
-            if image_mode == "face_reference":
-                logger.info("Chain %s: seg 0 face_reference mode, using I2V workflow", chain_id)
+            # If face_reference or full_body_reference mode, use I2V workflow (PainterI2V)
+            if image_mode in ["face_reference", "full_body_reference"]:
+                logger.info("Chain %s: seg 0 %s mode, using I2V workflow", chain_id, image_mode)
 
                 workflow = build_story_workflow(
                     is_first_segment=True,

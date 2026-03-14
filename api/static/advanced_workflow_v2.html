@@ -582,7 +582,15 @@ document.getElementById('imageFile').addEventListener('change', async function(e
         }
 
         const result = await response.json();
-        uploadedImageUrl = result.url;
+        // 规范化URL：如果是完整URL直接用，如果已有/uploads/前缀直接用，否则添加前缀
+        if (result.url.startsWith('http')) {
+            uploadedImageUrl = result.url;
+        } else if (result.url.startsWith('/uploads/')) {
+            // 移除可能的重复前缀
+            uploadedImageUrl = result.url.replace(/^\/uploads\/+/, '/uploads/');
+        } else {
+            uploadedImageUrl = `/uploads/${result.url}`;
+        }
         console.log('图片已上传，URL:', uploadedImageUrl);
 
         // 保存到 localStorage
@@ -684,7 +692,15 @@ function loadFormParams() {
 
         // 恢复上传的图片URL和预览
         if (params.uploadedImageUrl) {
-            uploadedImageUrl = params.uploadedImageUrl;
+            // 规范化URL：如果是完整URL直接用，如果已有/uploads/前缀直接用，否则添加前缀
+            if (params.uploadedImageUrl.startsWith('http')) {
+                uploadedImageUrl = params.uploadedImageUrl;
+            } else if (params.uploadedImageUrl.startsWith('/uploads/')) {
+                // 移除可能的重复前缀
+                uploadedImageUrl = params.uploadedImageUrl.replace(/^\/uploads\/+/, '/uploads/');
+            } else {
+                uploadedImageUrl = `/uploads/${params.uploadedImageUrl}`;
+            }
             const preview = document.getElementById('imagePreview');
             const placeholder = document.querySelector('#uploadArea .placeholder');
 
@@ -1048,106 +1064,150 @@ function startPolling() {
 function updateProgress(status) {
     const container = document.getElementById('stagesContainer');
 
-    // 构建阶段信息
-    const stages = [];
+    // 从后端 stages 数组构建显示信息
+    const displayStages = [];
 
-    if (status.stage1_analysis) {
-        stages.push({
-            title: '📝 Stage 1: Prompt 分析',
-            data: status.stage1_analysis,
-            fields: [
-                { label: '原始 Prompt', key: 'original_prompt' },
-                { label: '优化后 Prompt', key: 'optimized_prompt' },
-                { label: 'Image LoRAs', key: 'image_loras', type: 'array' },
-                { label: 'Video LoRAs', key: 'video_loras', type: 'array' }
-            ]
-        });
-    }
+    // Stage name mapping
+    const stageConfig = {
+        'prompt_analysis': { title: '📝 Stage 1: Prompt 分析' },
+        'first_frame_acquisition': { title: '🖼️ Stage 2: 首帧获取' },
+        'seedream_edit': { title: '✨ Stage 3: SeeDream 编辑' },
+        'video_generation': { title: '🎬 Stage 4: 视频生成' }
+    };
 
-    if (status.stage2_first_frame) {
-        stages.push({
-            title: '🖼️ Stage 2: 首帧获取',
-            data: status.stage2_first_frame,
-            fields: [
-                { label: '首帧来源', key: 'source' },
-                { label: '首帧 URL', key: 'url', type: 'image' },
-                { label: '是否换脸', key: 'face_swapped', type: 'boolean' }
-            ]
-        });
-    }
+    // Process each stage from backend
+    if (status.stages && Array.isArray(status.stages)) {
+        status.stages.forEach(stage => {
+            const config = stageConfig[stage.name];
+            if (!config) return;
 
-    if (status.stage3_seedream) {
-        stages.push({
-            title: '✨ Stage 3: SeeDream 编辑',
-            data: status.stage3_seedream,
-            fields: [
-                { label: '编辑模式', key: 'mode' },
-                { label: '使用的 Prompt', key: 'prompt' },
-                { label: '编辑后 URL', key: 'url', type: 'image' }
-            ]
-        });
-    }
+            let details = null;
+            if (stage.sub_stage) {
+                try {
+                    details = JSON.parse(stage.sub_stage);
+                } catch (e) {
+                    console.error('Failed to parse sub_stage:', e);
+                }
+            }
 
-    if (status.stage4_video) {
-        stages.push({
-            title: '🎬 Stage 4: 视频生成',
-            data: status.stage4_video,
-            fields: [
-                { label: '视频模型', key: 'model' },
-                { label: '生成进度', key: 'progress', type: 'progress' },
-                { label: '是否换脸', key: 'face_swapped', type: 'boolean' },
-                { label: '后处理', key: 'postprocess' }
-            ]
+            displayStages.push({
+                title: config.title,
+                status: stage.status,
+                error: stage.error,
+                details: details
+            });
         });
     }
 
     // 渲染阶段
-    container.innerHTML = stages.map(stage => {
-        const fieldsHtml = stage.fields.map(field => {
-            const value = stage.data[field.key];
-            if (value === undefined || value === null) return '';
+    const stagesHtml = displayStages.map(stageInfo => {
+        const statusClass = stageInfo.status === 'completed' ? 'completed' :
+                           stageInfo.status === 'running' ? 'running' :
+                           stageInfo.status === 'failed' ? 'failed' : 'pending';
 
-            let displayValue = '';
-            if (field.type === 'array') {
-                displayValue = Array.isArray(value) ? value.join(', ') : value;
-            } else if (field.type === 'image') {
-                displayValue = `<img src="${value}" style="max-width:200px;border-radius:8px;margin-top:8px">`;
-            } else if (field.type === 'boolean') {
-                displayValue = value ? '✅ 是' : '❌ 否';
-            } else if (field.type === 'progress') {
-                displayValue = `<div style="background:#333;border-radius:4px;height:20px;margin-top:8px;overflow:hidden">
-                    <div style="background:#7c83ff;height:100%;width:${value}%;transition:width 0.3s"></div>
-                </div>`;
-            } else {
-                displayValue = value;
+        const statusText = stageInfo.status === 'completed' ? '✅ 完成' :
+                          stageInfo.status === 'running' ? '⏳ 进行中' :
+                          stageInfo.status === 'failed' ? '❌ 失败' : '⏸️ 等待中';
+
+        let detailsHtml = '';
+
+        // Show details if available
+        if (stageInfo.details) {
+            const details = stageInfo.details;
+            detailsHtml = '<div style="margin-top:12px;padding-top:12px;border-top:1px solid #333">';
+
+            // Display different details based on stage
+            if (stageInfo.title.includes('Stage 1')) {
+                if (details.original_prompt) detailsHtml += `<div style="margin-bottom:8px"><span style="color:#888">原始 Prompt:</span> ${details.original_prompt}</div>`;
+                if (details.optimized_prompt) detailsHtml += `<div style="margin-bottom:8px"><span style="color:#888">优化后 Prompt:</span> ${details.optimized_prompt}</div>`;
+                if (details.image_loras) detailsHtml += `<div style="margin-bottom:8px"><span style="color:#888">Image LoRAs:</span> ${Array.isArray(details.image_loras) ? details.image_loras.join(', ') : details.image_loras}</div>`;
+                if (details.video_loras) detailsHtml += `<div style="margin-bottom:8px"><span style="color:#888">Video LoRAs:</span> ${Array.isArray(details.video_loras) ? details.video_loras.join(', ') : details.video_loras}</div>`;
+            } else if (stageInfo.title.includes('Stage 2')) {
+                if (details.source) detailsHtml += `<div style="margin-bottom:8px"><span style="color:#888">首帧来源:</span> ${details.source}</div>`;
+                if (details.url || status.first_frame_url) {
+                    const imgUrl = details.url || status.first_frame_url;
+                    detailsHtml += `<div style="margin-bottom:8px"><span style="color:#888">首帧图片:</span><br><img src="${imgUrl}" style="max-width:200px;border-radius:8px;margin-top:8px"></div>`;
+                }
+                if (details.face_swapped !== undefined) detailsHtml += `<div style="margin-bottom:8px"><span style="color:#888">是否换脸:</span> ${details.face_swapped ? '✅ 是' : '❌ 否'}</div>`;
+            } else if (stageInfo.title.includes('Stage 3')) {
+                if (details.mode) detailsHtml += `<div style="margin-bottom:8px"><span style="color:#888">编辑模式:</span> ${details.mode}</div>`;
+                if (details.prompt) detailsHtml += `<div style="margin-bottom:8px"><span style="color:#888">使用的 Prompt:</span> ${details.prompt}</div>`;
+                if (details.url || status.edited_frame_url) {
+                    const imgUrl = details.url || status.edited_frame_url;
+                    detailsHtml += `<div style="margin-bottom:8px"><span style="color:#888">编辑后图片:</span><br><img src="${imgUrl}" style="max-width:200px;border-radius:8px;margin-top:8px"></div>`;
+                }
+            } else if (stageInfo.title.includes('Stage 4')) {
+                if (details.model) detailsHtml += `<div style="margin-bottom:8px"><span style="color:#888">视频模型:</span> ${details.model}</div>`;
+
+                // Show progress bar and step info
+                if (status.video_progress !== undefined && status.video_progress !== null) {
+                    const progressPercent = (status.video_progress * 100).toFixed(1);
+                    detailsHtml += `<div style="margin-bottom:8px"><span style="color:#888">生成进度:</span>
+                        <div style="background:#333;border-radius:4px;height:20px;margin-top:8px;overflow:hidden">
+                            <div style="background:#7c83ff;height:100%;width:${progressPercent}%;transition:width 0.3s"></div>
+                        </div>
+                        <div style="text-align:center;margin-top:4px;font-size:12px;color:#aaa">${progressPercent}%</div>
+                    </div>`;
+                }
+
+                // Show detailed step info
+                if (status.current_step !== undefined && status.current_step !== null) {
+                    let stepInfo = `当前: ${status.current_step}/${status.max_step || '?'}`;
+                    if (status.total_steps !== undefined && status.total_steps !== null) {
+                        stepInfo += ` (总计: ${status.completed_steps || 0}+${status.current_step}/${status.total_steps})`;
+                    }
+                    detailsHtml += `<div style="margin-bottom:8px"><span style="color:#888">当前步骤:</span> ${stepInfo}</div>`;
+                }
+
+                if (details.face_swapped !== undefined) detailsHtml += `<div style="margin-bottom:8px"><span style="color:#888">是否换脸:</span> ${details.face_swapped ? '✅ 是' : '❌ 否'}</div>`;
+                if (details.postprocess) detailsHtml += `<div style="margin-bottom:8px"><span style="color:#888">后处理:</span> ${details.postprocess}</div>`;
             }
 
-            return `
-                <div style="margin-bottom:12px">
-                    <div style="color:#888;font-size:12px;margin-bottom:4px">${field.label}</div>
-                    <div style="color:#fff">${displayValue}</div>
-                </div>
-            `;
-        }).join('');
+            detailsHtml += '</div>';
+        }
+
+        // Show error if any
+        let errorHtml = '';
+        if (stageInfo.error) {
+            errorHtml = `<div style="margin-top:12px;padding:12px;background:#3d1a1a;border-radius:6px;color:#ff6b6b">
+                <strong>错误:</strong> ${stageInfo.error}
+            </div>`;
+        }
 
         return `
-            <div style="background:#1a1a1a;border-radius:8px;padding:16px;margin-bottom:16px">
-                <div style="font-weight:600;margin-bottom:12px;color:#7c83ff">${stage.title}</div>
-                ${fieldsHtml}
+            <div style="background:#1a1a1a;border-radius:8px;padding:16px;margin-bottom:16px;border-left:4px solid ${statusClass === 'completed' ? '#4caf50' : statusClass === 'running' ? '#7c83ff' : statusClass === 'failed' ? '#f44336' : '#666'}">
+                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+                    <div style="font-weight:600;color:#7c83ff">${stageInfo.title}</div>
+                    <div style="font-size:14px;color:#aaa">${statusText}</div>
+                </div>
+                ${detailsHtml}
+                ${errorHtml}
             </div>
         `;
     }).join('');
 
-    // 显示当前状态
-    const statusText = status.status === 'processing' ? '⏳ 处理中...' :
-                      status.status === 'completed' ? '✅ 完成' :
-                      status.status === 'failed' ? '❌ 失败' : status.status;
+    // 显示整体状态
+    const overallStatus = status.status === 'completed' ? '✅ 完成' :
+                         status.status === 'running' ? '⏳ 处理中...' :
+                         status.status === 'failed' ? '❌ 失败' : status.status;
+
+    const overallProgress = status.progress !== undefined && status.progress !== null ?
+        `<div style="margin-top:16px">
+            <div style="color:#888;font-size:12px;margin-bottom:4px">整体进度</div>
+            <div style="background:#333;border-radius:4px;height:24px;overflow:hidden">
+                <div style="background:#7c83ff;height:100%;width:${(status.progress * 100).toFixed(1)}%;transition:width 0.3s;display:flex;align-items:center;justify-content:center;color:#fff;font-size:12px;font-weight:600">
+                    ${(status.progress * 100).toFixed(1)}%
+                </div>
+            </div>
+        </div>` : '';
 
     container.innerHTML = `
         <div style="background:#1a1a1a;border-radius:8px;padding:16px;margin-bottom:16px;text-align:center">
-            <div style="font-size:18px;color:#7c83ff">${statusText}</div>
+            <div style="font-size:18px;font-weight:600;color:#7c83ff;margin-bottom:8px">${overallStatus}</div>
+            <div style="font-size:14px;color:#aaa">当前阶段: ${status.current_stage || '未知'}</div>
+            ${overallProgress}
         </div>
-    ` + container.innerHTML;
+    ` + stagesHtml;
 }
 
 // 显示结果

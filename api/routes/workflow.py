@@ -806,6 +806,12 @@ class WorkflowGenerateResponse(BaseModel):
     edited_frame_url: Optional[str] = None
     estimated_total_time: Optional[int] = None
     error: Optional[str] = None
+    progress: Optional[float] = Field(default=None, description="Overall progress (0.0-1.0)")
+    video_progress: Optional[float] = Field(default=None, description="Video generation progress (0.0-1.0)")
+    current_step: Optional[int] = Field(default=None, description="Current step in video generation")
+    max_step: Optional[int] = Field(default=None, description="Total steps in current stage")
+    total_steps: Optional[int] = Field(default=None, description="Total steps across all stages")
+    completed_steps: Optional[int] = Field(default=None, description="Completed steps from previous stages")
 
 
 @router.post("/workflow/generate-advanced", response_model=WorkflowGenerateResponse)
@@ -918,11 +924,17 @@ async def get_workflow_status(workflow_id: str, _=Depends(verify_api_key)):
 
     Returns current stage, progress, and results.
     """
+    import time
+    start_time = time.time()
+
     try:
         from api.main import task_manager
 
         # Query workflow state from Redis
+        t1 = time.time()
         workflow_data = await task_manager.redis.hgetall(f"workflow:{workflow_id}")
+        logger.info(f"[{workflow_id}] Redis hgetall took {(time.time()-t1)*1000:.2f}ms")
+
         if not workflow_data:
             raise HTTPException(404, f"Workflow {workflow_id} not found")
 
@@ -945,6 +957,58 @@ async def get_workflow_status(workflow_id: str, _=Depends(verify_api_key)):
                 error=stage_error
             ))
 
+        # Calculate overall progress based on stages
+        progress = None
+        video_progress = None
+        current_step = None
+        max_step = None
+        total_steps = None
+        completed_steps = None
+
+        if status == "completed":
+            progress = 1.0
+            video_progress = 1.0
+        elif status == "running":
+            # Calculate progress based on completed stages
+            completed_count = sum(1 for s in stages if s.status == "completed")
+            total_stages = len(stages)
+            stage_progress = completed_count / total_stages
+
+            # If in video_generation stage, get detailed progress from chain/task
+            if current_stage == "video_generation":
+                chain_id = workflow_data.get("chain_id")
+                if chain_id:
+                    t2 = time.time()
+                    chain_data = await task_manager.redis.hgetall(f"chain:{chain_id}")
+                    logger.info(f"[{workflow_id}] Chain hgetall took {(time.time()-t2)*1000:.2f}ms")
+                    if chain_data:
+                        # Get task progress
+                        current_task_id = chain_data.get("current_task_id")
+                        if current_task_id:
+                            t3 = time.time()
+                            task_data = await task_manager.redis.hgetall(f"task:{current_task_id}")
+                            logger.info(f"[{workflow_id}] Task hgetall took {(time.time()-t3)*1000:.2f}ms")
+                            if task_data:
+                                task_progress = float(task_data.get("progress", 0))
+                                video_progress = task_progress
+                                # Get detailed step info
+                                current_step = int(task_data.get("current_step", 0)) if task_data.get("current_step") else None
+                                max_step = int(task_data.get("max_step", 0)) if task_data.get("max_step") else None
+                                total_steps = int(task_data.get("total_steps", 0)) if task_data.get("total_steps") else None
+                                completed_steps = int(task_data.get("completed_steps", 0)) if task_data.get("completed_steps") else None
+                                # Overall progress = stage progress + current stage progress
+                                progress = (completed_count + task_progress) / total_stages
+                            else:
+                                progress = stage_progress
+                        else:
+                            progress = stage_progress
+                    else:
+                        progress = stage_progress
+                else:
+                    progress = stage_progress
+            else:
+                progress = stage_progress
+
         return WorkflowGenerateResponse(
             workflow_id=workflow_id,
             status=status,
@@ -954,7 +1018,13 @@ async def get_workflow_status(workflow_id: str, _=Depends(verify_api_key)):
             final_video_url=workflow_data.get("final_video_url"),
             first_frame_url=workflow_data.get("first_frame_url"),
             edited_frame_url=workflow_data.get("edited_frame_url"),
-            error=workflow_data.get("error")
+            error=workflow_data.get("error"),
+            progress=progress,
+            video_progress=video_progress,
+            current_step=current_step,
+            max_step=max_step,
+            total_steps=total_steps,
+            completed_steps=completed_steps
         )
 
     except HTTPException:
@@ -962,6 +1032,9 @@ async def get_workflow_status(workflow_id: str, _=Depends(verify_api_key)):
     except Exception as e:
         logger.error(f"Failed to get workflow status: {e}", exc_info=True)
         raise HTTPException(500, f"Failed to get workflow status: {str(e)}")
+    finally:
+        total_time = (time.time() - start_time) * 1000
+        logger.info(f"[{workflow_id}] Total request time: {total_time:.2f}ms")
 
 
 # ============================================================================
