@@ -25,42 +25,71 @@ def _get_config(req, stage: str, key: str, default: Any = None) -> Any:
     Returns:
         Configuration value
     """
+    result = None
+    source = None
+
     # Priority 1: internal_config
     if req.internal_config and stage in req.internal_config:
         stage_config = req.internal_config[stage]
         if key in stage_config:
-            return stage_config[key]
+            result = stage_config[key]
+            source = "internal_config"
+            logger.debug(f"[CONFIG] {stage}.{key} = {result} (from {source})")
+            return result
 
     # Priority 2: Legacy parameters
     if stage == "stage1_prompt_analysis":
         if key == "auto_analyze":
-            return req.auto_analyze
+            result = req.auto_analyze
+            source = "legacy"
         elif key == "auto_lora":
-            return req.auto_lora
+            result = req.auto_lora
+            source = "legacy"
         elif key == "auto_prompt":
-            return req.auto_prompt
+            result = req.auto_prompt
+            source = "legacy"
 
     elif stage == "stage2_first_frame":
         if key == "first_frame_source":
-            return req.first_frame_source.value
+            # Priority 1: internal_config already checked above
+            # Priority 2: Legacy parameter
+            if hasattr(req.first_frame_source, 'value'):
+                result = req.first_frame_source.value
+            else:
+                result = req.first_frame_source
+            source = "legacy"
         elif key == "t2i" and req.t2i_params:
-            return req.t2i_params
+            result = req.t2i_params
+            source = "legacy"
 
     elif stage == "stage3_seedream":
         if req.seedream_params:
             if key == "mode":
-                return req.seedream_params.get("edit_mode", default)
+                result = req.seedream_params.get("edit_mode", default)
+                source = "legacy"
             elif key == "enable_reactor":
-                return req.seedream_params.get("enable_reactor_first", default)
+                result = req.seedream_params.get("enable_reactor_first", default)
+                source = "legacy"
             elif key in req.seedream_params:
-                return req.seedream_params[key]
+                result = req.seedream_params[key]
+                source = "legacy"
 
     elif stage == "stage4_video":
-        if req.video_params and key in req.video_params:
-            return req.video_params[key]
+        # Check nested generation config first
+        if key in ["model", "resolution", "duration", "steps", "cfg", "shift", "scheduler", "noise_aug_strength", "motion_amplitude"]:
+            # These are under stage4_video.generation in internal_config
+            pass  # Will be handled by internal_config check above
+        elif req.video_params and key in req.video_params:
+            result = req.video_params[key]
+            source = "legacy"
 
     # Priority 3: Default value
-    return default
+    if result is None:
+        result = default
+        source = "default"
+
+    logger.debug(f"[CONFIG] {stage}.{key} = {result} (from {source})")
+    return result
 
 
 def get_default_seedream_prompt(mode: str) -> str:
@@ -223,12 +252,16 @@ async def _execute_workflow(workflow_id: str, req, task_manager):
 
         await task_manager.redis.hset(f"workflow:{workflow_id}", "first_frame_url", first_frame_url)
 
-        # 保存详细信息
-        source_text = {
-            "use_uploaded": "使用上传图片",
-            "generate": "T2I生成",
-            "select_existing": "选择已有图片"
-        }.get(req.first_frame_source.value, req.first_frame_source.value)
+        # 保存详细信息 - determine display text based on mode and first_frame_source
+        if req.mode == "first_frame":
+            source_text = "使用上传图片"
+        else:
+            # Recalculate first_frame_source for display (same logic as in _acquire_first_frame)
+            first_frame_source_for_display = req.first_frame_source or _get_config(req, "stage2_first_frame", "first_frame_source", "select_existing")
+            source_text = {
+                "generate": "T2I生成",
+                "select_existing": "选择已有图片"
+            }.get(first_frame_source_for_display, first_frame_source_for_display)
         details = f"来源: {source_text}\nURL: {first_frame_url}"
 
         # Stage 2.1: 首帧换脸（可选）
@@ -293,7 +326,7 @@ async def _execute_workflow(workflow_id: str, req, task_manager):
 
         # 保存详细信息
         video_model = _get_config(req, "stage4_video", "model", "A14B")
-        video_resolution = _get_config(req, "stage4_video", "resolution", "720p_3:4")
+        video_resolution = _get_config(req, "stage4_video", "resolution", "480p_3:4")
         video_duration = _get_config(req, "stage4_video", "duration", "5s")
 
         # 检查视频换脸配置
@@ -371,41 +404,95 @@ async def _acquire_first_frame(workflow_id: str, req, analysis_result: Optional[
         from api.services import storage
         import uuid
 
-        if req.first_frame_source == "use_uploaded":
-            # Use uploaded first frame
-            if not req.uploaded_first_frame:
-                raise Exception("uploaded_first_frame is required when first_frame_source=use_uploaded")
+        # Determine first_frame_source based on mode
+        # In first_frame mode, uploaded image is always used as first frame
+        # In face_reference/full_body_reference modes, use first_frame_source from config or request
+        if req.mode != "first_frame":
+            first_frame_source = req.first_frame_source or _get_config(req, "stage2_first_frame", "first_frame_source", "select_existing")
+            logger.info(f"[{workflow_id}] Mode is {req.mode}, first_frame_source: {first_frame_source}")
 
-            # Decode and save uploaded image
+        if req.mode == "first_frame":
+            # Use uploaded first frame (only in first_frame mode)
+            if not req.uploaded_first_frame:
+                raise Exception("uploaded_first_frame is required when mode=first_frame")
+
+            # Handle different input formats
             if req.uploaded_first_frame.startswith('data:image'):
+                # Base64 data URL
                 image_b64 = req.uploaded_first_frame.split(',')[1]
                 image_data = base64.b64decode(image_b64)
-            elif req.uploaded_first_frame.startswith('http'):
-                # Download from URL
+                filename = f"first_frame_{workflow_id}.png"
+                local_path, url = await storage.save_upload(image_data, filename)
+                return url
+            elif req.uploaded_first_frame.startswith('http://') or req.uploaded_first_frame.startswith('https://'):
+                # Remote URL - download it
                 async with aiohttp.ClientSession() as session:
                     async with session.get(req.uploaded_first_frame) as resp:
                         if resp.status != 200:
                             raise Exception(f"Failed to download uploaded frame: {resp.status}")
                         image_data = await resp.read()
+                filename = f"first_frame_{workflow_id}.png"
+                local_path, url = await storage.save_upload(image_data, filename)
+                return url
+            elif req.uploaded_first_frame.startswith('/api/v1/'):
+                # Already uploaded, return as-is (relative URL path)
+                logger.info(f"[{workflow_id}] Using already uploaded image: {req.uploaded_first_frame}")
+                return req.uploaded_first_frame
+            elif '/' not in req.uploaded_first_frame and '.' in req.uploaded_first_frame:
+                # Local filename (e.g., "abc123.png") - assume it's in uploads directory
+                logger.info(f"[{workflow_id}] Using local filename: {req.uploaded_first_frame}")
+                return req.uploaded_first_frame
             else:
-                image_data = base64.b64decode(req.uploaded_first_frame)
+                # Fallback: try base64 decode
+                try:
+                    image_data = base64.b64decode(req.uploaded_first_frame)
+                    filename = f"first_frame_{workflow_id}.png"
+                    local_path, url = await storage.save_upload(image_data, filename)
+                    return url
+                except Exception as e:
+                    raise Exception(f"Invalid uploaded_first_frame format: not a data URL, http URL, file path, or valid base64. Error: {e}")
 
-            filename = f"first_frame_{workflow_id}.png"
-            local_path, url = await storage.save_upload(image_data, filename)
-            return url
-
-        elif req.first_frame_source == "generate":
+        elif first_frame_source == "generate":
             # Generate first frame using T2I (SD WebUI)
             return await _generate_t2i_image(req, analysis_result, task_manager)
 
-        elif req.first_frame_source == "select_existing":
-            # Use selected existing image
-            if not req.selected_image_url:
-                raise Exception("selected_image_url is required when first_frame_source=select_existing")
-            return req.selected_image_url
+        elif first_frame_source == "select_existing":
+            # Auto-select from recommended images
+            logger.info(f"[{workflow_id}] Auto-selecting from recommended images")
+
+            # Call recommend API to get recommended images
+            if analysis_result and analysis_result.get("images"):
+                # Use images from analysis_result if available
+                recommended_images = analysis_result.get("images", [])
+                logger.info(f"[{workflow_id}] Using {len(recommended_images)} images from analysis_result")
+            else:
+                # Call recommend API with lower threshold
+                logger.info(f"[{workflow_id}] No images in analysis_result, calling recommend API")
+                from api.routes.recommend import smart_recommend, RecommendRequest
+                recommend_req = RecommendRequest(
+                    prompt=req.user_prompt,
+                    mode=req.mode,
+                    include_images=True,
+                    include_loras=False,
+                    top_k_images=5,
+                    min_similarity=0.3  # Lower threshold to get more results
+                )
+                recommend_result = await smart_recommend(recommend_req, _=None)
+                recommended_images = [img.model_dump() for img in recommend_result.images]
+                logger.info(f"[{workflow_id}] Recommend API returned {len(recommended_images)} images")
+
+            if not recommended_images:
+                raise Exception("No recommended images found for select_existing mode")
+
+            # Select the first (highest similarity) image
+            selected_image = recommended_images[0]
+            selected_url = selected_image.get("url")
+            logger.info(f"[{workflow_id}] Auto-selected image: {selected_url} (similarity: {selected_image.get('similarity', 0.0):.3f})")
+
+            return selected_url
 
         else:
-            raise Exception(f"Unknown first_frame_source: {req.first_frame_source}")
+            raise Exception(f"Unknown first_frame_source: {first_frame_source}")
 
     except Exception as e:
         logger.error(f"First frame acquisition failed: {e}", exc_info=True)
@@ -431,6 +518,24 @@ async def _generate_t2i_image(req, analysis_result: Optional[dict], task_manager
             if optimized_t2i:
                 prompt = optimized_t2i
 
+        # Add Image LoRAs to prompt
+        auto_lora = _get_config(req, "stage1_prompt_analysis", "auto_lora", True)
+        if analysis_result and auto_lora:
+            image_loras = analysis_result.get("image_loras", [])
+            if image_loras:
+                # Add LoRAs to prompt using SD WebUI format: <lora:name:strength>
+                lora_tags = []
+                for lora in image_loras[:3]:  # Use top 3 image LoRAs
+                    lora_id = lora.get("lora_id", "")
+                    lora_name = lora.get("name", "")
+                    # Use strength 0.8 as default
+                    lora_tags.append(f"<lora:{lora_id}:0.8>")
+                    logger.info(f"Adding Image LoRA to T2I: {lora_name} (ID: {lora_id})")
+
+                # Append LoRA tags to prompt
+                if lora_tags:
+                    prompt = prompt + " " + " ".join(lora_tags)
+
         # Get T2I parameters from internal_config or legacy params
         t2i_config = _get_config(req, "stage2_first_frame", "t2i", {})
         if not t2i_config and req.t2i_params:
@@ -455,7 +560,7 @@ async def _generate_t2i_image(req, analysis_result: Optional[dict], task_manager
             "seed": seed
         }
 
-        logger.info(f"Generating T2I image: {prompt[:100]}...")
+        logger.info(f"Generating T2I image with prompt: {prompt[:150]}...")
 
         async with aiohttp.ClientSession() as session:
             async with session.post(f"{FORGE_URL}/sdapi/v1/txt2img", json=payload, timeout=aiohttp.ClientTimeout(total=300)) as resp:
@@ -527,42 +632,122 @@ async def _generate_video(workflow_id: str, req, first_frame_url: str, analysis_
     Returns: (chain_id, final_video_url)
     """
     try:
+        logger.info(f"[{workflow_id}] _generate_video started, first_frame_url={first_frame_url}")
         from api.routes.extend import generate_chain
-        from api.models.schemas import AutoChainRequest, ChainSegment, LoraInput
-        from api.models.enums import ModelType, ImageMode
+        from api.models.schemas import AutoChainRequest, ChainSegment, LoraInput, ImageMode
+        from api.models.enums import ModelType
         import aiohttp
         from io import BytesIO
         from fastapi import UploadFile
 
         # Get video parameters from internal_config or legacy params
-        video_model = _get_config(req, "stage4_video", "model", "A14B")
-        video_resolution = _get_config(req, "stage4_video", "resolution", "720p_3:4")
-        video_duration = _get_config(req, "stage4_video", "duration", "5s")
-        video_steps = _get_config(req, "stage4_video", "steps", 20)
-        video_cfg = _get_config(req, "stage4_video", "cfg", 6.0)
-        video_shift = _get_config(req, "stage4_video", "shift", 5.0)
-        video_scheduler = _get_config(req, "stage4_video", "scheduler", "unipc")
-        video_noise_aug = _get_config(req, "stage4_video", "noise_aug_strength", 0.0)
-        video_motion_amp = _get_config(req, "stage4_video", "motion_amplitude", 0.0)
+        logger.info(f"[{workflow_id}] Reading video parameters from config")
+        # Try nested path first (stage4_video.generation.*)
+        video_model = _get_config(req, "stage4_video", "model", None)
+        if video_model is None and req.internal_config:
+            video_model = req.internal_config.get("stage4_video", {}).get("generation", {}).get("model", "A14B")
+        if video_model is None:
+            video_model = "A14B"
 
-        model = ModelType(video_model)
+        video_resolution = _get_config(req, "stage4_video", "resolution", None)
+        if video_resolution is None and req.internal_config:
+            video_resolution = req.internal_config.get("stage4_video", ).get("generation", {}).get("resolution", "480p_3:4")
+        if video_resolution is None:
+            video_resolution = "480p_3:4"
+
+        video_duration = _get_config(req, "stage4_video", "duration", None)
+        if video_duration is None and req.internal_config:
+            video_duration = req.internal_config.get("stage4_video", {}).get("generation", {}).get("duration", "5s")
+        if video_duration is None:
+            video_duration = "5s"
+
+        video_steps = _get_config(req, "stage4_video", "steps", None)
+        if video_steps is None and req.internal_config:
+            video_steps = req.internal_config.get("stage4_video", {}).get("generation", {}).get("steps", 20)
+        if video_steps is None:
+            video_steps = 20
+
+        video_cfg = _get_config(req, "stage4_video", "cfg", None)
+        if video_cfg is None and req.internal_config:
+            video_cfg = req.internal_config.get("stage4_video", {}).get("generation", {}).get("cfg", 6.0)
+        if video_cfg is None:
+            video_cfg = 6.0
+
+        video_shift = _get_config(req, "stage4_video", "shift", None)
+        if video_shift is None and req.internal_config:
+            video_shift = req.internal_config.get("stage4_video", {}).get("generation", {}).get("shift", 5.0)
+        if video_shift is None:
+            video_shift = 5.0
+
+        video_scheduler = _get_config(req, "stage4_video", "scheduler", None)
+        if video_scheduler is None and req.internal_config:
+            video_scheduler = req.internal_config.get("stage4_video", {}).get("generation", {}).get("scheduler", "unipc")
+        if video_scheduler is None:
+            video_scheduler = "unipc"
+
+        video_noise_aug = _get_config(req, "stage4_video", "noise_aug_strength", None)
+        if video_noise_aug is None and req.internal_config:
+            video_noise_aug = req.internal_config.get("stage4_video", {}).get("generation", {}).get("noise_aug_strength", 0.0)
+        if video_noise_aug is None:
+            video_noise_aug = 0.0
+
+        video_motion_amp = _get_config(req, "stage4_video", "motion_amplitude", None)
+        if video_motion_amp is None and req.internal_config:
+            video_motion_amp = req.internal_config.get("stage4_video", {}).get("generation", {}).get("motion_amplitude", 1.15)
+        if video_motion_amp is None:
+            video_motion_amp = 1.15
+
+        # T5 and CLIP presets
+        t5_preset = _get_config(req, "stage4_video", "t5_preset", None)
+        if t5_preset is None and req.internal_config:
+            t5_preset = req.internal_config.get("stage4_video", {}).get("generation", {}).get("t5_preset", "nsfw")
+        if t5_preset is None:
+            t5_preset = "nsfw"
+
+        clip_preset = _get_config(req, "stage4_video", "clip_preset", None)
+        if clip_preset is None and req.internal_config:
+            clip_preset = req.internal_config.get("stage4_video", ).get("generation", {}).get("clip_preset", "nsfw")
+        if clip_preset is None:
+            clip_preset = "nsfw"
+
+        # Convert model string to ModelType enum
+        if video_model.upper() == "A14B":
+            model = ModelType.A14B
+        elif video_model.upper() == "5B":
+            model = ModelType.FIVE_B
+        else:
+            model = ModelType.A14B  # Default fallback
         resolution = video_resolution
         duration = video_duration
         steps = video_steps
         cfg = video_cfg
 
-        # Parse resolution
+        # Parse resolution (must be multiples of 16 for VAE)
         if resolution == "720p_3:4":
             width, height = 608, 832
         elif resolution == "720p_16:9":
             width, height = 1280, 720
         elif resolution == "1080p_16:9":
             width, height = 1920, 1080
-        else:
+        elif resolution == "480p_3:4" or resolution == "480p_3_4":
+            width, height = 352, 480  # 352 is closest 16-multiple to 360 (3:4 ratio ≈ 0.73)
+        elif resolution == "480p_16:9" or resolution == "480p_16_9":
             width, height = 832, 480
+        else:
+            # Default fallback
+            width, height = 832, 480
+            logger.warning(f"[{workflow_id}] Unknown resolution '{resolution}', using default 832x480")
 
         # Parse duration
         duration_seconds = float(duration.rstrip('s'))
+
+        # Determine image mode based on workflow mode (MUST be before LoRA filtering)
+        if req.mode == "face_reference":
+            image_mode = ImageMode.FACE_REFERENCE
+        elif req.mode == "full_body_reference":
+            image_mode = ImageMode.FULL_BODY_REFERENCE
+        else:
+            image_mode = ImageMode.FIRST_FRAME
 
         # Build prompt
         prompt = req.user_prompt
@@ -577,26 +762,52 @@ async def _generate_video(workflow_id: str, req, first_frame_url: str, analysis_
         auto_lora = _get_config(req, "stage1_prompt_analysis", "auto_lora", True)
         if analysis_result and auto_lora:
             video_loras = analysis_result.get("video_loras", [])
-            for lora in video_loras[:3]:  # Top 3
+
+            # Determine if we're in I2V or T2V mode
+            is_i2v_mode = image_mode in [ImageMode.FIRST_FRAME, ImageMode.FACE_REFERENCE, ImageMode.FULL_BODY_REFERENCE]
+
+            # Filter LoRAs by mode
+            filtered_loras = []
+            for lora in video_loras:
+                lora_mode = lora.get("mode", "").upper()
+                if is_i2v_mode:
+                    # For I2V, prefer I2V LoRAs or single-stage LoRAs
+                    if lora_mode == "I2V" or lora.get("noise_stage") == "single":
+                        filtered_loras.append(lora)
+                else:
+                    # For T2V, prefer T2V LoRAs
+                    if lora_mode == "T2V":
+                        filtered_loras.append(lora)
+
+            # If no filtered LoRAs, fall back to original list
+            if not filtered_loras:
+                filtered_loras = video_loras
+                logger.warning(f"[{workflow_id}] No matching LoRAs found for mode {image_mode}, using all recommended")
+
+            # Take top 3
+            for lora in filtered_loras[:3]:
                 loras.append(LoraInput(
-                    name=lora["lora_id"],
+                    name=str(lora["lora_id"]),
                     strength=0.8
                 ))
-
-        # Determine image mode based on workflow mode
-        if req.mode == "face_reference":
-            image_mode = ImageMode.FACE_REFERENCE
-        elif req.mode == "full_body_reference":
-            image_mode = ImageMode.FULL_BODY_REFERENCE
-        else:
-            image_mode = ImageMode.FIRST_FRAME
+                logger.info(f"[{workflow_id}] Selected LoRA: {lora['name']} (mode={lora.get('mode')}, noise_stage={lora.get('noise_stage')})")
 
         # Download first frame for upload
-        async with aiohttp.ClientSession() as session:
-            async with session.get(first_frame_url) as resp:
-                if resp.status != 200:
-                    raise Exception(f"Failed to download first frame: {resp.status}")
-                image_data = await resp.read()
+        # Handle both URL and local filename
+        if first_frame_url.startswith('http://') or first_frame_url.startswith('https://'):
+            # Remote URL - download it
+            async with aiohttp.ClientSession() as session:
+                async with session.get(first_frame_url) as resp:
+                    if resp.status != 200:
+                        raise Exception(f"Failed to download first frame: {resp.status}")
+                    image_data = await resp.read()
+        else:
+            # Local filename - read from disk
+            from api.config import UPLOADS_DIR
+            local_path = UPLOADS_DIR / first_frame_url
+            if not local_path.exists():
+                raise Exception(f"First frame file not found: {first_frame_url}")
+            image_data = local_path.read_bytes()
 
         # Create UploadFile object
         image_file = UploadFile(
@@ -611,6 +822,7 @@ async def _generate_video(workflow_id: str, req, first_frame_url: str, analysis_
             width=width,
             height=height,
             duration=duration_seconds,
+            fps=16,  # Default FPS for optimal performance
             steps=steps,
             cfg=cfg,
             shift=video_shift,
@@ -620,12 +832,34 @@ async def _generate_video(workflow_id: str, req, first_frame_url: str, analysis_
             auto_continue=False,
             noise_aug_strength=video_noise_aug,
             motion_amplitude=video_motion_amp,
+            t5_preset=t5_preset,
+            clip_preset=clip_preset,
             segments=[ChainSegment(
                 prompt=prompt,
                 duration=duration_seconds,
                 loras=[]
             )]
         )
+
+        # Log video generation parameters
+        logger.info(f"[VIDEO_PARAMS] {workflow_id} - Video generation parameters:")
+        logger.info(f"[VIDEO_PARAMS] {workflow_id} - model: {video_model} -> {model}")
+        logger.info(f"[VIDEO_PARAMS] {workflow_id} - resolution: {video_resolution} -> {width}x{height}")
+        logger.info(f"[VIDEO_PARAMS] {workflow_id} - duration: {video_duration} -> {duration_seconds}s")
+        logger.info(f"[VIDEO_PARAMS] {workflow_id} - fps: 16")
+        logger.info(f"[VIDEO_PARAMS] {workflow_id} - num_frames: {int(duration_seconds * 16) + 1}")
+        logger.info(f"[VIDEO_PARAMS] {workflow_id} - steps: {video_steps}")
+        logger.info(f"[VIDEO_PARAMS] {workflow_id} - cfg: {video_cfg}")
+        logger.info(f"[VIDEO_PARAMS] {workflow_id} - shift: {video_shift}")
+        logger.info(f"[VIDEO_PARAMS] {workflow_id} - scheduler: {video_scheduler}")
+        logger.info(f"[VIDEO_PARAMS] {workflow_id} - noise_aug_strength: {video_noise_aug}")
+        logger.info(f"[VIDEO_PARAMS] {workflow_id} - motion_amplitude: {video_motion_amp}")
+        logger.info(f"[VIDEO_PARAMS] {workflow_id} - t5_preset: {t5_preset}")
+        logger.info(f"[VIDEO_PARAMS] {workflow_id} - clip_preset: {clip_preset}")
+        logger.info(f"[VIDEO_PARAMS] {workflow_id} - image_mode: {image_mode}")
+        logger.info(f"[VIDEO_PARAMS] {workflow_id} - prompt: {prompt}")
+        logger.info(f"[VIDEO_PARAMS] {workflow_id} - loras: {[f'{l.name}:{l.strength}' for l in loras]}")
+        logger.info(f"[VIDEO_PARAMS] {workflow_id} - first_frame_url: {first_frame_url}")
 
         # Apply video face swap configuration
         video_face_swap_config = _get_config(req, "stage4_video", "face_swap", {})
@@ -640,6 +874,9 @@ async def _generate_video(workflow_id: str, req, first_frame_url: str, analysis_
             # Set face swap strength
             chain_req.face_swap_strength = video_face_swap_config.get("strength", 1.0)
 
+            logger.info(f"[VIDEO_PARAMS] {workflow_id} - face_swap enabled: mode={face_swap_mode}, strength={chain_req.face_swap_strength}")
+            logger.info(f"[VIDEO_PARAMS] {workflow_id} - image_mode updated to: {chain_req.image_mode}")
+
         # Apply postprocess configuration
         postprocess_config = _get_config(req, "stage4_video", "postprocess", {})
         if isinstance(postprocess_config, dict):
@@ -649,6 +886,7 @@ async def _generate_video(workflow_id: str, req, first_frame_url: str, analysis_
                 chain_req.enable_upscale = True
                 chain_req.upscale_model = upscale_config.get("model", "RealESRGAN_x4plus")
                 chain_req.upscale_resize = upscale_config.get("resize", 2.0)
+                logger.info(f"[VIDEO_PARAMS] {workflow_id} - upscale enabled: model={chain_req.upscale_model}, resize={chain_req.upscale_resize}")
 
             # Interpolation
             interp_config = postprocess_config.get("interpolation", {})
@@ -656,9 +894,13 @@ async def _generate_video(workflow_id: str, req, first_frame_url: str, analysis_
                 chain_req.enable_interpolation = True
                 chain_req.interpolation_multiplier = interp_config.get("multiplier", 2)
                 chain_req.interpolation_profile = interp_config.get("profile", "auto")
+                logger.info(f"[VIDEO_PARAMS] {workflow_id} - interpolation enabled: multiplier={chain_req.interpolation_multiplier}, profile={chain_req.interpolation_profile}")
 
         # Call chain generation endpoint
         params_json = chain_req.model_dump_json()
+        logger.info(f"[VIDEO_PARAMS] {workflow_id} - Final chain_req parameters:")
+        logger.info(f"[VIDEO_PARAMS] {workflow_id} - {params_json}")
+        logger.info(f"[{workflow_id}] Calling generate_chain with image_mode={chain_req.image_mode}")
         result = await generate_chain(
             image=image_file,
             face_image=None,
@@ -669,6 +911,7 @@ async def _generate_video(workflow_id: str, req, first_frame_url: str, analysis_
 
         # Poll for completion
         chain_id = result.chain_id
+        logger.info(f"[{workflow_id}] Chain created: {chain_id}")
         final_video_url = None
 
         import asyncio
@@ -680,13 +923,18 @@ async def _generate_video(workflow_id: str, req, first_frame_url: str, analysis_
 
             if status == "completed":
                 final_video_url = chain_data.get("final_video_url")
+                logger.info(f"[{workflow_id}] Chain completed, video URL: {final_video_url}")
                 break
             elif status == "failed":
                 error = chain_data.get("error", "Unknown error")
+                logger.error(f"[{workflow_id}] Chain failed: {error}")
                 raise Exception(f"Chain generation failed: {error}")
+
+        if not final_video_url:
+            logger.warning(f"[{workflow_id}] Chain polling timeout, status: {status}")
 
         return chain_id, final_video_url
 
     except Exception as e:
-        logger.error(f"Video generation failed: {e}", exc_info=True)
+        logger.error(f"[{workflow_id}] Video generation failed: {e}", exc_info=True)
         return None, None

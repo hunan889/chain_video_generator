@@ -270,8 +270,6 @@ async def generate_chain(
                 "motion_frames": req.motion_frames,
                 "image_mode": req.image_mode.value,
                 "face_swap_strength": req.face_swap_strength,
-                "detect_gender_source": req.detect_gender_source,
-                "detect_gender_input": req.detect_gender_input,
                 "boundary": req.boundary,
                 "clip_preset": req.clip_preset,
                 "match_image_ratio": req.match_image_ratio,
@@ -302,6 +300,18 @@ async def generate_chain(
                             "strength": req.face_swap_strength,
                         }
                     logger.info("Chain seg0 face_reference: face_image=%s image=%s -> face_image_filename=%s",
+                                face_image_filename, image_filename, ref)
+                elif req.image_mode == "full_body_reference":
+                    # Use face_image if provided, otherwise use image as full body reference
+                    ref = face_image_filename or image_filename
+                    if ref:
+                        seg["face_image_filename"] = ref
+                        # Add face_swap config for full body mode
+                        seg["face_swap"] = {
+                            "enabled": True,
+                            "strength": req.face_swap_strength,
+                        }
+                    logger.info("Chain seg0 full_body_reference: face_image=%s image=%s -> face_image_filename=%s",
                                 face_image_filename, image_filename, ref)
             # Add parent video filename for Story Mode continuation (multi-frame reference)
             if i == 0 and parent_video_comfy_filename:
@@ -409,6 +419,12 @@ async def generate_chain(
                 if ref:
                     seg["face_image_filename"] = ref
                 logger.info("Single-seg face_reference: face_image=%s image=%s -> face_image_filename=%s",
+                            face_image_filename, image_filename, ref)
+            elif req.image_mode == "full_body_reference":
+                ref = face_image_filename or image_filename
+                if ref:
+                    seg["face_image_filename"] = ref
+                logger.info("Single-seg full_body_reference: face_image=%s image=%s -> face_image_filename=%s",
                             face_image_filename, image_filename, ref)
         if i == 0 and parent_video_comfy_filename:
             seg["parent_video_filename"] = parent_video_comfy_filename

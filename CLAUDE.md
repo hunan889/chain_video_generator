@@ -37,12 +37,48 @@ Python 3.11, FastAPI, Redis, aiohttp, websockets, ComfyUI, PyTorch (CUDA)
 
 **Core Principle: Never assume. Always verify. Evidence over intuition.**
 
+### Problem-Solving Workflow
+
+**CRITICAL: Do NOT jump to code changes immediately. Follow this strict workflow:**
+
+1. **Confirm the Problem**
+   - Gather evidence and data
+   - Reproduce the issue
+   - Measure baseline metrics
+   - Verify the problem actually exists
+
+2. **Investigate Root Cause**
+   - Trace through the system
+   - Check logs, configs, and data
+   - Identify the actual source of the issue
+   - Rule out false leads
+
+3. **Discuss Solutions**
+   - Present findings to the user
+   - Propose multiple approaches if applicable
+   - Discuss trade-offs and implications
+   - Get user input on preferred direction
+
+4. **Document the Plan**
+   - Write the solution plan to a document (e.g., `FIX_PLAN.md`)
+   - Include: problem summary, root cause, proposed changes, expected impact
+   - Get user confirmation on the documented plan
+
+5. **Execute (After Clear Context)**
+   - User should run `/clear` to start fresh context
+   - Execute the documented plan step by step
+   - Verify each change works as expected
+
+**Golden Rules:**
+- If you can't prove it with evidence, don't claim it
+- Never modify code before understanding the full problem
+- Always document before executing
+- Prefer investigation over speculation
+
 When debugging, fixing, or deploying changes:
 1. Gather evidence before diagnosing
 2. Verify process actually restarted (check timestamps)
 3. Test that the fix actually works (functional verification)
 4. Report with evidence, not assumptions
-
-**Golden Rule: If you can't prove it with evidence, don't claim it.**
 
 See [METHODOLOGY.md](./METHODOLOGY.md) for the complete problem diagnosis and fix verification methodology.

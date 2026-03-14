@@ -50,10 +50,15 @@ h1{text-align:center;color:#7c83ff;margin-bottom:24px;font-size:1.6em}
 <a href="/" class="back-link">← 返回首页</a>
 <h1>我的收藏</h1>
 
-<div class="tabs">
+<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+<div class="tabs" style="margin-bottom:0">
 <div class="tab active" data-type="all" onclick="switchType('all')">全部</div>
 <div class="tab" data-type="image" onclick="switchType('image')">图片</div>
 <div class="tab" data-type="video" onclick="switchType('video')">视频</div>
+</div>
+<button onclick="generateSearchKeywords()" style="padding:8px 16px;background:#16213e;border:1px solid #4ade80;color:#4ade80;border-radius:6px;cursor:pointer;font-size:13px;white-space:nowrap">
+🤖 生成搜索关键词
+</button>
 </div>
 
 <div id="favorites-grid" class="grid"></div>
@@ -190,6 +195,37 @@ function switchType(type) {
 function goToPage(page) {
   currentPage = page;
   loadFavorites();
+}
+
+async function generateSearchKeywords() {
+  if (!confirm('确定要为所有收藏的图片生成搜索关键词吗？\n\n这将为没有搜索关键词的图片自动生成关键词，用于提升搜索效果。')) {
+    return;
+  }
+
+  const button = event.target;
+  const originalText = button.textContent;
+  button.disabled = true;
+  button.textContent = '生成中...';
+
+  try {
+    const res = await fetch('/api/v1/admin/resources/generate-search-keywords', {
+      method: 'POST',
+      headers: { 'X-API-Key': API_KEY }
+    });
+
+    if (!res.ok) {
+      throw new Error('生成失败');
+    }
+
+    const data = await res.json();
+    alert(`✓ 成功！\n\n处理了 ${data.processed} 张图片\n${data.message}`);
+
+  } catch (err) {
+    alert('生成失败: ' + err.message);
+  } finally {
+    button.disabled = false;
+    button.textContent = originalText;
+  }
 }
 
 // Load on page load

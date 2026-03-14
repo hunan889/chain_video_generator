@@ -16,6 +16,29 @@ from api.middleware.auth import verify_api_key
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
+
+@router.post("/upload")
+async def upload_image(
+    file: UploadFile = File(...),
+    _user=Depends(verify_api_key)
+):
+    """Upload an image file and return its URL."""
+    from api.services import storage
+    import uuid
+
+    # Read file content
+    content = await file.read()
+
+    # Generate unique filename
+    ext = file.filename.split('.')[-1] if '.' in file.filename else 'png'
+    filename = f"{uuid.uuid4().hex}.{ext}"
+
+    # Save to storage
+    local_path, url = await storage.save_upload(content, filename)
+
+    return {"url": url, "filename": filename}
+
+
 BYTEPLUS_API_KEY = os.getenv(
     "BYTEPLUS_API_KEY", "f3cb7588-0af7-4753-96c4-8ca992600bca"
 )

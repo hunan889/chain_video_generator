@@ -13,4 +13,4 @@ PORT="${API_PORT:-8000}"
 
 cd "$PROJECT_DIR"
 echo "Starting Wan2.2 Video Generation API on port $PORT..."
-exec python -m uvicorn api.main:app --host "$HOST" --port "$PORT" 2>&1 | tee -a /tmp/wan22_api_full.log
+exec /home/gime/soft/miniconda3/bin/python -m uvicorn api.main:app --host "$HOST" --port "$PORT" 2>&1 | tee -a /tmp/wan22_api_full.log

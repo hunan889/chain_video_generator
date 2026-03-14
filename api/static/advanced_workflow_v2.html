@@ -1,0 +1,1135 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>高级视频生成</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:#1a1a2e;color:#e0e0e0}
+.container{max-width:1400px;margin:0 auto;padding:20px}
+h2{color:#7c83ff;margin-bottom:20px;font-size:1.4em}
+.section{background:#16213e;border:1px solid #333;border-radius:8px;padding:20px;margin-bottom:20px}
+.row{display:flex;gap:20px;margin-bottom:16px;flex-wrap:wrap}
+.field{flex:1;min-width:200px}
+.field label{display:block;margin-bottom:6px;font-size:13px;color:#aaa}
+.field input,.field select,.field textarea{width:100%;padding:8px 10px;background:#0a0a23;border:1px solid #444;border-radius:6px;color:#e0e0e0;font-size:14px}
+.field textarea{resize:vertical;min-height:80px}
+.field input:focus,.field select:focus,.field textarea:focus{outline:none;border-color:#7c83ff}
+.field input[type=checkbox]{width:auto;margin-right:8px}
+.upload-area{border:2px dashed #444;border-radius:8px;padding:30px;text-align:center;cursor:pointer;transition:border-color .2s;position:relative;min-height:150px;display:flex;align-items:center;justify-content:center;flex-direction:column;overflow:hidden;background:#0a0a23}
+.upload-area:hover{border-color:#7c83ff}
+.upload-area img{max-width:100%;max-height:200px;border-radius:6px}
+.upload-area input[type=file]{position:absolute;inset:0;opacity:0;cursor:pointer}
+.upload-area .placeholder{color:#666;font-size:13px}
+.btn{padding:12px 32px;background:#7c83ff;color:#fff;border:none;border-radius:8px;font-size:15px;cursor:pointer;font-weight:600;transition:background .2s}
+.btn:hover{background:#5a62e0}
+.btn:disabled{background:#444;cursor:not-allowed}
+.btn-row{text-align:center;margin-top:20px}
+.collapsible{cursor:pointer;padding:12px 16px;background:#0f3460;border:1px solid #444;border-radius:6px;margin-bottom:12px;display:flex;justify-content:space-between;align-items:center;user-select:none;font-size:14px;font-weight:600}
+.collapsible:hover{background:#16213e}
+.collapsible-content{max-height:0;overflow:hidden;transition:max-height 0.3s ease-out}
+.collapsible-content.active{overflow-y:auto}
+.collapsible-content.active{max-height:5000px}
+.stage-collapsible{background:#0a0a23;border:1px solid #333;margin-bottom:8px}
+.stage-collapsible:hover{background:#0f1a2e}
+.subsection{background:#0a0a23;border:1px solid #333;border-radius:6px;padding:16px;margin-bottom:12px}
+.subsection-title{font-size:13px;color:#7c83ff;margin-bottom:12px;font-weight:600}
+.progress-section{display:none;margin-top:20px}
+.progress-section.active{display:block}
+.stage{background:#0a0a23;border:1px solid #333;border-radius:6px;padding:16px;margin-bottom:12px}
+.stage-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px}
+.stage-name{font-weight:600;font-size:14px;color:#7c83ff}
+.stage-status{padding:3px 10px;border-radius:12px;font-size:11px;font-weight:600}
+.stage-status.pending{background:#333;color:#888}
+.stage-status.running{background:#0f3460;color:#7c83ff}
+.stage-status.completed{background:#1a4a2e;color:#4ade80}
+.stage-status.failed{background:#4a1a1a;color:#f87171}
+.stage-details{font-size:12px;color:#888;margin-top:8px;white-space:pre-wrap;display:none}
+.stage-details.active{display:block}
+.stage-toggle{font-size:11px;color:#7c83ff;cursor:pointer;text-decoration:underline}
+.result-section{display:none;margin-top:20px}
+.result-section.active{display:block}
+.result-video{text-align:center}
+.result-video video{max-width:100%;border-radius:8px;max-height:500px}
+.result-actions{display:flex;gap:10px;justify-content:center;margin-top:12px}
+@keyframes spin{0%{transform:rotate(0deg)}100%{transform:rotate(360deg)}}
+.spinner{display:inline-block;width:14px;height:14px;border:2px solid #333;border-top-color:#7c83ff;border-radius:50%;animation:spin 0.6s linear infinite;margin-left:8px}
+.hint{font-size:11px;color:#666;margin-top:4px;font-style:italic}
+</style>
+</head>
+<body>
+<div class="container">
+<h2>🎬 高级视频生成工作流</h2>
+
+<!-- 任务历史 -->
+<div class="section" id="historySection" style="display:none;margin-bottom:20px">
+<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+<h3 style="color:#7c83ff;margin:0">📋 任务历史</h3>
+<button class="btn btn-sm" onclick="toggleHistory()" style="background:#333">收起</button>
+</div>
+<div id="historyList" style="max-height:300px;overflow-y:auto"></div>
+</div>
+
+<div style="text-align:right;margin-bottom:12px">
+<button class="btn btn-sm" onclick="toggleHistory()" id="showHistoryBtn" style="background:#333">📋 查看历史任务</button>
+</div>
+
+<!-- 主要参数 -->
+<div class="section">
+<div class="field">
+<label>提示词 Prompt</label>
+<textarea id="prompt" placeholder="描述你想要生成的视频内容..."></textarea>
+</div>
+
+<div class="row" style="margin-top:16px">
+<div class="field">
+<label>上传图片作用</label>
+<select id="imageRole">
+<option value="first_frame">首帧（直接作为视频第一帧）</option>
+<option value="full_body_reference">全身参考（换脸+换装）</option>
+<option value="face_reference">仅换脸（只换脸部）</option>
+</select>
+</div>
+<div class="field">
+<label>分辨率</label>
+<select id="resolution">
+<option value="480p">480p</option>
+<option value="720p">720p</option>
+<option value="1080p">1080p</option>
+</select>
+</div>
+<div class="field">
+<label>宽高比</label>
+<select id="aspectRatio">
+<option value="16:9">16:9 横屏</option>
+<option value="9:16">9:16 竖屏</option>
+<option value="3:4">3:4 竖屏</option>
+<option value="4:3">4:3 横屏</option>
+</select>
+</div>
+<div class="field">
+<label>时长</label>
+<select id="duration">
+<option value="5">5秒</option>
+<option value="10">10秒</option>
+<option value="15">15秒</option>
+</select>
+</div>
+</div>
+
+<div class="row">
+<div class="field">
+<label>上传图片</label>
+<div class="upload-area" id="uploadArea">
+<input type="file" id="imageFile" accept="image/*">
+<div class="placeholder">点击或拖拽上传图片</div>
+<img id="imagePreview" style="display:none">
+</div>
+</div>
+</div>
+</div>
+
+<!-- 高级参数（按阶段折叠） -->
+<div class="collapsible" onclick="toggleCollapsible(this)">
+<span>⚙️ 高级内部参数配置（按执行阶段组织）</span>
+<span>▼</span>
+</div>
+<div class="collapsible-content">
+
+<!-- Stage 1: Prompt 分析 -->
+<div class="stage-collapsible collapsible" onclick="toggleCollapsible(this)">
+<span>📝 Stage 1: Prompt 分析</span>
+<span>▼</span>
+</div>
+<div class="collapsible-content">
+<div class="section">
+<div class="row">
+<div class="field">
+<label><input type="checkbox" id="s1_autoAnalyze" checked> 自动分析 Prompt</label>
+</div>
+<div class="field">
+<label><input type="checkbox" id="s1_autoLora" checked> 自动推荐 LORA</label>
+</div>
+<div class="field">
+<label><input type="checkbox" id="s1_autoPrompt" checked> 自动优化 Prompt</label>
+</div>
+</div>
+<div class="row">
+<div class="field">
+<label>Image LORA 推荐数量</label>
+<input type="number" id="s1_topKImage" value="5" min="1" max="20">
+</div>
+<div class="field">
+<label>Video LORA 推荐数量</label>
+<input type="number" id="s1_topKVideo" value="5" min="1" max="20">
+</div>
+</div>
+</div>
+</div>
+
+<!-- Stage 2: 首帧获取 -->
+<div class="stage-collapsible collapsible" onclick="toggleCollapsible(this)">
+<span>🖼️ Stage 2: 首帧获取</span>
+<span>▼</span>
+</div>
+<div class="collapsible-content">
+<div class="section">
+<div class="subsection">
+<div class="subsection-title">首帧来源</div>
+<div class="field">
+<label>首帧来源策略</label>
+<select id="s2_firstFrameSource">
+<option value="generate">T2I生成</option>
+<option value="select_existing">选择已有图片</option>
+</select>
+</div>
+</div>
+
+<div class="subsection">
+<div class="subsection-title">T2I 生成参数（仅当来源=T2I生成时生效）</div>
+<div class="row">
+<div class="field">
+<label>采样步数</label>
+<input type="number" id="s2_t2iSteps" value="20" min="10" max="50">
+</div>
+<div class="field">
+<label>CFG Scale</label>
+<input type="number" id="s2_t2iCfg" value="7.0" min="1" max="20" step="0.5">
+</div>
+<div class="field">
+<label>采样器</label>
+<select id="s2_t2iSampler">
+<option value="DPM++ 2M Karras">DPM++ 2M Karras</option>
+<option value="Euler">Euler</option>
+<option value="Euler a">Euler a</option>
+<option value="DDIM">DDIM</option>
+</select>
+</div>
+<div class="field">
+<label>随机种子</label>
+<input type="number" id="s2_t2iSeed" value="-1" placeholder="-1 表示随机">
+</div>
+</div>
+</div>
+
+<div class="subsection">
+<div class="subsection-title">首帧换脸（可选）</div>
+<div class="row">
+<div class="field">
+<label><input type="checkbox" id="s2_faceSwapEnabled"> 启用首帧换脸</label>
+<div class="hint">对生成或上传的首帧应用换脸</div>
+</div>
+<div class="field">
+<label>换脸强度</label>
+<input type="number" id="s2_faceSwapStrength" value="1.0" min="0" max="1" step="0.1">
+</div>
+</div>
+</div>
+</div>
+</div>
+
+<!-- Stage 3: SeeDream 编辑 -->
+<div class="stage-collapsible collapsible" onclick="toggleCollapsible(this)">
+<span>✨ Stage 3: SeeDream 编辑</span>
+<span>▼</span>
+</div>
+<div class="collapsible-content">
+<div class="section">
+<div class="row">
+<div class="field">
+<label>编辑模式</label>
+<select id="s3_mode" onchange="updateSeeDreamPrompt()">
+<option value="face_wearings">面部+配饰</option>
+<option value="face_only">仅面部</option>
+<option value="full_body">全身</option>
+</select>
+</div>
+<div class="field">
+<label><input type="checkbox" id="s3_enableReactor" checked> 编辑前 Reactor 换脸</label>
+<div class="hint">在 SeeDream 编辑前先用 Reactor 换脸</div>
+</div>
+</div>
+
+<div class="field">
+<label>SeeDream Prompt（可自定义）</label>
+<textarea id="s3_prompt" rows="3"></textarea>
+<div class="hint">留空则使用默认 prompt，根据编辑模式自动生成</div>
+</div>
+
+<div class="row">
+<div class="field">
+<label>编辑强度</label>
+<input type="number" id="s3_strength" value="0.8" min="0" max="1" step="0.1">
+</div>
+<div class="field">
+<label>随机种子</label>
+<input type="number" id="s3_seed" value="" placeholder="留空表示随机">
+</div>
+</div>
+</div>
+</div>
+
+<!-- Stage 4: 视频生成 -->
+<div class="stage-collapsible collapsible" onclick="toggleCollapsible(this)">
+<span>🎬 Stage 4: 视频生成</span>
+<span>▼</span>
+</div>
+<div class="collapsible-content">
+<div class="section">
+<div class="subsection">
+<div class="subsection-title">视频生成参数</div>
+<div class="row">
+<div class="field">
+<label>模型</label>
+<select id="s4_model">
+<option value="A14B">A14B (高质量)</option>
+<option value="5B">5B (快速)</option>
+</select>
+</div>
+<div class="field">
+<label>采样步数</label>
+<input type="number" id="s4_steps" value="20" min="10" max="50">
+</div>
+<div class="field">
+<label>CFG Scale</label>
+<input type="number" id="s4_cfg" value="6.0" min="1" max="20" step="0.5">
+</div>
+<div class="field">
+<label>Shift</label>
+<input type="number" id="s4_shift" value="5.0" min="0" max="10" step="0.5">
+</div>
+</div>
+<div class="row">
+<div class="field">
+<label>调度器</label>
+<select id="s4_scheduler">
+<option value="unipc">UniPC</option>
+<option value="euler">Euler</option>
+<option value="ddim">DDIM</option>
+</select>
+</div>
+<div class="field">
+<label>噪声增强</label>
+<input type="number" id="s4_noiseAug" value="0.0" min="0" max="1" step="0.1">
+</div>
+<div class="field">
+<label>运动幅度</label>
+<input type="number" id="s4_motionAmp" value="0.0" min="0" max="1" step="0.1">
+</div>
+</div>
+</div>
+
+<div class="subsection">
+<div class="subsection-title">视频换脸（可选）</div>
+<div class="row">
+<div class="field">
+<label><input type="checkbox" id="s4_faceSwapEnabled"> 启用视频换脸</label>
+<div class="hint">对生成的视频应用换脸</div>
+</div>
+<div class="field">
+<label>换脸模式</label>
+<select id="s4_faceSwapMode">
+<option value="face_reference">仅换脸</option>
+<option value="full_body_reference">全身参考</option>
+</select>
+</div>
+<div class="field">
+<label>换脸强度</label>
+<input type="number" id="s4_faceSwapStrength" value="1.0" min="0" max="1" step="0.1">
+</div>
+</div>
+</div>
+
+<div class="subsection">
+<div class="subsection-title">后处理</div>
+<div class="row">
+<div class="field">
+<label><input type="checkbox" id="s4_upscaleEnabled"> 启用超分</label>
+</div>
+<div class="field">
+<label>超分模型</label>
+<select id="s4_upscaleModel">
+<option value="RealESRGAN_x4plus">RealESRGAN_x4plus</option>
+<option value="RealESRGAN_x2plus">RealESRGAN_x2plus</option>
+</select>
+</div>
+<div class="field">
+<label>超分倍数</label>
+<input type="number" id="s4_upscaleResize" value="2.0" min="1" max="4" step="0.5">
+</div>
+</div>
+<div class="row">
+<div class="field">
+<label><input type="checkbox" id="s4_interpEnabled"> 启用插帧</label>
+</div>
+<div class="field">
+<label>插帧倍数</label>
+<select id="s4_interpMultiplier">
+<option value="2">2x</option>
+<option value="4">4x</option>
+<option value="8">8x</option>
+</select>
+</div>
+<div class="field">
+<label>插帧配置</label>
+<select id="s4_interpProfile">
+<option value="auto">自动</option>
+<option value="fast">快速</option>
+<option value="quality">高质量</option>
+</select>
+</div>
+</div>
+</div>
+</div>
+</div>
+
+</div>
+
+<div class="btn-row">
+<button class="btn" id="generateBtn" onclick="generateVideo()">🎬 生成视频</button>
+</div>
+
+<!-- 进度展示 -->
+<div class="progress-section" id="progressSection">
+<div class="section">
+<h3 style="color:#7c83ff;margin-bottom:16px">执行进度</h3>
+<div id="stagesContainer"></div>
+</div>
+</div>
+
+<!-- 结果展示 -->
+<div class="result-section" id="resultSection">
+<div class="section">
+<h3 style="color:#4ade80;margin-bottom:16px">✅ 生成完成</h3>
+<div class="result-video">
+<video id="resultVideo" controls></video>
+</div>
+<div class="result-actions">
+<button class="btn" onclick="downloadVideo()">📥 下载视频</button>
+<button class="btn" onclick="resetForm()" style="background:#333">🔄 重新生成</button>
+</div>
+</div>
+</div>
+
+</div>
+
+<script>
+// 默认 SeeDream Prompt 映射
+const DEFAULT_SEEDREAM_PROMPTS = {
+    face_only: "edit image 2, keep the position and pose of image 2, swap face to image 1, only change the face, keep everything else exactly the same including clothing, accessories, background",
+    face_wearings: "edit image 2, keep the position and pose of image 2, swap face to image 1, change face and accessories (jewelry, glasses, hair accessories) to match image 1, keep clothing and background the same",
+    full_body: "edit image 2, keep the position and pose of image 2, swap face to image 1, change face, accessories, and clothing to match image 1, keep background the same"
+};
+
+// 全局变量
+let uploadedImageBase64 = null;
+let uploadedImageUrl = null;  // 新增：存储上传后的URL
+let currentTaskId = null;
+let pollInterval = null;
+
+// 任务历史管理
+const MAX_HISTORY = 20;
+
+function saveTaskToHistory(workflowId, prompt, mode) {
+    const history = getTaskHistory();
+    const task = {
+        workflow_id: workflowId,
+        prompt: prompt.substring(0, 100),
+        mode: mode,
+        timestamp: Date.now(),
+        status: 'running'
+    };
+
+    history.unshift(task);
+    if (history.length > MAX_HISTORY) {
+        history.splice(MAX_HISTORY);
+    }
+
+    localStorage.setItem('workflow_history', JSON.stringify(history));
+}
+
+function getTaskHistory() {
+    const stored = localStorage.getItem('workflow_history');
+    return stored ? JSON.parse(stored) : [];
+}
+
+function updateTaskStatus(workflowId, status, videoUrl = null) {
+    const history = getTaskHistory();
+    const task = history.find(t => t.workflow_id === workflowId);
+    if (task) {
+        task.status = status;
+        if (videoUrl) task.video_url = videoUrl;
+        localStorage.setItem('workflow_history', JSON.stringify(history));
+    }
+}
+
+function toggleHistory() {
+    const section = document.getElementById('historySection');
+    const btn = document.getElementById('showHistoryBtn');
+
+    if (section.style.display === 'none') {
+        loadHistoryList();
+        section.style.display = 'block';
+        btn.style.display = 'none';
+    } else {
+        section.style.display = 'none';
+        btn.style.display = 'inline-block';
+    }
+}
+
+function loadHistoryList() {
+    const history = getTaskHistory();
+    const container = document.getElementById('historyList');
+
+    if (history.length === 0) {
+        container.innerHTML = '<div style="text-align:center;color:#666;padding:20px">暂无历史任务</div>';
+        return;
+    }
+
+    container.innerHTML = history.map(task => {
+        const date = new Date(task.timestamp).toLocaleString('zh-CN');
+        const statusColor = task.status === 'completed' ? '#4ade80' :
+                           task.status === 'failed' ? '#f87171' : '#7c83ff';
+        const statusText = task.status === 'completed' ? '完成' :
+                          task.status === 'failed' ? '失败' : '进行中';
+
+        const modeText = task.mode === 'first_frame' ? '首帧' :
+                        task.mode === 'full_body_reference' ? '全身参考' : '仅换脸';
+
+        return `
+            <div style="background:#1a1a1a;border-radius:8px;padding:12px;margin-bottom:8px;cursor:pointer"
+                 onclick="loadTask('${task.workflow_id}')">
+                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+                    <span style="color:${statusColor};font-size:12px;font-weight:600">${statusText}</span>
+                    <span style="color:#666;font-size:11px">${date}</span>
+                </div>
+                <div style="color:#ccc;font-size:13px;margin-bottom:4px">${task.prompt}</div>
+                <div style="color:#888;font-size:11px">
+                    <span style="margin-right:12px">模式: ${modeText}</span>
+                    <span>ID: ${task.workflow_id}</span>
+                </div>
+            </div>
+        `;
+    }).join('');
+}
+
+async function loadTask(workflowId) {
+    currentTaskId = workflowId;
+
+    // 隐藏历史，显示进度
+    document.getElementById('historySection').style.display = 'none';
+    document.getElementById('showHistoryBtn').style.display = 'inline-block';
+    document.getElementById('progressSection').style.display = 'block';
+    document.getElementById('resultSection').style.display = 'none';
+
+    try {
+        const response = await fetch(`/api/v1/workflow/status/${workflowId}`, {
+            headers: {
+                'X-API-Key': localStorage.getItem('wan22_api_key') || 'wan22-default-key-change-me'
+            }
+        });
+
+        if (!response.ok) throw new Error('获取任务失败');
+
+        const status = await response.json();
+        updateProgress(status);
+
+        if (status.status === 'completed') {
+            showResult(status);
+        } else if (status.status === 'failed') {
+            showError(status.error || '任务失败');
+        } else {
+            // 继续轮询
+            startPolling();
+        }
+    } catch (error) {
+        alert('加载任务失败: ' + error.message);
+    }
+}
+
+// 图片上传预览
+document.getElementById('imageFile').addEventListener('change', async function(e) {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    const preview = document.getElementById('imagePreview');
+    const placeholder = document.querySelector('#uploadArea .placeholder');
+
+    // 先显示预览
+    const reader = new FileReader();
+    reader.onload = function(event) {
+        uploadedImageBase64 = event.target.result;
+        preview.src = uploadedImageBase64;
+        preview.style.display = 'block';
+        if (placeholder) {
+            placeholder.style.display = 'none';
+        }
+    };
+    reader.readAsDataURL(file);
+
+    // 上传到后端获取URL
+    try {
+        const formData = new FormData();
+        formData.append('file', file);
+
+        const response = await fetch('/api/v1/upload', {
+            method: 'POST',
+            headers: {
+                'X-API-Key': 'wan22-default-key-change-me'
+            },
+            body: formData
+        });
+
+        if (!response.ok) {
+            throw new Error('上传失败: ' + response.statusText);
+        }
+
+        const result = await response.json();
+        uploadedImageUrl = result.url;
+        console.log('图片已上传，URL:', uploadedImageUrl);
+    } catch (error) {
+        console.error('上传图片失败:', error);
+        alert('上传图片失败: ' + error.message);
+    }
+});
+
+// 折叠面板切换
+function toggleCollapsible(element) {
+    const content = element.nextElementSibling;
+
+    if (content.classList.contains('active')) {
+        // 收起
+        content.classList.remove('active');
+        content.style.maxHeight = null;
+    } else {
+        // 展开
+        content.classList.add('active');
+        content.style.maxHeight = content.scrollHeight + "px";
+    }
+}
+
+// 更新 SeeDream Prompt
+function updateSeeDreamPrompt() {
+    const mode = document.getElementById('s3_mode').value;
+    const promptTextarea = document.getElementById('s3_prompt');
+
+    // 如果用户已经自定义了内容，不覆盖
+    if (promptTextarea.value.trim() !== '' &&
+        !Object.values(DEFAULT_SEEDREAM_PROMPTS).includes(promptTextarea.value.trim())) {
+        return;
+    }
+
+    promptTextarea.value = DEFAULT_SEEDREAM_PROMPTS[mode];
+}
+
+// 保存参数到 localStorage
+function saveFormParams() {
+    const params = {
+        prompt: document.getElementById('prompt').value,
+        imageRole: document.getElementById('imageRole').value,
+        resolution: document.getElementById('resolution').value,
+        aspectRatio: document.getElementById('aspectRatio').value,
+        duration: document.getElementById('duration').value,
+        s1_autoAnalyze: document.getElementById('s1_autoAnalyze').checked,
+        s1_autoLora: document.getElementById('s1_autoLora').checked,
+        s1_autoPrompt: document.getElementById('s1_autoPrompt').checked,
+        s1_topKImage: document.getElementById('s1_topKImage').value,
+        s1_topKVideo: document.getElementById('s1_topKVideo').value,
+        s2_firstFrameSource: document.getElementById('s2_firstFrameSource').value,
+        s2_t2iSteps: document.getElementById('s2_t2iSteps').value,
+        s2_t2iCfg: document.getElementById('s2_t2iCfg').value,
+        s2_t2iSampler: document.getElementById('s2_t2iSampler').value,
+        s2_t2iSeed: document.getElementById('s2_t2iSeed').value,
+        s2_faceSwapEnabled: document.getElementById('s2_faceSwapEnabled').checked,
+        s2_faceSwapStrength: document.getElementById('s2_faceSwapStrength').value,
+        s3_mode: document.getElementById('s3_mode').value,
+        s3_prompt: document.getElementById('s3_prompt').value,
+        s3_enableReactor: document.getElementById('s3_enableReactor').checked,
+        s3_strength: document.getElementById('s3_strength').value,
+        s3_seed: document.getElementById('s3_seed').value,
+        s4_model: document.getElementById('s4_model').value,
+        s4_steps: document.getElementById('s4_steps').value,
+        s4_cfg: document.getElementById('s4_cfg').value,
+        s4_shift: document.getElementById('s4_shift').value,
+        s4_scheduler: document.getElementById('s4_scheduler').value,
+        s4_noiseAug: document.getElementById('s4_noiseAug').value,
+        s4_motionAmp: document.getElementById('s4_motionAmp').value,
+        s4_faceSwapEnabled: document.getElementById('s4_faceSwapEnabled').checked,
+        s4_faceSwapMode: document.getElementById('s4_faceSwapMode').value,
+        s4_faceSwapStrength: document.getElementById('s4_faceSwapStrength').value,
+        s4_upscaleEnabled: document.getElementById('s4_upscaleEnabled').checked,
+        s4_upscaleModel: document.getElementById('s4_upscaleModel').value,
+        s4_upscaleResize: document.getElementById('s4_upscaleResize').value,
+        s4_interpEnabled: document.getElementById('s4_interpEnabled').checked,
+        s4_interpMultiplier: document.getElementById('s4_interpMultiplier').value,
+        s4_interpProfile: document.getElementById('s4_interpProfile').value
+    };
+    localStorage.setItem('advanced_workflow_params', JSON.stringify(params));
+}
+
+// 从 localStorage 恢复参数
+function loadFormParams() {
+    const stored = localStorage.getItem('advanced_workflow_params');
+    if (!stored) return;
+
+    try {
+        const params = JSON.parse(stored);
+
+        // 恢复基础参数
+        if (params.prompt) document.getElementById('prompt').value = params.prompt;
+        if (params.imageRole) document.getElementById('imageRole').value = params.imageRole;
+        if (params.resolution) document.getElementById('resolution').value = params.resolution;
+        if (params.aspectRatio) document.getElementById('aspectRatio').value = params.aspectRatio;
+        if (params.duration) document.getElementById('duration').value = params.duration;
+
+        // Stage 1
+        if (params.s1_autoAnalyze !== undefined) document.getElementById('s1_autoAnalyze').checked = params.s1_autoAnalyze;
+        if (params.s1_autoLora !== undefined) document.getElementById('s1_autoLora').checked = params.s1_autoLora;
+        if (params.s1_autoPrompt !== undefined) document.getElementById('s1_autoPrompt').checked = params.s1_autoPrompt;
+        if (params.s1_topKImage) document.getElementById('s1_topKImage').value = params.s1_topKImage;
+        if (params.s1_topKVideo) document.getElementById('s1_topKVideo').value = params.s1_topKVideo;
+
+        // Stage 2
+        if (params.s2_firstFrameSource) document.getElementById('s2_firstFrameSource').value = params.s2_firstFrameSource;
+        if (params.s2_t2iSteps) document.getElementById('s2_t2iSteps').value = params.s2_t2iSteps;
+        if (params.s2_t2iCfg) document.getElementById('s2_t2iCfg').value = params.s2_t2iCfg;
+        if (params.s2_t2iSampler) document.getElementById('s2_t2iSampler').value = params.s2_t2iSampler;
+        if (params.s2_t2iSeed) document.getElementById('s2_t2iSeed').value = params.s2_t2iSeed;
+        if (params.s2_faceSwapEnabled !== undefined) document.getElementById('s2_faceSwapEnabled').checked = params.s2_faceSwapEnabled;
+        if (params.s2_faceSwapStrength) document.getElementById('s2_faceSwapStrength').value = params.s2_faceSwapStrength;
+
+        // Stage 3
+        if (params.s3_mode) document.getElementById('s3_mode').value = params.s3_mode;
+        if (params.s3_prompt) document.getElementById('s3_prompt').value = params.s3_prompt;
+        if (params.s3_enableReactor !== undefined) document.getElementById('s3_enableReactor').checked = params.s3_enableReactor;
+        if (params.s3_strength) document.getElementById('s3_strength').value = params.s3_strength;
+        if (params.s3_seed) document.getElementById('s3_seed').value = params.s3_seed;
+
+        // Stage 4
+        if (params.s4_model) document.getElementById('s4_model').value = params.s4_model;
+        if (params.s4_steps) document.getElementById('s4_steps').value = params.s4_steps;
+        if (params.s4_cfg) document.getElementById('s4_cfg').value = params.s4_cfg;
+        if (params.s4_shift) document.getElementById('s4_shift').value = params.s4_shift;
+        if (params.s4_scheduler) document.getElementById('s4_scheduler').value = params.s4_scheduler;
+        if (params.s4_noiseAug) document.getElementById('s4_noiseAug').value = params.s4_noiseAug;
+        if (params.s4_motionAmp) document.getElementById('s4_motionAmp').value = params.s4_motionAmp;
+        if (params.s4_faceSwapEnabled !== undefined) document.getElementById('s4_faceSwapEnabled').checked = params.s4_faceSwapEnabled;
+        if (params.s4_faceSwapMode) document.getElementById('s4_faceSwapMode').value = params.s4_faceSwapMode;
+        if (params.s4_faceSwapStrength) document.getElementById('s4_faceSwapStrength').value = params.s4_faceSwapStrength;
+        if (params.s4_upscaleEnabled !== undefined) document.getElementById('s4_upscaleEnabled').checked = params.s4_upscaleEnabled;
+        if (params.s4_upscaleModel) document.getElementById('s4_upscaleModel').value = params.s4_upscaleModel;
+        if (params.s4_upscaleResize) document.getElementById('s4_upscaleResize').value = params.s4_upscaleResize;
+        if (params.s4_interpEnabled !== undefined) document.getElementById('s4_interpEnabled').checked = params.s4_interpEnabled;
+        if (params.s4_interpMultiplier) document.getElementById('s4_interpMultiplier').value = params.s4_interpMultiplier;
+        if (params.s4_interpProfile) document.getElementById('s4_interpProfile').value = params.s4_interpProfile;
+
+        // 更新 SeeDream prompt
+        updateSeeDreamPrompt();
+    } catch (e) {
+        console.error('Failed to load saved params:', e);
+    }
+}
+
+// 页面加载时初始化默认 prompt
+window.addEventListener('DOMContentLoaded', function() {
+    loadFormParams();
+    updateSeeDreamPrompt();
+
+    // 监听所有输入变化，自动保存
+    document.querySelectorAll('input, select, textarea').forEach(element => {
+        element.addEventListener('change', saveFormParams);
+    });
+});
+
+// 生成视频
+async function generateVideo() {
+    // 验证必填项
+    const prompt = document.getElementById('prompt').value.trim();
+    if (!prompt) {
+        alert('请输入提示词');
+        return;
+    }
+
+    const imageRole = document.getElementById('imageRole').value;
+    const firstFrameSource = document.getElementById('s2_firstFrameSource').value;
+
+    // 检查是否需要上传图片
+    // If imageRole is 'first_frame', uploaded image is required
+    // If imageRole is 'face_reference' or 'full_body_reference', uploaded image is required as reference
+    const needsImage = true;  // Always need image in advanced workflow
+
+    if (!uploadedImageUrl) {
+        if (imageRole === 'first_frame') {
+            alert('请上传首帧图片');
+        } else {
+            alert('请上传参考图片');
+        }
+        return;
+    }
+
+    // 禁用生成按钮
+    const btn = document.getElementById('generateBtn');
+    btn.disabled = true;
+    btn.textContent = '生成中...';
+
+    // 隐藏结果，显示进度
+    document.getElementById('resultSection').style.display = 'none';
+    document.getElementById('progressSection').style.display = 'block';
+    document.getElementById('stagesContainer').innerHTML = '';
+
+    try {
+        // 构建请求参数
+        const requestData = buildRequestData();
+
+        // 发送请求
+        const response = await fetch('/api/v1/workflow/generate-advanced', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-API-Key': localStorage.getItem('wan22_api_key') || 'wan22-default-key-change-me'
+            },
+            body: JSON.stringify(requestData)
+        });
+
+        if (!response.ok) {
+            const error = await response.json();
+            throw new Error(error.detail || '请求失败');
+        }
+
+        const result = await response.json();
+        currentTaskId = result.workflow_id;
+
+        // 保存到历史
+        const promptText = document.getElementById('prompt').value.trim();
+        const mode = document.getElementById('imageRole').value;
+        saveTaskToHistory(result.workflow_id, promptText, mode);
+
+        // 开始轮询状态
+        startPolling();
+
+    } catch (error) {
+        alert('生成失败: ' + error.message);
+        btn.disabled = false;
+        btn.textContent = '🎬 生成视频';
+    }
+}
+
+// 构建请求数据
+function buildRequestData() {
+    const imageRole = document.getElementById('imageRole').value;
+    const resolution = document.getElementById('resolution').value;
+    const aspectRatio = document.getElementById('aspectRatio').value;
+    const duration = parseInt(document.getElementById('duration').value);
+
+    // 分辨率映射
+    const resolutionMap = {
+        '480p': { width: 854, height: 480 },
+        '720p': { width: 1280, height: 720 },
+        '1080p': { width: 1920, height: 1080 }
+    };
+
+    // 获取基础分辨率
+    const baseRes = resolutionMap[resolution] || resolutionMap['720p'];
+    const [arWidth, arHeight] = aspectRatio.split(':').map(Number);
+
+    // 根据宽高比计算实际分辨率
+    let width, height;
+    if (arWidth / arHeight > baseRes.width / baseRes.height) {
+        width = baseRes.width;
+        height = Math.round(baseRes.width * arHeight / arWidth);
+    } else {
+        height = baseRes.height;
+        width = Math.round(baseRes.height * arWidth / arHeight);
+    }
+
+    // 确保是 8 的倍数
+    width = Math.round(width / 8) * 8;
+    height = Math.round(height / 8) * 8;
+
+    // 构建 internal_config
+    const internalConfig = {
+        stage1_prompt_analysis: {
+            auto_analyze: document.getElementById('s1_autoAnalyze').checked,
+            auto_lora: document.getElementById('s1_autoLora').checked,
+            auto_prompt: document.getElementById('s1_autoPrompt').checked,
+            top_k_image_loras: parseInt(document.getElementById('s1_topKImage').value),
+            top_k_video_loras: parseInt(document.getElementById('s1_topKVideo').value)
+        },
+        stage2_first_frame: {
+            first_frame_source: document.getElementById('s2_firstFrameSource').value,
+            t2i: {
+                steps: parseInt(document.getElementById('s2_t2iSteps').value),
+                cfg_scale: parseFloat(document.getElementById('s2_t2iCfg').value),
+                sampler: document.getElementById('s2_t2iSampler').value,
+                seed: parseInt(document.getElementById('s2_t2iSeed').value) || -1,
+                width: width,
+                height: height
+            },
+            face_swap: {
+                enabled: document.getElementById('s2_faceSwapEnabled').checked,
+                strength: parseFloat(document.getElementById('s2_faceSwapStrength').value)
+            }
+        },
+        stage3_seedream: {
+            mode: document.getElementById('s3_mode').value,
+            prompt: document.getElementById('s3_prompt').value.trim() || null,
+            enable_reactor: document.getElementById('s3_enableReactor').checked,
+            strength: parseFloat(document.getElementById('s3_strength').value),
+            seed: document.getElementById('s3_seed').value ? parseInt(document.getElementById('s3_seed').value) : null
+        },
+        stage4_video: {
+            generation: {
+                model: document.getElementById('s4_model').value,
+                steps: parseInt(document.getElementById('s4_steps').value),
+                cfg: parseFloat(document.getElementById('s4_cfg').value),
+                shift: parseFloat(document.getElementById('s4_shift').value),
+                scheduler: document.getElementById('s4_scheduler').value,
+                noise_aug_strength: parseFloat(document.getElementById('s4_noiseAug').value),
+                motion_amplitude: parseFloat(document.getElementById('s4_motionAmp').value)
+            },
+            face_swap: {
+                enabled: document.getElementById('s4_faceSwapEnabled').checked,
+                mode: document.getElementById('s4_faceSwapMode').value,
+                strength: parseFloat(document.getElementById('s4_faceSwapStrength').value)
+            },
+            postprocess: {
+                upscale: {
+                    enabled: document.getElementById('s4_upscaleEnabled').checked,
+                    model: document.getElementById('s4_upscaleModel').value,
+                    resize: parseFloat(document.getElementById('s4_upscaleResize').value)
+                },
+                interpolation: {
+                    enabled: document.getElementById('s4_interpEnabled').checked,
+                    multiplier: parseInt(document.getElementById('s4_interpMultiplier').value),
+                    profile: document.getElementById('s4_interpProfile').value
+                }
+            }
+        }
+    };
+
+    // 构建请求
+    const requestData = {
+        mode: imageRole,
+        user_prompt: document.getElementById('prompt').value.trim(),
+        resolution: resolution,
+        aspect_ratio: aspectRatio,
+        duration: duration,
+        internal_config: internalConfig
+    };
+
+    // 根据模式设置图片字段
+    if (imageRole === 'first_frame') {
+        // 首帧模式：上传的图片作为首帧
+        requestData.uploaded_first_frame = uploadedImageUrl;
+    } else if (imageRole === 'face_reference' || imageRole === 'full_body_reference') {
+        // 换脸模式：上传的图片作为参考图片
+        requestData.reference_image = uploadedImageUrl;
+    }
+
+    return requestData;
+}
+
+// 开始轮询任务状态
+function startPolling() {
+    if (pollInterval) {
+        clearInterval(pollInterval);
+    }
+
+    pollInterval = setInterval(async () => {
+        try {
+            const response = await fetch(`/api/v1/workflow/status/${currentTaskId}`, {
+                headers: {
+                    'X-API-Key': localStorage.getItem('wan22_api_key') || 'wan22-default-key-change-me'
+                }
+            });
+            if (!response.ok) {
+                throw new Error('获取状态失败');
+            }
+
+            const status = await response.json();
+            updateProgress(status);
+
+            // 检查是否完成
+            if (status.status === 'completed') {
+                clearInterval(pollInterval);
+                updateTaskStatus(currentTaskId, 'completed', status.final_video_url);
+                showResult(status);
+            } else if (status.status === 'failed') {
+                clearInterval(pollInterval);
+                updateTaskStatus(currentTaskId, 'failed');
+                showError(status.error || '生成失败');
+            }
+        } catch (error) {
+            console.error('轮询错误:', error);
+        }
+    }, 2000);
+}
+
+// 更新进度显示
+function updateProgress(status) {
+    const container = document.getElementById('stagesContainer');
+
+    // 构建阶段信息
+    const stages = [];
+
+    if (status.stage1_analysis) {
+        stages.push({
+            title: '📝 Stage 1: Prompt 分析',
+            data: status.stage1_analysis,
+            fields: [
+                { label: '原始 Prompt', key: 'original_prompt' },
+                { label: '优化后 Prompt', key: 'optimized_prompt' },
+                { label: 'Image LoRAs', key: 'image_loras', type: 'array' },
+                { label: 'Video LoRAs', key: 'video_loras', type: 'array' }
+            ]
+        });
+    }
+
+    if (status.stage2_first_frame) {
+        stages.push({
+            title: '🖼️ Stage 2: 首帧获取',
+            data: status.stage2_first_frame,
+            fields: [
+                { label: '首帧来源', key: 'source' },
+                { label: '首帧 URL', key: 'url', type: 'image' },
+                { label: '是否换脸', key: 'face_swapped', type: 'boolean' }
+            ]
+        });
+    }
+
+    if (status.stage3_seedream) {
+        stages.push({
+            title: '✨ Stage 3: SeeDream 编辑',
+            data: status.stage3_seedream,
+            fields: [
+                { label: '编辑模式', key: 'mode' },
+                { label: '使用的 Prompt', key: 'prompt' },
+                { label: '编辑后 URL', key: 'url', type: 'image' }
+            ]
+        });
+    }
+
+    if (status.stage4_video) {
+        stages.push({
+            title: '🎬 Stage 4: 视频生成',
+            data: status.stage4_video,
+            fields: [
+                { label: '视频模型', key: 'model' },
+                { label: '生成进度', key: 'progress', type: 'progress' },
+                { label: '是否换脸', key: 'face_swapped', type: 'boolean' },
+                { label: '后处理', key: 'postprocess' }
+            ]
+        });
+    }
+
+    // 渲染阶段
+    container.innerHTML = stages.map(stage => {
+        const fieldsHtml = stage.fields.map(field => {
+            const value = stage.data[field.key];
+            if (value === undefined || value === null) return '';
+
+            let displayValue = '';
+            if (field.type === 'array') {
+                displayValue = Array.isArray(value) ? value.join(', ') : value;
+            } else if (field.type === 'image') {
+                displayValue = `<img src="${value}" style="max-width:200px;border-radius:8px;margin-top:8px">`;
+            } else if (field.type === 'boolean') {
+                displayValue = value ? '✅ 是' : '❌ 否';
+            } else if (field.type === 'progress') {
+                displayValue = `<div style="background:#333;border-radius:4px;height:20px;margin-top:8px;overflow:hidden">
+                    <div style="background:#7c83ff;height:100%;width:${value}%;transition:width 0.3s"></div>
+                </div>`;
+            } else {
+                displayValue = value;
+            }
+
+            return `
+                <div style="margin-bottom:12px">
+                    <div style="color:#888;font-size:12px;margin-bottom:4px">${field.label}</div>
+                    <div style="color:#fff">${displayValue}</div>
+                </div>
+            `;
+        }).join('');
+
+        return `
+            <div style="background:#1a1a1a;border-radius:8px;padding:16px;margin-bottom:16px">
+                <div style="font-weight:600;margin-bottom:12px;color:#7c83ff">${stage.title}</div>
+                ${fieldsHtml}
+            </div>
+        `;
+    }).join('');
+
+    // 显示当前状态
+    const statusText = status.status === 'processing' ? '⏳ 处理中...' :
+                      status.status === 'completed' ? '✅ 完成' :
+                      status.status === 'failed' ? '❌ 失败' : status.status;
+
+    container.innerHTML = `
+        <div style="background:#1a1a1a;border-radius:8px;padding:16px;margin-bottom:16px;text-align:center">
+            <div style="font-size:18px;color:#7c83ff">${statusText}</div>
+        </div>
+    ` + container.innerHTML;
+}
+
+// 显示结果
+function showResult(status) {
+    const btn = document.getElementById('generateBtn');
+    btn.disabled = false;
+    btn.textContent = '🎬 生成视频';
+
+    document.getElementById('progressSection').style.display = 'none';
+
+    const videoUrl = status.video_url || status.final_video_url;
+    if (!videoUrl) {
+        showError('视频生成完成，但未返回视频URL');
+        return;
+    }
+
+    document.getElementById('resultSection').style.display = 'block';
+    const video = document.getElementById('resultVideo');
+    video.src = videoUrl;
+    video.load();
+
+    // 更新历史记录状态
+    if (currentTaskId) {
+        updateTaskStatus(currentTaskId, 'completed', videoUrl);
+    }
+}
+
+// 显示错误
+function showError(errorMsg) {
+    const btn = document.getElementById('generateBtn');
+    btn.disabled = false;
+    btn.textContent = '🎬 生成视频';
+
+    alert('生成失败: ' + errorMsg);
+    document.getElementById('progressSection').style.display = 'none';
+}
+
+// 下载视频
+function downloadVideo() {
+    const video = document.getElementById('resultVideo');
+    const a = document.createElement('a');
+    a.href = video.src;
+    a.download = `video_${Date.now()}.mp4`;
+    a.click();
+}
+
+// 重置表单
+function resetForm() {
+    document.getElementById('resultSection').style.display = 'none';
+    document.getElementById('progressSection').style.display = 'none';
+    currentTaskId = null;
+
+    if (pollInterval) {
+        clearInterval(pollInterval);
+        pollInterval = null;
+    }
+}
+</script>
+
+</body>
+</html>
+
+

@@ -71,6 +71,7 @@ class WorkflowAnalyzeResponse(BaseModel):
     optimized_i2v_prompt: Optional[str] = None
     image_loras: list[ImageLoraRecommendation]
     video_loras: list[VideoLoraRecommendation]
+    images: list[dict] = Field(default_factory=list, description="Recommended reference images")
     mode: str
 
 
@@ -87,22 +88,31 @@ async def analyze_workflow(req: WorkflowAnalyzeRequest, _=Depends(verify_api_key
 
         embedding_service = get_embedding_service()
 
-        # Parallel semantic search for image LORAs and video LORAs
+        # Parallel semantic search for image LORAs, video LORAs, and reference images
         image_lora_task = _search_image_loras(
             embedding_service,
             req.prompt,
-            req.top_k_image_loras
+            req.top_k_image_loras,
+            min_similarity=0.6
         )
         video_lora_task = _search_video_loras(
             embedding_service,
             req.prompt,
             req.mode,
-            req.top_k_video_loras
+            req.top_k_video_loras,
+            min_similarity=0.6
+        )
+        images_task = _search_reference_images(
+            embedding_service,
+            req.prompt,
+            top_k=5,
+            min_similarity=0.6
         )
 
-        image_loras, video_loras = await asyncio.gather(
+        image_loras, video_loras, images = await asyncio.gather(
             image_lora_task,
-            video_lora_task
+            video_lora_task,
+            images_task
         )
 
         # Optimize prompts with Qwen3-14B
@@ -119,6 +129,7 @@ async def analyze_workflow(req: WorkflowAnalyzeRequest, _=Depends(verify_api_key
             optimized_i2v_prompt=optimized_i2v_prompt,
             image_loras=image_loras,
             video_loras=video_loras,
+            images=images,
             mode=req.mode
         )
 
@@ -132,23 +143,31 @@ async def analyze_workflow(req: WorkflowAnalyzeRequest, _=Depends(verify_api_key
 async def _search_image_loras(
     embedding_service,
     query: str,
-    top_k: int
+    top_k: int,
+    min_similarity: float = 0.6
 ) -> list[ImageLoraRecommendation]:
     """Search for similar image LORAs using semantic search"""
     try:
         # Use semantic search if available
         search_results = await embedding_service.search_similar_image_loras(
             query=query,
-            top_k=top_k * 2  # Get more for filtering
+            top_k=top_k * 3  # Get more for filtering
         )
 
         if not search_results:
             logger.info("No image LORAs found via semantic search")
             return []
 
+        # Filter by similarity threshold
+        filtered_results = [r for r in search_results if r.get('similarity', 0.0) >= min_similarity]
+
+        if not filtered_results:
+            logger.warning(f"No image LORAs found with similarity >= {min_similarity}")
+            return []
+
         # Get image_lora_ids from search results
-        image_lora_ids = [item['image_lora_id'] for item in search_results]
-        similarity_map = {item['image_lora_id']: item['similarity'] for item in search_results}
+        image_lora_ids = [item['image_lora_id'] for item in filtered_results]
+        similarity_map = {item['image_lora_id']: item['similarity'] for item in filtered_results}
 
         # Query database for LORA details
         conn = pymysql.connect(**DB_CONFIG)
@@ -302,7 +321,8 @@ async def _search_video_loras(
     embedding_service,
     query: str,
     mode: str,
-    top_k: int
+    top_k: int,
+    min_similarity: float = 0.6
 ) -> list[VideoLoraRecommendation]:
     """Search for similar video LORAs using semantic search"""
     try:
@@ -316,16 +336,23 @@ async def _search_video_loras(
         results = await embedding_service.search_similar_loras(
             query=query,
             mode=lora_mode,
-            top_k=top_k * 2  # Get more results for filtering
+            top_k=top_k * 3  # Get more results for filtering
         )
 
         if not results:
             logger.warning("No video LORAs found via semantic search")
             return []
 
+        # Filter by similarity threshold
+        filtered_results = [r for r in results if r.get('similarity', 0.0) >= min_similarity]
+
+        if not filtered_results:
+            logger.warning(f"No video LORAs found with similarity >= {min_similarity}")
+            return []
+
         # Get LORA details from database
-        lora_ids = [item['lora_id'] for item in results]
-        similarity_map = {item['lora_id']: item['similarity'] for item in results}
+        lora_ids = [item['lora_id'] for item in filtered_results]
+        similarity_map = {item['lora_id']: item['similarity'] for item in filtered_results}
 
         conn = pymysql.connect(**DB_CONFIG)
         cursor = conn.cursor(pymysql.cursors.DictCursor)
@@ -374,6 +401,70 @@ async def _search_video_loras(
 
     except Exception as e:
         logger.error(f"Video LORA search failed: {e}", exc_info=True)
+        return []
+
+
+async def _search_reference_images(
+    embedding_service,
+    query: str,
+    top_k: int,
+    min_similarity: float = 0.6
+) -> list[dict]:
+    """Search for similar reference images using semantic search"""
+    try:
+        # Search using existing embedding service
+        results = await embedding_service.search_similar_resources(
+            query=query,
+            top_k=top_k * 3  # Get more results for filtering
+        )
+
+        if not results:
+            logger.warning("No reference images found via semantic search")
+            return []
+
+        # Filter by similarity threshold
+        filtered_results = [r for r in results if r.get('similarity', 0.0) >= min_similarity]
+
+        if not filtered_results:
+            logger.warning(f"No reference images above similarity threshold {min_similarity}")
+            return []
+
+        # Get resource details from database
+        resource_ids = [item['resource_id'] for item in filtered_results]
+        similarity_map = {item['resource_id']: item['similarity'] for item in filtered_results}
+
+        conn = pymysql.connect(**DB_CONFIG)
+        cursor = conn.cursor(pymysql.cursors.DictCursor)
+
+        placeholders = ','.join(['%s'] * len(resource_ids))
+        cursor.execute(f"""
+            SELECT id, prompt, url
+            FROM resources
+            WHERE id IN ({placeholders})
+        """, resource_ids)
+
+        resources = cursor.fetchall()
+        cursor.close()
+        conn.close()
+
+        # Build response
+        images = []
+        for resource in resources:
+            images.append({
+                "resource_id": resource['id'],
+                "prompt": resource['prompt'] or '',
+                "url": resource['url'],
+                "similarity": similarity_map.get(resource['id'], 0.0)
+            })
+
+        # Sort by similarity
+        images.sort(key=lambda x: x['similarity'], reverse=True)
+
+        logger.info(f"Found {len(images)} reference images via semantic search")
+        return images[:top_k]
+
+    except Exception as e:
+        logger.error(f"Reference image search failed: {e}", exc_info=True)
         return []
 
 
@@ -608,8 +699,7 @@ async def seedream_edit(req: SeeDreamEditRequest, _=Depends(verify_api_key)):
 # ============================================================================
 
 class FirstFrameSource(str, Enum):
-    """First frame source options"""
-    USE_UPLOADED = "use_uploaded"
+    """First frame source options (only for face_reference/full_body_reference modes)"""
     GENERATE = "generate"
     SELECT_EXISTING = "select_existing"
 
@@ -622,13 +712,18 @@ class WorkflowGenerateRequest(BaseModel):
     user_prompt: str = Field(..., min_length=1, max_length=2000, description="User prompt")
     reference_image: Optional[str] = Field(None, description="Reference image (base64 or URL)")
 
-    # First frame acquisition
-    first_frame_source: FirstFrameSource = Field(
-        default=FirstFrameSource.USE_UPLOADED,
-        description="How to obtain first frame"
+    # Video generation parameters (top-level, from v2 frontend)
+    resolution: Optional[str] = Field(None, description="Resolution (e.g., '480p', '720p', '1080p')")
+    aspect_ratio: Optional[str] = Field(None, description="Aspect ratio (e.g., '16:9', '3:4')")
+    duration: Optional[int] = Field(None, description="Duration in seconds")
+
+    # First frame acquisition (only used for face_reference/full_body_reference modes)
+    first_frame_source: Optional[FirstFrameSource] = Field(
+        default=None,
+        description="How to obtain first frame (only for face_reference/full_body_reference modes). If mode is first_frame, this field is ignored."
     )
-    uploaded_first_frame: Optional[str] = Field(None, description="Uploaded first frame (base64 or URL)")
-    selected_image_url: Optional[str] = Field(None, description="Selected existing image URL")
+    uploaded_first_frame: Optional[str] = Field(None, description="Uploaded first frame (base64 or URL) - only used when mode=first_frame")
+    selected_image_url: Optional[str] = Field(None, description="Selected existing image URL (deprecated, use first_frame_source=select_existing)")
 
     # Auto features
     auto_analyze: bool = Field(default=True, description="Auto analyze and recommend LORAs")
@@ -652,7 +747,7 @@ class WorkflowGenerateRequest(BaseModel):
     video_params: Optional[dict] = Field(
         default_factory=lambda: {
             "model": "A14B",
-            "resolution": "720p_3:4",
+            "resolution": "480p_3:4",
             "duration": "5s",
             "steps": 20,
             "cfg": 6.0
@@ -711,6 +806,48 @@ async def generate_advanced_workflow(req: WorkflowGenerateRequest, _=Depends(ver
         # Generate workflow ID
         workflow_id = f"wf_{uuid.uuid4().hex[:12]}"
 
+        # Log incoming request parameters
+        logger.info(f"[WORKFLOW_PARAMS] {workflow_id} - Incoming request:")
+        logger.info(f"[WORKFLOW_PARAMS] {workflow_id} - mode: {req.mode}")
+        logger.info(f"[WORKFLOW_PARAMS] {workflow_id} - user_prompt: {req.user_prompt}")
+        logger.info(f"[WORKFLOW_PARAMS] {workflow_id} - first_frame_source: {req.first_frame_source}")
+        logger.info(f"[WORKFLOW_PARAMS] {workflow_id} - resolution: {req.resolution}")
+        logger.info(f"[WORKFLOW_PARAMS] {workflow_id} - aspect_ratio: {req.aspect_ratio}")
+        logger.info(f"[WORKFLOW_PARAMS] {workflow_id} - duration: {req.duration}")
+        logger.info(f"[WORKFLOW_PARAMS] {workflow_id} - auto_analyze: {req.auto_analyze}")
+        logger.info(f"[WORKFLOW_PARAMS] {workflow_id} - auto_lora: {req.auto_lora}")
+        logger.info(f"[WORKFLOW_PARAMS] {workflow_id} - auto_prompt: {req.auto_prompt}")
+        if req.t2i_params:
+            logger.info(f"[WORKFLOW_PARAMS] {workflow_id} - t2i_params: {json.dumps(req.t2i_params, ensure_ascii=False)}")
+        if req.seedream_params:
+            logger.info(f"[WORKFLOW_PARAMS] {workflow_id} - seedream_params: {json.dumps(req.seedream_params, ensure_ascii=False)}")
+        if req.video_params:
+            logger.info(f"[WORKFLOW_PARAMS] {workflow_id} - video_params: {json.dumps(req.video_params, ensure_ascii=False)}")
+        if req.internal_config:
+            logger.info(f"[WORKFLOW_PARAMS] {workflow_id} - internal_config: {json.dumps(req.internal_config, ensure_ascii=False)}")
+
+        # Process top-level resolution/aspect_ratio/duration fields (from v2 frontend)
+        # Merge them into internal_config.stage4_video.generation
+        if req.resolution or req.aspect_ratio or req.duration:
+            if not req.internal_config:
+                req.internal_config = {}
+            if "stage4_video" not in req.internal_config:
+                req.internal_config["stage4_video"] = {}
+            if "generation" not in req.internal_config["stage4_video"]:
+                req.internal_config["stage4_video"]["generation"] = {}
+
+            # Build resolution string from resolution + aspect_ratio
+            if req.resolution and req.aspect_ratio:
+                resolution_str = f"{req.resolution}_{req.aspect_ratio.replace(':', '_')}"
+                req.internal_config["stage4_video"]["generation"]["resolution"] = resolution_str
+                logger.info(f"[WORKFLOW_PARAMS] {workflow_id} - Merged resolution: {resolution_str}")
+
+            # Merge duration
+            if req.duration:
+                duration_str = f"{req.duration}s"
+                req.internal_config["stage4_video"]["generation"]["duration"] = duration_str
+                logger.info(f"[WORKFLOW_PARAMS] {workflow_id} - Merged duration: {duration_str}")
+
         # Initialize stages
         stages = [
             WorkflowStage(name="prompt_analysis", status="pending"),
@@ -725,7 +862,7 @@ async def generate_advanced_workflow(req: WorkflowGenerateRequest, _=Depends(ver
             "current_stage": "prompt_analysis",
             "mode": req.mode,
             "user_prompt": req.user_prompt,
-            "first_frame_source": req.first_frame_source.value,
+            "first_frame_source": req.first_frame_source.value if req.first_frame_source else "",
             "created_at": str(int(asyncio.get_event_loop().time())),
             "internal_config": json.dumps(req.internal_config) if req.internal_config else "{}"
         })

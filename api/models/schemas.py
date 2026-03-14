@@ -27,6 +27,7 @@ class ImageMode(str, Enum):
     """Image upload mode for chain generation."""
     FIRST_FRAME = "first_frame"
     FACE_REFERENCE = "face_reference"
+    FULL_BODY_REFERENCE = "full_body_reference"
 
 
 class LoraInput(BaseModel):
@@ -38,15 +39,6 @@ class FaceSwapConfig(BaseModel):
     """Face swap configuration for Reactor"""
     enabled: bool = Field(default=False)
     strength: float = Field(default=0.8, ge=0.3, le=1.0, description="Face swap strength, 0.3=light, 0.8=recommended, 1.0=full")
-    detect_gender_source: str = Field(default="no", description="Source face gender filter: no/female/male")
-    detect_gender_input: str = Field(default="no", description="Target face gender filter: no/female/male")
-
-    @field_validator("detect_gender_source", "detect_gender_input")
-    @classmethod
-    def validate_gender(cls, v):
-        if v not in ["no", "female", "male"]:
-            raise ValueError(f"Invalid gender '{v}'. Valid: no, female, male")
-        return v
 
 
 class GenerateRequest(BaseModel):
@@ -57,7 +49,7 @@ class GenerateRequest(BaseModel):
     width: int = Field(default=848, ge=64, le=1920, multiple_of=8)
     height: int = Field(default=480, ge=64, le=1920, multiple_of=8)
     num_frames: int = Field(default=81, ge=1, le=241)
-    fps: int = Field(default=24, ge=1, le=60)
+    fps: int = Field(default=16, ge=1, le=60, description="Frames per second (default: 16 for optimal performance)")
     steps: int = Field(default=20, ge=1, le=100)
     cfg: float = Field(default=6.0, ge=0.0, le=30.0)
     shift: float = Field(default=5.0, ge=0.0, le=20.0)
@@ -86,7 +78,7 @@ class GenerateI2VRequest(BaseModel):
     width: int = Field(default=832, ge=64, le=1920, multiple_of=8)
     height: int = Field(default=480, ge=64, le=1920, multiple_of=8)
     num_frames: int = Field(default=81, ge=1, le=241)
-    fps: int = Field(default=24, ge=1, le=60)
+    fps: int = Field(default=16, ge=1, le=60, description="Frames per second (default: 16 for optimal performance)")
     steps: int = Field(default=20, ge=1, le=100)
     cfg: float = Field(default=6.0, ge=0.0, le=30.0)
     shift: float = Field(default=5.0, ge=0.0, le=20.0)
@@ -274,8 +266,6 @@ class AutoChainRequest(BaseModel):
     # Image mode: how to use uploaded image
     image_mode: ImageMode = Field(default=ImageMode.FIRST_FRAME, description="Image usage mode: first_frame (I2V) or face_reference (T2V + Reactor)")
     face_swap_strength: float = Field(default=1.0, ge=0.3, le=1.0, description="Face swap strength when using face_reference mode")
-    detect_gender_source: str = Field(default="no", description="Source face gender filter: no/female/male")
-    detect_gender_input: str = Field(default="no", description="Target face gender filter: no/female/male")
 
     # Shared parameters
     negative_prompt: str = Field(default="", max_length=2000)
@@ -283,7 +273,7 @@ class AutoChainRequest(BaseModel):
     model_preset: str = ""
     width: int = Field(default=832, ge=64, le=1920, multiple_of=8)
     height: int = Field(default=480, ge=64, le=1920, multiple_of=8)
-    fps: int = Field(default=24, ge=1, le=60)
+    fps: int = Field(default=16, ge=1, le=60, description="Frames per second (default: 16 for optimal performance)")
     steps: int = Field(default=20, ge=1, le=100)
     cfg: float = Field(default=6.0, ge=0.0, le=30.0)
     shift: float = Field(default=5.0, ge=0.0, le=20.0)
@@ -293,7 +283,7 @@ class AutoChainRequest(BaseModel):
     auto_prompt: bool = False
     scheduler: str = Field(default="unipc")
     noise_aug_strength: float = Field(default=0.05, ge=0.0, le=1.0)
-    motion_amplitude: float = Field(default=1.15, ge=1.0, le=2.0)
+    motion_amplitude: float = Field(default=1.15, ge=0.0, le=2.0, description="Motion amplitude (0=disabled, 1.15=recommended)")
     color_match: bool = True
     color_match_method: str = Field(default="mkl")
     resize_mode: str = Field(default="crop_to_new")

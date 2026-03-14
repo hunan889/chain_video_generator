@@ -7,7 +7,7 @@ from fastapi.responses import FileResponse
 from pathlib import Path
 from api.config import API_HOST, API_PORT, VIDEOS_DIR, UPLOADS_DIR
 from api.services.task_manager import TaskManager
-from api.routes import generate, generate_i2v, tasks, loras, civitai, prompt, lora_recommend, extend, workflow, tts, postprocess, image, chat, resources, lora_admin, search, recommend, embeddings
+from api.routes import generate, generate_i2v, tasks, loras, civitai, prompt, lora_recommend, extend, workflow, tts, postprocess, image, chat, resources, lora_admin, search, recommend, embeddings, resource_admin
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
 logger = logging.getLogger(__name__)
@@ -49,6 +49,7 @@ app.include_router(postprocess.router, prefix="/api/v1", tags=["postprocess"])
 app.include_router(image.router, prefix="/api/v1", tags=["image"])
 app.include_router(chat.router, prefix="/api/v1", tags=["chat"])
 app.include_router(lora_admin.router, prefix="/api/v1", tags=["lora_admin"])
+app.include_router(resource_admin.router, prefix="/api/v1", tags=["resource_admin"])
 app.include_router(search.router, prefix="/api/v1", tags=["search"])
 app.include_router(recommend.router, prefix="/api/v1", tags=["recommend"])
 app.include_router(embeddings.router, prefix="/api/v1", tags=["embeddings"])
@@ -90,6 +91,11 @@ async def search_debug():
 @app.get("/advanced_workflow.html")
 async def advanced_workflow():
     return FileResponse(STATIC_DIR / "advanced_workflow.html")
+
+
+@app.get("/advanced_workflow_v2.html")
+async def advanced_workflow_v2():
+    return FileResponse(STATIC_DIR / "advanced_workflow_v2.html")
 
 
 app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")

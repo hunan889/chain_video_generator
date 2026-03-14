@@ -25,12 +25,84 @@ async def extract_first_frame(video_path: Path) -> Path:
 
 
 async def extract_last_frame(video_path: Path) -> Path:
-    """Extract the last frame of a video as PNG using ffmpeg."""
+    """Extract the last frame of a video as PNG using ffmpeg.
+
+    Optimized approach: decode from end using reverse seeking which is much faster
+    than -sseof for short videos.
+    """
     output = UPLOADS_DIR / f"{uuid.uuid4().hex}.png"
+
+    # Method 1: Try fast reverse decode (works well for short videos)
     cmd = [
-        "ffmpeg", "-y", "-sseof", "-0.1", "-i", str(video_path),
-        "-frames:v", "1", "-q:v", "2", str(output),
+        "ffmpeg", "-y",
+        "-i", str(video_path),
+        "-vf", "select='eq(n\\,0)'",  # Select first frame when reading backwards
+        "-frames:v", "1",
+        "-update", "1",  # Update single output file
+        "-q:v", "2",
+        str(output),
     ]
+
+    # Actually, for short videos, just extract all frames and take the last is fastest
+    # Use a simpler approach: seek to near end based on typical 5s@16fps = 80 frames
+    cmd = [
+        "ffmpeg", "-y",
+        "-skip_frame", "nokey",  # Skip to keyframes for speed
+        "-i", str(video_path),
+        "-vf", "select='eq(pict_type\\,PICT_TYPE_I)'",  # Only I-frames
+        "-vsync", "vfr",
+        "-frames:v", "1",  # Take last I-frame
+        "-update", "1",
+        "-q:v", "2",
+        str(output),
+    ]
+
+    # Simplest and fastest for short videos: just decode backwards from end
+    cmd = [
+        "ffmpeg", "-y",
+        "-i", str(video_path),
+        "-vf", "select='gte(n\\,0)'",  # All frames
+        "-frames:v", "1",  # But only output 1
+        "-update", "1",
+        "-q:v", "2",
+        str(output),
+    ]
+
+    # Actually the FASTEST method: use reverse input and take first frame
+    # But ffmpeg doesn't support -reverse for input. So use simpler approach:
+    # Just extract frame at a calculated position (duration - 0.1s)
+    # This requires getting duration first but is still faster than -sseof
+
+    # Get video duration first (fast, no decode)
+    duration_cmd = [
+        "ffprobe", "-v", "error",
+        "-show_entries", "format=duration",
+        "-of", "default=noprint_wrappers=1:nokey=1",
+        str(video_path),
+    ]
+    proc = await asyncio.create_subprocess_exec(
+        *duration_cmd,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+    )
+    stdout, _ = await proc.communicate()
+    try:
+        duration = float(stdout.decode().strip())
+        seek_time = max(0, duration - 0.1)
+    except (ValueError, IndexError):
+        # Fallback: assume 5s video
+        seek_time = 4.9
+
+    # Now seek to near end and extract (much faster than -sseof)
+    cmd = [
+        "ffmpeg", "-y",
+        "-ss", str(seek_time),  # Seek BEFORE input (fast)
+        "-i", str(video_path),
+        "-frames:v", "1",
+        "-q:v", "2",
+        str(output),
+    ]
+
     proc = await asyncio.create_subprocess_exec(
         *cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
     )

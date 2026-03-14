@@ -1,0 +1,591 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>LORA管理 - AI Studio</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:#1a1a2e;color:#e0e0e0;min-height:100vh;padding:20px}
+.container{max-width:1400px;margin:0 auto}
+h1{text-align:center;color:#7c83ff;margin-bottom:24px;font-size:1.8em}
+.back-link{display:inline-block;margin-bottom:16px;color:#7c83ff;text-decoration:none;font-size:14px}
+.back-link:hover{text-decoration:underline}
+.filters{background:#16213e;border:1px solid #333;border-radius:8px;padding:16px;margin-bottom:20px}
+.filter-row{display:flex;gap:12px;margin-bottom:12px;flex-wrap:wrap;align-items:center}
+.filter-row:last-child{margin-bottom:0}
+.filter-group{display:flex;gap:8px;align-items:center}
+.filter-group label{font-size:13px;color:#aaa;white-space:nowrap}
+.filter-group select,.filter-group input{padding:6px 10px;background:#0a0a23;border:1px solid #444;border-radius:6px;color:#e0e0e0;font-size:13px}
+.filter-group input[type=checkbox]{width:18px;height:18px;accent-color:#7c83ff}
+.stats{background:#0f3460;border:1px solid #444;border-radius:6px;padding:12px;display:flex;gap:20px;font-size:13px}
+.stat-item{display:flex;flex-direction:column;gap:4px}
+.stat-label{color:#aaa;font-size:11px}
+.stat-value{color:#7c83ff;font-weight:600;font-size:16px}
+.lora-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(420px,1fr));gap:16px;margin-top:20px}
+.lora-card{background:#16213e;border:1px solid #333;border-radius:8px;padding:16px;position:relative;transition:border-color .2s}
+.lora-card:hover{border-color:#7c83ff}
+.card-header{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:12px;gap:8px}
+.card-title{font-size:15px;font-weight:600;color:#e0e0e0;flex:1;word-break:break-word;line-height:1.4}
+.card-actions{display:flex;gap:6px;align-items:center;flex-shrink:0}
+.toggle-switch{position:relative;width:44px;height:24px;background:#444;border-radius:12px;cursor:pointer;transition:background .2s;flex-shrink:0}
+.toggle-switch.active{background:#4ade80}
+.toggle-switch:before{content:'';position:absolute;width:18px;height:18px;border-radius:50%;background:#fff;top:3px;left:3px;transition:left .2s}
+.toggle-switch.active:before{left:23px}
+.btn-icon{background:none;border:1px solid #666;color:#aaa;padding:4px 8px;border-radius:4px;cursor:pointer;font-size:11px;transition:all .2s;white-space:nowrap}
+.btn-icon:hover{border-color:#7c83ff;color:#7c83ff}
+.btn-ai{background:#16213e;border:1px solid #4ade80;color:#4ade80;padding:4px 10px;border-radius:4px;cursor:pointer;font-size:11px;transition:all .2s;white-space:nowrap}
+.btn-ai:hover{background:#1a4a2e}
+.preview-section{display:flex;gap:12px;margin-bottom:12px}
+.lora-preview{width:100px;height:100px;border-radius:6px;object-fit:cover;background:#0a0a23;flex-shrink:0}
+.edit-fields{flex:1;display:flex;flex-direction:column;gap:8px;min-width:0}
+.edit-field{display:flex;flex-direction:column;gap:4px}
+.edit-field label{font-size:11px;color:#888;font-weight:500}
+.edit-field select,.edit-field input{padding:6px 8px;background:#0a0a23;border:1px solid #444;border-radius:4px;color:#e0e0e0;font-size:13px;width:100%}
+.edit-field input:focus,.edit-field select:focus{outline:none;border-color:#7c83ff}
+.edit-field textarea{padding:8px;background:#0a0a23;border:1px solid #444;border-radius:4px;color:#e0e0e0;font-size:12px;resize:vertical;min-height:60px;font-family:inherit;line-height:1.5;width:100%}
+.edit-field textarea:focus{outline:none;border-color:#7c83ff}
+.meta-tags{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px}
+.meta-tag{font-size:10px;padding:3px 8px;border-radius:3px;font-weight:600}
+.meta-tag.mode{background:#1b3d69;color:#7cb3ff}
+.meta-tag.noise{background:#1b4d3d;color:#6ee7b7}
+.info-text{font-size:11px;color:#888;margin-bottom:10px;line-height:1.5;word-break:break-word}
+.folder-tag{font-size:11px;color:#fbbf24;background:#2d1f0a;padding:3px 8px;border-radius:3px;display:inline-block;margin-bottom:8px}
+.save-indicator{position:absolute;top:10px;right:10px;font-size:11px;padding:3px 8px;border-radius:10px;background:#1a4a2e;color:#4ade80;display:none;z-index:10}
+.save-indicator.show{display:block}
+.loading{text-align:center;padding:40px;color:#aaa}
+.empty{text-align:center;padding:60px;color:#666;font-size:14px}
+</style>
+</head>
+<body>
+<div class="container">
+<h1>LORA 管理</h1>
+
+<div class="filters">
+<div class="filter-row">
+<div class="filter-group">
+<label>搜索:</label>
+<input type="text" id="searchQuery" placeholder="搜索LORA名称..." style="width:200px">
+</div>
+<div class="filter-group">
+<label>类型:</label>
+<select id="filterType">
+<option value="">全部</option>
+<option value="video">视频LORA</option>
+<option value="image">图片LORA</option>
+</select>
+</div>
+<div class="filter-group">
+<label>文件夹:</label>
+<select id="filterFolder">
+<option value="">全部</option>
+</select>
+</div>
+<div class="filter-group">
+<label>分类:</label>
+<select id="filterCategory">
+<option value="">全部</option>
+<option value="action">Action</option>
+<option value="body">Body</option>
+<option value="scene">Scene</option>
+<option value="style">Style</option>
+<option value="modifier">Modifier</option>
+<option value="position">Position</option>
+</select>
+</div>
+</div>
+<div class="filter-row">
+<div class="filter-group">
+<label>模式:</label>
+<select id="filterMode">
+<option value="">全部</option>
+<option value="I2V">I2V</option>
+<option value="T2V">T2V</option>
+<option value="both">Both</option>
+<option value="image">Image</option>
+</select>
+</div>
+<div class="filter-group">
+<input type="checkbox" id="filterUnclassified">
+<label for="filterUnclassified">仅显示未分类</label>
+</div>
+<div class="filter-group">
+<input type="checkbox" id="filterDisabled" checked>
+<label for="filterDisabled">显示已禁用</label>
+</div>
+<div class="filter-group">
+<label>每页:</label>
+<select id="pageSize">
+<option value="20">20</option>
+<option value="50" selected>50</option>
+<option value="100">100</option>
+<option value="200">200</option>
+</select>
+</div>
+</div>
+<div class="stats" id="stats">
+<div class="stat-item">
+<div class="stat-label">总数</div>
+<div class="stat-value" id="statTotal">-</div>
+</div>
+<div class="stat-item">
+<div class="stat-label">已启用</div>
+<div class="stat-value" id="statEnabled">-</div>
+</div>
+<div class="stat-item">
+<div class="stat-label">已分类</div>
+<div class="stat-value" id="statCategorized">-</div>
+</div>
+</div>
+</div>
+
+<div id="loraGrid" class="lora-grid"></div>
+<div id="pagination" style="display:flex;justify-content:center;align-items:center;gap:10px;margin-top:20px;display:none">
+<button class="btn-icon" onclick="prevPage()" id="btnPrev">上一页</button>
+<span id="pageInfo" style="color:#aaa;font-size:13px"></span>
+<button class="btn-icon" onclick="nextPage()" id="btnNext">下一页</button>
+</div>
+<div id="loading" class="loading" style="display:none">加载中...</div>
+<div id="empty" class="empty" style="display:none">暂无LORA</div>
+</div>
+
+<script>
+const API_KEY = localStorage.getItem('wan22_api_key') || 'wan22-default-key-change-me';
+const API_BASE = '/api/v1';
+let allLoras = [];
+let filteredLoras = [];
+let originalLoras = {}; // Store original state
+let currentPage = 1;
+let pageSize = 50;
+let allFolders = new Set();
+let allCategories = new Set(['action', 'body', 'scene', 'style', 'modifier', 'position']); // Predefined + custom
+
+async function fetchLoras() {
+  const category = document.getElementById('filterCategory').value;
+  const mode = document.getElementById('filterMode').value;
+  const loraType = document.getElementById('filterType').value;
+  const unclassified = document.getElementById('filterUnclassified').checked;
+  const showDisabled = document.getElementById('filterDisabled').checked;
+  const searchQuery = document.getElementById('searchQuery').value.toLowerCase().trim();
+  const folder = document.getElementById('filterFolder').value;
+  pageSize = parseInt(document.getElementById('pageSize').value);
+
+  const params = new URLSearchParams();
+  if (category) params.append('category', category);
+  if (unclassified) params.append('unclassified', 'true');
+  if (loraType) params.append('lora_type', loraType);
+
+  document.getElementById('loading').style.display = 'block';
+  document.getElementById('loraGrid').innerHTML = '';
+  document.getElementById('empty').style.display = 'none';
+  document.getElementById('pagination').style.display = 'none';
+
+  try {
+    const res = await fetch(`${API_BASE}/admin/loras?${params}`, {
+      headers: {'X-API-Key': API_KEY}
+    });
+    if (!res.ok) throw new Error('Failed to fetch');
+    allLoras = await res.json();
+
+    // Store original state for all LORAs
+    allLoras.forEach(lora => {
+      if (!originalLoras[lora.id]) {
+        originalLoras[lora.id] = JSON.parse(JSON.stringify(lora));
+      }
+    });
+
+    // Extract folders from image LORAs
+    allFolders.clear();
+    allLoras.forEach(lora => {
+      if (lora.lora_type === 'image' && lora.category) {
+        allFolders.add(lora.category);
+      }
+      // Collect all categories from video LORAs
+      if (lora.lora_type === 'video' && lora.category) {
+        allCategories.add(lora.category);
+      }
+    });
+    updateFolderFilter();
+
+    // Apply filters
+    filteredLoras = allLoras;
+
+    // Filter by mode
+    if (mode) {
+      filteredLoras = filteredLoras.filter(l => l.mode === mode);
+    }
+
+    // Filter by enabled status
+    if (!showDisabled) {
+      filteredLoras = filteredLoras.filter(l => l.enabled !== false && l.enabled !== 0);
+    }
+
+    // Filter by search query
+    if (searchQuery) {
+      filteredLoras = filteredLoras.filter(l =>
+        l.name.toLowerCase().includes(searchQuery) ||
+        (l.file && l.file.toLowerCase().includes(searchQuery)) ||
+        (l.description && l.description.toLowerCase().includes(searchQuery))
+      );
+    }
+
+    // Filter by folder
+    if (folder) {
+      filteredLoras = filteredLoras.filter(l => l.category === folder);
+    }
+
+    currentPage = 1;
+    renderPage();
+    updateStats(allLoras);
+  } catch (err) {
+    console.error(err);
+    document.getElementById('empty').textContent = '加载失败: ' + err.message;
+    document.getElementById('empty').style.display = 'block';
+  } finally {
+    document.getElementById('loading').style.display = 'none';
+  }
+}
+
+function updateFolderFilter() {
+  const folderSelect = document.getElementById('filterFolder');
+  const currentValue = folderSelect.value;
+
+  folderSelect.innerHTML = '<option value="">全部</option>';
+
+  const sortedFolders = Array.from(allFolders).sort();
+  sortedFolders.forEach(folder => {
+    const option = document.createElement('option');
+    option.value = folder;
+    option.textContent = folder;
+    if (folder === currentValue) option.selected = true;
+    folderSelect.appendChild(option);
+  });
+}
+
+function renderPage() {
+  const grid = document.getElementById('loraGrid');
+  grid.innerHTML = '';
+
+  if (filteredLoras.length === 0) {
+    document.getElementById('empty').style.display = 'block';
+    document.getElementById('pagination').style.display = 'none';
+    return;
+  }
+
+  const startIdx = (currentPage - 1) * pageSize;
+  const endIdx = Math.min(startIdx + pageSize, filteredLoras.length);
+  const pageData = filteredLoras.slice(startIdx, endIdx);
+
+  pageData.forEach(lora => {
+    const card = createLoraCard(lora);
+    grid.appendChild(card);
+  });
+
+  // Update pagination
+  const totalPages = Math.ceil(filteredLoras.length / pageSize);
+  document.getElementById('pageInfo').textContent = `第 ${currentPage} / ${totalPages} 页 (共 ${filteredLoras.length} 个)`;
+  document.getElementById('btnPrev').disabled = currentPage === 1;
+  document.getElementById('btnNext').disabled = currentPage === totalPages;
+  document.getElementById('pagination').style.display = 'flex';
+
+  // Scroll to top
+  window.scrollTo(0, 0);
+}
+
+function prevPage() {
+  if (currentPage > 1) {
+    currentPage--;
+    renderPage();
+  }
+}
+
+function nextPage() {
+  const totalPages = Math.ceil(filteredLoras.length / pageSize);
+  if (currentPage < totalPages) {
+    currentPage++;
+    renderPage();
+  }
+}
+
+function createLoraCard(lora) {
+  const card = document.createElement('div');
+  card.className = 'lora-card';
+  card.id = `lora-${lora.id}`;
+
+  const isImageLora = lora.lora_type === 'image';
+  const triggerWords = Array.isArray(lora.trigger_words) ? lora.trigger_words :
+                       (typeof lora.trigger_words === 'string' ? JSON.parse(lora.trigger_words || '[]') : []);
+
+  // Check if preview is video
+  const isVideo = lora.preview_url && (lora.preview_url.endsWith('.mp4') || lora.preview_url.endsWith('.webm'));
+  const previewHtml = isVideo
+    ? `<video class="lora-preview" src="${lora.preview_url}" loop muted playsinline onmouseover="this.play()" onmouseout="this.pause();this.currentTime=0"></video>`
+    : `<img class="lora-preview" src="${lora.preview_url || '/static/placeholder.svg'}" onerror="this.src='/static/placeholder.svg'" alt="${lora.name}">`;
+
+  // Default trigger_prompt to trigger_words if empty
+  const defaultTriggerPrompt = triggerWords.length > 0 ? triggerWords.join(', ') : '';
+  const currentTriggerPrompt = lora.trigger_prompt || defaultTriggerPrompt;
+
+  // Build category options dynamically
+  const categoryOptions = Array.from(allCategories).sort().map(cat =>
+    `<option value="${cat}" ${lora.category === cat ? 'selected' : ''}>${cat}</option>`
+  ).join('');
+
+  // Unified card structure for both types
+  card.innerHTML = `
+    <div class="save-indicator" id="save-${lora.id}">已保存</div>
+    <div class="card-header">
+      <div class="card-title">${lora.name}</div>
+      <div class="card-actions">
+        <button class="btn-ai" onclick="getSuggestion(${isImageLora ? `'${lora.id}'` : lora.id})">AI建议</button>
+        <button class="btn-icon" onclick="resetLora(${isImageLora ? `'${lora.id}'` : lora.id})">恢复默认</button>
+        <div class="toggle-switch ${lora.enabled === true || lora.enabled === 1 ? 'active' : ''}" onclick="toggleEnabled(${isImageLora ? `'${lora.id}'` : lora.id})" id="toggle-${lora.id}"></div>
+      </div>
+    </div>
+
+    <div class="preview-section">
+      ${previewHtml}
+      <div class="edit-fields">
+        <div class="edit-field">
+          <label>分类</label>
+          <select id="category-${lora.id}" onchange="handleCategoryChange(${isImageLora ? `'${lora.id}'` : lora.id})">
+            <option value="">未分类</option>
+            ${categoryOptions}
+            <option value="__custom__">自定义...</option>
+          </select>
+          <input type="text" id="category-custom-${lora.id}" placeholder="输入自定义分类" onblur="autoSave(${isImageLora ? `'${lora.id}'` : lora.id})" onkeypress="if(event.key==='Enter') autoSave(${isImageLora ? `'${lora.id}'` : lora.id})" style="display:none;margin-top:4px">
+        </div>
+        <div class="edit-field">
+          <label>质量评分 (1-10)</label>
+          <input type="number" id="quality-${lora.id}" min="1" max="10" value="${lora.quality_score || ''}" placeholder="1-10" onchange="autoSave(${isImageLora ? `'${lora.id}'` : lora.id})">
+        </div>
+      </div>
+    </div>
+
+    <div class="meta-tags">
+      <span class="meta-tag mode">${lora.mode || 'image'}</span>
+      ${lora.noise_stage ? `<span class="meta-tag noise">${lora.noise_stage}</span>` : ''}
+      ${isImageLora && lora.category ? `<span class="folder-tag">📁 ${lora.category}</span>` : ''}
+    </div>
+
+    ${lora.description ? `<div class="info-text">${lora.description}</div>` : ''}
+    ${isImageLora && lora.filepath ? `<div class="info-text">路径: ${lora.filepath}</div>` : ''}
+
+    <div class="edit-field">
+      <label>搜索关键词 (Search Keywords)</label>
+      <textarea id="search-keywords-${lora.id}" placeholder="支持关键词列表或自然语言描述，例如：&#10;doggy, from behind, rear entry&#10;或：A woman having sex in doggy style position" rows="3" onchange="autoSave(${isImageLora ? `'${lora.id}'` : lora.id})">${lora.search_keywords || ''}</textarea>
+      <small style="font-size:10px;color:#888;margin-top:2px">用于搜索匹配，支持关键词列表或自然语言描述</small>
+    </div>
+
+    <div class="edit-field">
+      <label>触发提示词 (Trigger Prompt)</label>
+      <textarea id="trigger-prompt-${lora.id}" placeholder="用于生成视频的完整自然语言描述..." rows="3" onchange="autoSave(${isImageLora ? `'${lora.id}'` : lora.id})">${currentTriggerPrompt}</textarea>
+      <small style="font-size:10px;color:#888;margin-top:2px">用于生成视频，完整的自然语言描述</small>
+    </div>
+  `;
+
+  return card;
+}
+
+async function toggleEnabled(loraId) {
+  const toggle = document.getElementById(`toggle-${loraId}`);
+  const isEnabled = toggle.classList.contains('active');
+
+  // Toggle UI
+  toggle.classList.toggle('active');
+
+  // Save to backend
+  try {
+    const res = await fetch(`${API_BASE}/admin/loras/${loraId}`, {
+      method: 'PATCH',
+      headers: {
+        'X-API-Key': API_KEY,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ enabled: !isEnabled })
+    });
+
+    if (!res.ok) throw new Error('Failed to update');
+
+    showSaveIndicator(loraId);
+
+    // Update local data
+    const lora = allLoras.find(l => l.id === loraId);
+    if (lora) lora.enabled = !isEnabled;
+
+    updateStats(allLoras);
+  } catch (err) {
+    console.error(err);
+    // Revert UI on error
+    toggle.classList.toggle('active');
+    alert('更新失败');
+  }
+}
+
+async function autoSave(loraId) {
+  const categorySelect = document.getElementById(`category-${loraId}`);
+  const categoryCustom = document.getElementById(`category-custom-${loraId}`);
+
+  let category = categorySelect.value;
+  if (category === '__custom__' && categoryCustom) {
+    category = categoryCustom.value.trim() || null;
+    // Add to allCategories if it's a new custom category
+    if (category) {
+      allCategories.add(category);
+    }
+  } else if (category === '__custom__') {
+    return; // Wait for custom input
+  } else {
+    category = category || null;
+  }
+
+  const quality = document.getElementById(`quality-${loraId}`).value;
+  const triggerPrompt = document.getElementById(`trigger-prompt-${loraId}`).value.trim();
+  const searchKeywords = document.getElementById(`search-keywords-${loraId}`).value.trim();
+
+  const body = {};
+  if (category !== undefined) body.category = category;
+  if (quality) body.quality_score = parseInt(quality);
+  if (triggerPrompt) body.trigger_prompt = triggerPrompt;
+  if (searchKeywords) body.search_keywords = searchKeywords;
+
+  if (Object.keys(body).length === 0) return;
+
+  try {
+    // For image LORAs, sync to database first if not already synced
+    const lora = allLoras.find(l => l.id === loraId);
+    if (lora && lora.lora_type === 'image' && typeof loraId === 'string' && loraId.startsWith('img_')) {
+      await fetch(`${API_BASE}/admin/loras/sync-image-lora?lora_id=${loraId}&name=${encodeURIComponent(lora.name)}&file=${encodeURIComponent(lora.file)}&filepath=${encodeURIComponent(lora.filepath)}`, {
+        method: 'POST',
+        headers: {'X-API-Key': API_KEY}
+      });
+    }
+
+    const res = await fetch(`${API_BASE}/admin/loras/${loraId}`, {
+      method: 'PATCH',
+      headers: {
+        'X-API-Key': API_KEY,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(body)
+    });
+
+    if (!res.ok) throw new Error('Failed to update');
+
+    showSaveIndicator(loraId);
+
+    // Update local data
+    if (lora) {
+      if (category !== undefined) lora.category = category;
+      if (quality) lora.quality_score = parseInt(quality);
+      if (triggerPrompt) lora.trigger_prompt = triggerPrompt;
+      if (searchKeywords) lora.search_keywords = searchKeywords;
+    }
+
+    // If custom category was saved, re-render the page to update all dropdowns
+    if (categorySelect.value === '__custom__' && category) {
+      categoryCustom.style.display = 'none';
+      categorySelect.value = category;
+      renderPage(); // Re-render to update all category dropdowns
+    }
+
+    updateStats(allLoras);
+  } catch (err) {
+    console.error(err);
+    alert('保存失败');
+  }
+}
+
+function handleCategoryChange(loraId) {
+  const categorySelect = document.getElementById(`category-${loraId}`);
+  const categoryCustom = document.getElementById(`category-custom-${loraId}`);
+
+  if (categorySelect.value === '__custom__') {
+    categoryCustom.style.display = 'block';
+    categoryCustom.focus();
+  } else {
+    categoryCustom.style.display = 'none';
+    autoSave(loraId);
+  }
+}
+
+async function getSuggestion(loraId) {
+  // AI suggestions only work for video LORAs (in lora_metadata table)
+  if (typeof loraId === 'string' && loraId.startsWith('img_')) {
+    alert('AI建议功能暂不支持图片LORA');
+    return;
+  }
+
+  try {
+    const res = await fetch(`${API_BASE}/admin/loras/${loraId}/suggest-category`, {
+      method: 'POST',
+      headers: {'X-API-Key': API_KEY}
+    });
+
+    if (!res.ok) throw new Error('Failed to get suggestion');
+    const data = await res.json();
+
+    if (data.category) {
+      document.getElementById(`category-${loraId}`).value = data.category;
+      await autoSave(loraId);
+      alert(`AI建议分类: ${data.category}\n置信度: ${(data.confidence * 100).toFixed(0)}%\n理由: ${data.reasoning}`);
+    } else {
+      alert('AI无法给出分类建议');
+    }
+  } catch (err) {
+    console.error(err);
+    alert('获取建议失败');
+  }
+}
+
+function resetLora(loraId) {
+  const original = originalLoras[loraId];
+  if (!original) return;
+
+  if (!confirm('确定要恢复到默认状态吗？')) return;
+
+  // Reset UI
+  document.getElementById(`category-${loraId}`).value = original.category || '';
+  document.getElementById(`quality-${loraId}`).value = original.quality_score || '';
+  document.getElementById(`trigger-prompt-${loraId}`).value = original.trigger_prompt || '';
+  document.getElementById(`search-keywords-${loraId}`).value = original.search_keywords || '';
+
+  // Save
+  autoSave(loraId);
+}
+
+function showSaveIndicator(loraId) {
+  const indicator = document.getElementById(`save-${loraId}`);
+  indicator.classList.add('show');
+  setTimeout(() => {
+    indicator.classList.remove('show');
+  }, 2000);
+}
+
+function updateStats(loras) {
+  document.getElementById('statTotal').textContent = loras.length;
+  document.getElementById('statEnabled').textContent = loras.filter(l => l.enabled === true || l.enabled === 1).length;
+  document.getElementById('statCategorized').textContent = loras.filter(l => l.category).length;
+}
+
+// Event listeners
+document.getElementById('filterCategory').addEventListener('change', fetchLoras);
+document.getElementById('filterMode').addEventListener('change', fetchLoras);
+document.getElementById('filterType').addEventListener('change', fetchLoras);
+document.getElementById('filterFolder').addEventListener('change', fetchLoras);
+document.getElementById('filterUnclassified').addEventListener('change', fetchLoras);
+document.getElementById('filterDisabled').addEventListener('change', fetchLoras);
+document.getElementById('pageSize').addEventListener('change', fetchLoras);
+
+// Search with debounce
+let searchTimeout;
+document.getElementById('searchQuery').addEventListener('input', () => {
+  clearTimeout(searchTimeout);
+  searchTimeout = setTimeout(fetchLoras, 300);
+});
+
+// Initial load
+fetchLoras();
+</script>
+</body>
+</html>

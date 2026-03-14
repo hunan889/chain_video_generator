@@ -31,9 +31,10 @@
    - 优点: 可控性强，能生成符合prompt的场景
 
 3. **方式C: 选择现有图片**
-   - 从推荐的参考图库中选择一张 → 换脸/SeeDream编辑 → I2V
+   - 后端自动从推荐的参考图库中选择相似度最高的一张 → 换脸/SeeDream编辑 → I2V
    - 适用场景: 找到了合适的现成图片
    - 优点: 速度快，省去T2I生成步骤
+   - 注意: 后端自动选择，无需用户手动选择
 
 **SeeDream编辑模式**:
 - `face_only`: 仅换脸（SeeDream换脸，可能比Reactor效果更好）
@@ -67,26 +68,27 @@
 #### 图片分辨率预设
 ```python
 RESOLUTION_PRESETS = {
-    "480p_4:3": {"width": 640, "height": 480},
-    "480p_3:4": {"width": 480, "height": 640},
-    "720p_4:3": {"width": 960, "height": 720},
-    "720p_3:4": {"width": 720, "height": 960},
-    "1080p_4:3": {"width": 1440, "height": 1080},
-    "1080p_3:4": {"width": 1080, "height": 1440},
+    "480p_3:4": {"width": 352, "height": 480},  # 352是最接近360的16倍数（VAE要求）
+    "480p_16:9": {"width": 832, "height": 480},
+    "720p_3:4": {"width": 608, "height": 832},
+    "720p_16:9": {"width": 1280, "height": 720},
+    "1080p_16:9": {"width": 1920, "height": 1080},
 }
 ```
+
+**注意**: 所有分辨率必须是16的倍数（VAE编码器要求）。360会被自动调整为352。
 
 #### 视频时长预设
 ```python
 DURATION_PRESETS = {
-    "5s": {"duration": 5.0, "num_frames": 121},  # 24fps * 5s + 1
-    "10s": {"duration": 10.0, "num_frames": 241},  # 24fps * 10s + 1
+    "5s": {"duration": 5.0, "num_frames": 81},  # 16fps * 5s + 1
+    "10s": {"duration": 10.0, "num_frames": 161},  # 16fps * 10s + 1
 }
 ```
 
 **固定参数**:
-- 帧率: 24fps
-- 比例: 3:4 或 4:3
+- 帧率: 16fps (默认，可配置)
+- 比例: 3:4 或 16:9
 
 ### 2. LORA类型区分
 
@@ -133,6 +135,35 @@ SEEDREAM_EDIT_PROMPTS = {
 - 通过配置文件选择模型
 - 后续可无缝切换
 
+### 5. T5和CLIP文本编码器预设
+
+**T5预设** (用于视频生成的文本编码):
+```python
+T5_PRESETS = {
+    "default": {
+        "file": "umt5-xxl-enc-fp8_e4m3fn.safetensors",
+        "quantization": "disabled"  # fp8已内置
+    },
+    "nsfw": {
+        "file": "nsfw_wan_umt5-xxl_bf16.safetensors",
+        "quantization": "fp8_e4m3fn"  # 运行时量化
+    }
+}
+```
+
+**CLIP预设** (用于Story Mode):
+```python
+STORY_CLIP_PRESETS = {
+    "default": "umt5-xxl-enc-fp8_e4m3fn.safetensors",
+    "nsfw": "nsfw_wan_umt5-xxl_fp8_scaled.safetensors"
+}
+```
+
+**使用说明**:
+- 默认使用"nsfw"预设（针对NSFW内容优化）
+- 可在video_params中通过t5_preset和clip_preset参数指定
+- 两个预设都是UMT5-XXL模型（T5的变体）
+
 ---
 
 ## API设计
@@ -157,7 +188,7 @@ POST /api/v1/workflow/analyze
 **first_frame_source选项**:
 - `use_uploaded`: 使用上传的图片作为首帧（默认）
 - `generate`: 使用LORA+提示词生成首帧
-- `select_existing`: 从现有图库中选择
+- `select_existing`: 后端自动从现有图库中选择相似度最高的图片
 
 **响应**:
 ```json
@@ -199,7 +230,7 @@ POST /api/v1/workflow/analyze
         "noise_stage": "high"
       }
     ],
-    "reference_images": [
+    "images": [
       {
         "resource_id": 789,
         "url": "https://...",
@@ -209,7 +240,9 @@ POST /api/v1/workflow/analyze
     ]
   },
   "optimized_prompts": {
-    "t2i_prompt": "realistic girl, detailed face, front view, beach background, sunny day, photorealistic",
+    "original_prompt": "一个女孩在海边跳舞，阳光明媚",
+    "optimized_t2i_prompt": "realistic girl, detailed face, front view, beach background, sunny day, photorealistic",
+    "optimized_i2v_prompt": "(at 0 seconds: a young woman dancing rhythmically on the beach, her arms swinging freely, feet tapping lightly against the sand, head swaying side to side, eyes slightly narrowed in focus)",
     "segments": [
       {
         "duration": 3.3,
@@ -220,6 +253,12 @@ POST /api/v1/workflow/analyze
   }
 }
 ```
+
+**提示词说明**:
+- `original_prompt`: 用户输入的原始提示词
+- `optimized_t2i_prompt`: 用于T2I首帧生成的优化提示词（仅在first_frame_source="generate"时使用）
+- `optimized_i2v_prompt`: 用于I2V视频生成的优化提示词（Stage 4使用）
+- 如果first_frame_source="select_existing"或"use_uploaded"，则optimized_t2i_prompt为null
 
 ### 2. T2I首帧生成（可选）
 ```
@@ -294,7 +333,6 @@ POST /api/v1/workflow/generate-advanced
 
   "first_frame_source": "use_uploaded",
   "uploaded_first_frame": "base64_or_url",
-  "selected_image_url": null,
 
   "auto_analyze": true,
   "auto_lora": true,
@@ -314,10 +352,12 @@ POST /api/v1/workflow/generate-advanced
 
   "video_params": {
     "model": "A14B",
-    "resolution": "720p_3:4",
+    "resolution": "480p_3:4",
     "duration": "5s",
     "steps": 20,
     "cfg": 6.0,
+    "t5_preset": "nsfw",  // T5文本编码器预设: "default" 或 "nsfw"
+    "clip_preset": "nsfw",  // CLIP预设: "default" 或 "nsfw"
     "enable_audio": false
   }
 }
@@ -412,10 +452,10 @@ POST /api/v1/workflow/generate-advanced
    - first_frame_source = "select_existing"
    - 推荐相似的参考图
    ↓
-3. 用户从推荐图中选择一张
+3. 后端自动选择相似度最高的一张图片
    ↓
 4. POST /workflow/seedream-edit
-   - 输入: 选中的图 + 人脸参考图
+   - 输入: 自动选中的图 + 人脸参考图
    ↓
 5. POST /generate/chain
    - 生成视频
@@ -586,29 +626,30 @@ async def seedream_edit_with_fallback(scene_url, ref_url, edit_mode, enable_reac
 
 ### Phase 1: 核心基础设施（1-2周）
 1. ✅ 复用现有Chain工作流
-2. 🔨 实现 `/workflow/analyze` API
-   - 集成EmbeddingService语义搜索
-   - 区分图片LORA和视频LORA
-   - 使用Qwen3-14B进行prompt拆解和优化
-3. 🔨 集成T2I模型（SD WebUI + PONY NSFW）
-   - 复用现有SD WebUI排队机制
-   - 创建T2I workflow模板
-   - 实现 `/workflow/generate-first-frame` API
+2. ✅ 实现 `/workflow/analyze` API
+   - ✅ 集成EmbeddingService语义搜索
+   - ✅ 区分图片LORA和视频LORA
+   - ✅ 使用Qwen3-14B进行prompt拆解和优化
+   - ✅ 返回推荐的参考图片
+3. ✅ 集成T2I模型（SD WebUI + PONY NSFW）
+   - ✅ 实现 `_generate_t2i_image` 函数
+   - ✅ Image LoRA 自动集成到 T2I prompt
+   - ✅ 自动选择推荐图片功能
 
 ### Phase 2: SeeDream编辑（1周）
-1. 🔨 实现 `/workflow/seedream-edit` API
-   - 集成现有的`/image/scene-swap`功能
-   - 实现三种edit_mode（face_only/face_wearings/full_body）
-   - 实现换脸开关（enable_reactor_first）
-   - 内置提示词模板
+1. ✅ 实现 `/workflow/seedream-edit` API
+   - ✅ 集成现有的`/image/scene-swap`功能
+   - ✅ 实现三种edit_mode（face_only/face_wearings/full_body）
+   - ✅ 实现换脸开关（enable_reactor_first）
+   - ✅ 内置提示词模板
 2. 🔨 测试不同edit_mode的效果
 
 ### Phase 3: 完整工作流编排（1周）
-1. 🔨 实现 `/workflow/generate-advanced` API
-   - 支持三种first_frame_source
-   - 编排完整流程
-   - 状态管理和进度追踪
-2. 🔨 实现错误降级策略
+1. ✅ 实现 `/workflow/generate-advanced` API
+   - ✅ 支持三种first_frame_source
+   - ✅ 编排完整流程
+   - ✅ 状态管理和进度追踪
+2. ✅ 实现错误降级策略
 3. 🔨 端到端测试
 
 ### Phase 4: 前端UI（2周）
@@ -695,7 +736,7 @@ curl -X POST /api/v1/workflow/generate-advanced \
       "enable_reactor_first": true
     },
     "video_params": {
-      "resolution": "720p_3:4",
+      "resolution": "480p_3:4",
       "duration": "5s"
     }
   }'
@@ -730,21 +771,22 @@ curl -X POST /api/v1/generate/chain \
       {"prompt": "starts dancing", "duration": 3.3},
       {"prompt": "spinning motion", "duration": 3.3}
     ],
-    "resolution": "720p_3:4",
+    "resolution": "480p_3:4",
     "duration": "5s"
   }'
 ```
 
 ---
 
-**文档版本**: v3.0 (最终版)
+**文档版本**: v3.1 (2026-03-14更新)
 **创建日期**: 2026-03-13
+**最后更新**: 2026-03-14
 **更新说明**:
-- 整合所有讨论结果
-- 明确三种首帧获取方式（默认上传）
-- 明确三种SeeDream edit_mode定义
-- 明确分辨率和时长规范
-- 明确LORA类型区分
-- 明确错误降级策略
-- 预留Flux Dev扩展能力
-- 删除中间文档，输出最终完整方案
+- ✅ 修正分辨率预设值（使用实际代码中的值）
+- ✅ 修正FPS默认值（24fps → 16fps）
+- ✅ 修正select_existing描述（用户选择 → 后端自动选择）
+- ✅ 更新API响应字段名（reference_images → images）
+- ✅ 删除废弃参数（selected_image_url）
+- ✅ 更新实现状态（Phase 1-3核心功能已完成）
+- ✅ Image LoRA自动集成到T2I生成
+- ✅ 推荐图片功能已实现

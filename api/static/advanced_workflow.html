@@ -124,7 +124,6 @@ h2{color:#7c83ff;margin-bottom:20px;font-size:1.4em}
 <div class="field">
 <label>首帧来源策略</label>
 <select id="firstFrameSource">
-<option value="use_uploaded">使用上传图片</option>
 <option value="generate">T2I生成</option>
 <option value="select_existing">选择已有图片</option>
 </select>
@@ -285,10 +284,32 @@ async function generateVideo() {
         return;
     }
 
-    // 转换图片为base64
-    let imageBase64 = null;
+    // 上传图片到后端获取URL
+    let imageUrl = null;
     if (imageFile) {
-        imageBase64 = await fileToBase64(imageFile);
+        try {
+            const formData = new FormData();
+            formData.append('file', imageFile);
+
+            const uploadResponse = await fetch('/api/v1/upload', {
+                method: 'POST',
+                headers: {
+                    'X-API-Key': localStorage.getItem('wan22_api_key') || 'wan22-default-key-change-me'
+                },
+                body: formData
+            });
+
+            if (!uploadResponse.ok) {
+                throw new Error('上传图片失败: ' + uploadResponse.statusText);
+            }
+
+            const uploadResult = await uploadResponse.json();
+            imageUrl = uploadResult.url;
+            console.log('图片已上传，URL:', imageUrl);
+        } catch (error) {
+            alert('上传图片失败: ' + error.message);
+            return;
+        }
     }
 
     // 计算分辨率
@@ -300,9 +321,8 @@ async function generateVideo() {
     const request = {
         mode: imageRole,
         user_prompt: prompt,
-        reference_image: imageBase64,
-        first_frame_source: imageRole === 'first_frame' ? 'use_uploaded' : 'generate',
-        uploaded_first_frame: imageRole === 'first_frame' ? imageBase64 : null,
+        reference_image: imageUrl,  // 用于SeeDream换脸
+        uploaded_first_frame: imageUrl,  // 上传的图片URL（首帧模式）
         auto_analyze: document.getElementById('autoAnalyze').value === 'true',
         auto_lora: document.getElementById('autoLora').value === 'true',
         auto_prompt: document.getElementById('autoPrompt').value === 'true',

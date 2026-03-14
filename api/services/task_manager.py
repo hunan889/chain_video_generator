@@ -322,22 +322,28 @@ class TaskManager:
 
     async def _process_task(self, task_id: str, client: ComfyUIClient):
         try:
+            t_start = time.time()
             await self.redis.hset(f"task:{task_id}", "status", TaskStatus.RUNNING.value)
             workflow_json = await self.redis.hget(f"task:{task_id}", "workflow")
             workflow = json.loads(workflow_json)
 
             # Submit to ComfyUI
+            t_submit = time.time()
             prompt_id = await client.queue_prompt(workflow)
             await self.redis.hset(f"task:{task_id}", mapping={
                 "progress": "0.05",
                 "prompt_id": prompt_id,
             })
+            logger.info("Task %s: submit took %.2fs", task_id, time.time() - t_submit)
 
             # Wait for completion with progress updates
+            t_wait = time.time()
             history = await self._wait_with_progress(client, prompt_id, task_id, timeout=1800)
             await self.redis.hset(f"task:{task_id}", "progress", "0.9")
+            logger.info("Task %s: generation took %.2fs", task_id, time.time() - t_wait)
 
             # Download output files
+            t_download = time.time()
             output_files = await client.get_output_files(prompt_id)
             if not output_files:
                 raise RuntimeError("No output files generated")
@@ -349,11 +355,13 @@ class TaskManager:
             ext = f["filename"].rsplit(".", 1)[-1] if "." in f["filename"] else "mp4"
             result = await storage.save_video(data, ext)
             video_url = result if COS_ENABLED else f"{VIDEO_BASE_URL}/{result}"
+            logger.info("Task %s: download+save took %.2fs", task_id, time.time() - t_download)
 
             # Extract last frame for video files
             last_frame_url = None
             if ext in ("mp4", "webm", "avi", "mov"):
                 try:
+                    t_frame = time.time()
                     video_path = await storage.get_video_path_from_url(video_url)
                     if video_path and video_path.exists():
                         from api.services.ffmpeg_utils import extract_last_frame
@@ -362,7 +370,7 @@ class TaskManager:
                         frame_data = frame_path.read_bytes()
                         frame_filename, _ = await storage.save_upload(frame_data, frame_path.name)
                         last_frame_url = f"{VIDEO_BASE_URL}/{frame_filename}"
-                        logger.info("Extracted last frame for task %s: %s", task_id, last_frame_url)
+                        logger.info("Task %s: frame extraction took %.2fs, url: %s", task_id, time.time() - t_frame, last_frame_url)
                 except Exception as e:
                     logger.warning("Failed to extract last frame for task %s: %s", task_id, e)
 
@@ -376,7 +384,7 @@ class TaskManager:
                 task_data["last_frame_url"] = last_frame_url
 
             await self.redis.hset(f"task:{task_id}", mapping=task_data)
-            logger.info("Task %s completed: %s", task_id, video_url)
+            logger.info("Task %s completed in %.2fs total: %s", task_id, time.time() - t_start, video_url)
 
         except Exception as e:
             logger.exception("Task %s failed: %s", task_id, e)
@@ -829,11 +837,11 @@ class TaskManager:
         face_image_filename = seg0.get("face_image_filename", "")
         image_mode = seg0.get("image_mode", "first_frame")
 
+        from api.models.schemas import FaceSwapConfig
+
         if image_mode == "face_reference" and total == 1:
             # Single segment face_reference mode: use T2V workflow
             logger.info("Chain %s: single segment face_reference mode, using T2V workflow", chain_id)
-            from api.models.enums import GenerateMode
-            from api.models.schemas import FaceSwapConfig
 
             # Prepare face_swap_config
             face_swap_cfg = seg0.get("face_swap")
@@ -888,8 +896,6 @@ class TaskManager:
         # Extract face_image_filename from segment 0 if present
         face_image_filename = seg0.get("face_image_filename", "")
         face_swap_strength = seg0.get("face_swap_strength", 1.0)
-        detect_gender_source = seg0.get("detect_gender_source", "no")
-        detect_gender_input = seg0.get("detect_gender_input", "no")
 
         # Build single merged workflow
         workflow = build_merged_story_workflow(
@@ -922,8 +928,6 @@ class TaskManager:
             mmaudio_cfg=seg0.get("mmaudio_cfg", 4.5),
             face_image_filename=face_image_filename,
             face_swap_strength=face_swap_strength,
-            detect_gender_source=detect_gender_source,
-            detect_gender_input=detect_gender_input,
         )
 
         # Create a single task for the entire merged workflow

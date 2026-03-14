@@ -19,6 +19,7 @@ def _resolve_path(env_var: str, default: str) -> Path:
 COMFYUI_PATH = _resolve_path("COMFYUI_PATH", "./ComfyUI")
 COMFYUI_A14B_URL = os.getenv("COMFYUI_A14B_URL", "http://127.0.0.1:8188")
 COMFYUI_5B_URL = os.getenv("COMFYUI_5B_URL", "http://127.0.0.1:8189")
+FORGE_URL = os.getenv("FORGE_URL", "http://127.0.0.1:7860")
 REDIS_URL = os.getenv("REDIS_URL", "redis://127.0.0.1:6379/0")
 API_HOST = os.getenv("API_HOST", "0.0.0.0")
 API_PORT = int(os.getenv("API_PORT", "8000"))

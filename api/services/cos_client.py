@@ -22,6 +22,35 @@ def _make_url(key: str) -> str:
     return f"https://{COS_BUCKET}.cos.{COS_REGION}.myqcloud.com/{key}"
 
 
+def make_thumbnail_url(url: str, width: int = 400, height: int = 400) -> str:
+    """
+    Generate a thumbnail URL for COS images using Tencent Cloud CI.
+
+    Args:
+        url: Original COS URL
+        width: Target width in pixels
+        height: Target height in pixels
+
+    Returns:
+        URL with thumbnail parameters, or original URL if not a COS URL
+    """
+    if not url or not isinstance(url, str):
+        return url
+
+    # Only process COS URLs
+    if '.cos.' not in url and '.myqcloud.com' not in url:
+        return url
+
+    # Check if it's an image file
+    if not any(url.lower().endswith(ext) for ext in ['.jpg', '.jpeg', '.png', '.webp', '.gif']):
+        return url
+
+    # Add Tencent Cloud CI thumbnail parameters
+    # imageMogr2/thumbnail/<width>x<height> - resize to fit within bounds
+    # /format/webp - convert to webp for better compression
+    return f"{url}?imageMogr2/thumbnail/{width}x{height}/format/webp"
+
+
 def upload_file(local_path: str | Path, subdir: str, filename: str) -> str:
     """Upload a local file to COS. Returns the public URL."""
     key = _make_key(subdir, filename)
