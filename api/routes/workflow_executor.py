@@ -213,6 +213,28 @@ async def _execute_workflow(workflow_id: str, req, task_manager):
     4. Video generation via Chain workflow
     """
     try:
+        # Validate configuration based on mode
+        if req.mode in ["face_reference", "full_body_reference"]:
+            # Check if first frame is from user upload
+            is_user_upload = (req.mode == "first_frame" or
+                            (hasattr(req, 'uploaded_first_frame') and req.uploaded_first_frame))
+
+            if not is_user_upload:
+                stage2_face_swap = _get_config(req, "stage2_first_frame", "face_swap", {})
+                stage3_enabled = _get_config(req, "stage3_seedream", "enabled", True)
+
+                reactor_enabled = stage2_face_swap.get("enabled", False) if isinstance(stage2_face_swap, dict) else False
+
+                if req.mode == "face_reference":
+                    # face_reference: 至少启用一个 (Reactor 或 SeeDream)
+                    if not reactor_enabled and not stage3_enabled:
+                        raise Exception("face_reference mode requires at least one of: stage2 face_swap or stage3 seedream")
+
+                elif req.mode == "full_body_reference":
+                    # full_body_reference: SeeDream 必选
+                    if not stage3_enabled:
+                        raise Exception("full_body_reference mode requires stage3 seedream to be enabled")
+
         # Stage 1: Prompt Analysis
         await _update_stage(task_manager, workflow_id, "prompt_analysis", "running")
 
@@ -288,7 +310,28 @@ async def _execute_workflow(workflow_id: str, req, task_manager):
         await task_manager.redis.hset(f"workflow:{workflow_id}", "current_stage", "seedream_edit")
 
         edited_frame_url = first_frame_url
-        if req.mode in ["face_reference", "full_body_reference"] and req.reference_image:
+
+        # 检查是否需要执行 SeeDream
+        should_run_seedream = False
+        skip_reason = ""
+
+        if req.mode == "first_frame":
+            # first_frame 模式跳过 SeeDream
+            should_run_seedream = False
+            skip_reason = "跳过（首帧模式）"
+
+        elif req.mode == "full_body_reference":
+            # full_body_reference 必须执行 SeeDream
+            should_run_seedream = True
+
+        elif req.mode == "face_reference":
+            # face_reference 可选执行 SeeDream
+            stage3_enabled = _get_config(req, "stage3_seedream", "enabled", True)
+            should_run_seedream = stage3_enabled
+            if not should_run_seedream:
+                skip_reason = "跳过（未启用）"
+
+        if should_run_seedream and req.reference_image:
             edited_frame_url = await _edit_first_frame(workflow_id, req, first_frame_url, task_manager)
             if edited_frame_url:
                 await task_manager.redis.hset(f"workflow:{workflow_id}", "edited_frame_url", edited_frame_url)
@@ -309,7 +352,7 @@ async def _execute_workflow(workflow_id: str, req, task_manager):
             else:
                 await _update_stage(task_manager, workflow_id, "seedream_edit", "completed", details="编辑失败，使用原图")
         else:
-            await _update_stage(task_manager, workflow_id, "seedream_edit", "completed", details="跳过（首帧模式）")
+            await _update_stage(task_manager, workflow_id, "seedream_edit", "completed", details=skip_reason)
 
         await _update_stage(task_manager, workflow_id, "seedream_edit", "completed")
 
@@ -649,6 +692,13 @@ async def _generate_video(workflow_id: str, req, first_frame_url: str, analysis_
         if video_model is None:
             video_model = "A14B"
 
+        # Get model_preset
+        video_model_preset = _get_config(req, "stage4_video", "model_preset", None)
+        if video_model_preset is None and req.internal_config:
+            video_model_preset = req.internal_config.get("stage4_video", {}).get("generation", {}).get("model_preset", "")
+        if video_model_preset is None:
+            video_model_preset = ""
+
         video_resolution = _get_config(req, "stage4_video", "resolution", None)
         if video_resolution is None and req.internal_config:
             video_resolution = req.internal_config.get("stage4_video", ).get("generation", {}).get("resolution", "480p_3:4")
@@ -819,6 +869,7 @@ async def _generate_video(workflow_id: str, req, first_frame_url: str, analysis_
         chain_req = AutoChainRequest(
             prompt=prompt,
             model=model,
+            model_preset=video_model_preset,
             width=width,
             height=height,
             duration=duration_seconds,
@@ -860,22 +911,7 @@ async def _generate_video(workflow_id: str, req, first_frame_url: str, analysis_
         logger.info(f"[VIDEO_PARAMS] {workflow_id} - prompt: {prompt}")
         logger.info(f"[VIDEO_PARAMS] {workflow_id} - loras: {[f'{l.name}:{l.strength}' for l in loras]}")
         logger.info(f"[VIDEO_PARAMS] {workflow_id} - first_frame_url: {first_frame_url}")
-
-        # Apply video face swap configuration
-        video_face_swap_config = _get_config(req, "stage4_video", "face_swap", {})
-        if isinstance(video_face_swap_config, dict) and video_face_swap_config.get("enabled"):
-            # Set face swap mode
-            face_swap_mode = video_face_swap_config.get("mode", "face_reference")
-            if face_swap_mode == "face_reference":
-                chain_req.image_mode = ImageMode.FACE_REFERENCE
-            elif face_swap_mode == "full_body_reference":
-                chain_req.image_mode = ImageMode.FULL_BODY_REFERENCE
-
-            # Set face swap strength
-            chain_req.face_swap_strength = video_face_swap_config.get("strength", 1.0)
-
-            logger.info(f"[VIDEO_PARAMS] {workflow_id} - face_swap enabled: mode={face_swap_mode}, strength={chain_req.face_swap_strength}")
-            logger.info(f"[VIDEO_PARAMS] {workflow_id} - image_mode updated to: {chain_req.image_mode}")
+        logger.info(f"[VIDEO_PARAMS] {workflow_id} - model_preset: {video_model_preset}")
 
         # Apply postprocess configuration
         postprocess_config = _get_config(req, "stage4_video", "postprocess", {})

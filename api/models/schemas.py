@@ -87,7 +87,7 @@ class GenerateI2VRequest(BaseModel):
     auto_lora: bool = Field(default=False, description="Auto-select LoRAs based on prompt")
     auto_prompt: bool = Field(default=False, description="Auto-optimize prompt before generation")
     scheduler: str = Field(default="unipc")
-    noise_aug_strength: float = Field(default=0.0, ge=0.0, le=1.0)
+    noise_aug_strength: float = Field(default=0.05, ge=0.0, le=1.0)
     motion_amplitude: float = Field(default=0.0, ge=0.0, le=2.0, description="Augment empty frames strength (0=disabled, 0.15=recommended for I2V, 1.15=recommended for Story)")
     color_match: bool = Field(default=True, description="Enable ColorMatch post-processing")
     color_match_method: str = Field(default="mkl", description="ColorMatch method: mkl/hm/reinhard")

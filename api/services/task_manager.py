@@ -840,35 +840,39 @@ class TaskManager:
         from api.models.schemas import FaceSwapConfig
 
         if image_mode == "face_reference" and total == 1:
-            # Single segment face_reference mode: use T2V workflow
-            logger.info("Chain %s: single segment face_reference mode, using T2V workflow", chain_id)
+            # Single segment face_reference mode: use I2V workflow (PainterI2V)
+            logger.info("Chain %s: single segment face_reference mode, using I2V workflow", chain_id)
 
-            # Prepare face_swap_config
-            face_swap_cfg = seg0.get("face_swap")
-            if face_swap_cfg and isinstance(face_swap_cfg, dict):
-                face_swap_cfg = FaceSwapConfig(**face_swap_cfg)
-
-            workflow = build_workflow(
-                mode=GenerateMode.T2V,
-                model=model,
+            workflow = build_story_workflow(
+                is_first_segment=True,
                 prompt=seg0["prompt"],
                 negative_prompt=seg0.get("negative_prompt", ""),
-                width=seg0["width"], height=seg0["height"],
-                num_frames=seg0["num_frames"], fps=seg0.get("fps", 16),
-                steps=seg0.get("steps", 20), cfg=seg0.get("cfg", 6.0), shift=seg0.get("shift", 5.0),
-                seed=seg0.get("seed"), loras=seg0.get("loras", []),
-                scheduler=seg0.get("scheduler", "unipc"),
-                model_preset=seg0.get("model_preset", ""),
+                width=seg0["width"],
+                height=seg0["height"],
+                num_frames=seg0["num_frames"],
+                seed=seg0.get("seed"),
+                shift=seg0.get("shift", 8.0),
+                cfg=seg0.get("cfg", 1.0),
+                steps=seg0.get("steps", 20),
+                motion_amplitude=seg0.get("motion_amplitude", 1.15),
+                motion_frames=seg0.get("motion_frames", 5),
+                boundary=seg0.get("boundary", 0.9),
+                image_filename=face_image_filename or image_filename,
+                model_preset=seg0.get("model_preset", "nsfw_v2"),
+                clip_preset=seg0.get("clip_preset", "nsfw"),
+                fps=seg0.get("fps", 16),
                 upscale=seg0.get("upscale", False),
-                t5_preset=seg0.get("t5_preset", ""),
-                face_swap_config=face_swap_cfg,
-                face_image_path=face_image_filename or image_filename,
+                loras=seg0.get("loras", []),
             )
+
+            # Inject post-processing if needed
+            if seg0.get("enable_upscale") or seg0.get("enable_interpolation") or seg0.get("enable_mmaudio"):
+                workflow = _inject_story_postproc(workflow, seg0)
 
             # Create task and wait for completion
             task_id = await self.create_task(
-                GenerateMode.T2V, model, workflow,
-                params={"face_reference_t2v": True},
+                GenerateMode.I2V, model, workflow,
+                params={"face_reference_i2v": True},
                 chain_id=chain_id,
             )
             task_ids = [task_id]
@@ -879,7 +883,7 @@ class TaskManager:
 
             video_path = await self._wait_for_task_completion(task_id, timeout=1800)
             if not video_path:
-                raise RuntimeError(f"T2V face_reference workflow (task {task_id}) failed")
+                raise RuntimeError(f"I2V face_reference workflow (task {task_id}) failed")
 
             task_data = await self.redis.hgetall(f"task:{task_id}")
             video_url = task_data.get("video_url", "")
@@ -1128,32 +1132,30 @@ class TaskManager:
             face_image_filename = seg.get("face_image_filename", "")
             image_mode = seg.get("image_mode", "first_frame")
 
-            # If face_reference mode, use T2V workflow
+            # If face_reference mode, use I2V workflow (PainterI2V)
             if image_mode == "face_reference":
-                logger.info("Chain %s: seg 0 face_reference mode, using T2V workflow", chain_id)
-                from api.models.enums import GenerateMode
-                from api.models.schemas import FaceSwapConfig
+                logger.info("Chain %s: seg 0 face_reference mode, using I2V workflow", chain_id)
 
-                # Prepare face_swap_config
-                face_swap_cfg = seg.get("face_swap")
-                if face_swap_cfg and isinstance(face_swap_cfg, dict):
-                    face_swap_cfg = FaceSwapConfig(**face_swap_cfg)
-
-                workflow = build_workflow(
-                    mode=GenerateMode.T2V,
-                    model=ModelType(seg["model"]),
+                workflow = build_story_workflow(
+                    is_first_segment=True,
                     prompt=seg["prompt"],
                     negative_prompt=seg.get("negative_prompt", ""),
-                    width=seg["width"], height=seg["height"],
-                    num_frames=seg["num_frames"], fps=seg["fps"],
-                    steps=seg["steps"], cfg=seg["cfg"], shift=seg["shift"],
-                    seed=seg.get("seed"), loras=seg.get("loras", []),
-                    scheduler=seg.get("scheduler", "unipc"),
-                    model_preset=seg.get("model_preset", ""),
+                    width=seg["width"],
+                    height=seg["height"],
+                    num_frames=seg["num_frames"],
+                    seed=seg.get("seed"),
+                    shift=seg.get("shift", 8.0),
+                    cfg=seg.get("cfg", 1.0),
+                    steps=seg.get("steps", 20),
+                    motion_amplitude=seg.get("motion_amplitude", 1.15),
+                    motion_frames=seg.get("motion_frames", 5),
+                    boundary=seg.get("boundary", 0.9),
+                    image_filename=face_image_filename or image_filename,
+                    model_preset=seg.get("model_preset", "nsfw_v2"),
+                    clip_preset=seg.get("clip_preset", "nsfw"),
+                    fps=seg.get("fps", 16),
                     upscale=seg.get("upscale", False),
-                    t5_preset=seg.get("t5_preset", ""),
-                    face_swap_config=face_swap_cfg,
-                    face_image_path=face_image_filename or image_filename,
+                    loras=seg.get("loras", []),
                 )
                 return workflow
 
