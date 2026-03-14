@@ -522,13 +522,24 @@ async def seedream_edit(req: SeeDreamEditRequest, _=Depends(verify_api_key)):
         if req.scene_image.startswith('data:image'):
             scene_b64 = req.scene_image.split(',')[1]
             scene_data = base64.b64decode(scene_b64)
-        elif req.scene_image.startswith('http'):
+        elif req.scene_image.startswith('http://') or req.scene_image.startswith('https://'):
             resp = http_requests.get(req.scene_image, timeout=30)
             if resp.status_code != 200:
                 raise HTTPException(400, f"Failed to fetch scene image: {resp.status_code}")
             scene_data = resp.content
+        elif '/' not in req.scene_image and '.' in req.scene_image:
+            # Local filename (e.g., "abc123.png")
+            local_path = UPLOADS_DIR / req.scene_image
+            if local_path.exists():
+                scene_data = local_path.read_bytes()
+            else:
+                raise HTTPException(400, f"Local file not found: {req.scene_image}")
         else:
-            scene_data = base64.b64decode(req.scene_image)
+            # Try base64 decode as fallback
+            try:
+                scene_data = base64.b64decode(req.scene_image)
+            except Exception as e:
+                raise HTTPException(400, f"Invalid scene_image format: {e}")
 
         # Parse size
         size = _parse_size(req.size)
@@ -558,15 +569,28 @@ async def seedream_edit(req: SeeDreamEditRequest, _=Depends(verify_api_key)):
             if req.reference_face.startswith('data:image'):
                 face_b64 = req.reference_face.split(',')[1]
                 face_data = base64.b64decode(face_b64)
-            elif req.reference_face.startswith('http'):
+            elif req.reference_face.startswith('http://') or req.reference_face.startswith('https://'):
                 resp = http_requests.get(req.reference_face, timeout=30)
                 if resp.status_code != 200:
                     logger.warning(f"Failed to fetch reference face: {resp.status_code}")
                     face_data = None
                 else:
                     face_data = resp.content
+            elif '/' not in req.reference_face and '.' in req.reference_face:
+                # Local filename (e.g., "abc123.png")
+                local_path = UPLOADS_DIR / req.reference_face
+                if local_path.exists():
+                    face_data = local_path.read_bytes()
+                else:
+                    logger.warning(f"Local file not found: {req.reference_face}")
+                    face_data = None
             else:
-                face_data = base64.b64decode(req.reference_face)
+                # Try base64 decode as fallback
+                try:
+                    face_data = base64.b64decode(req.reference_face)
+                except Exception as e:
+                    logger.warning(f"Failed to decode reference_face as base64: {e}")
+                    face_data = None
 
             if face_data:
                 # Crop face image
@@ -802,21 +826,6 @@ async def generate_advanced_workflow(req: WorkflowGenerateRequest, _=Depends(ver
         import asyncio
         from api.main import task_manager
         from api.routes.workflow_executor import _execute_workflow
-
-        # Validate required fields based on mode
-        if req.mode in ["face_reference", "full_body_reference"]:
-            if not req.reference_image:
-                raise HTTPException(
-                    400,
-                    f"reference_image is required for {req.mode} mode"
-                )
-
-        if req.mode == "first_frame":
-            if not req.uploaded_first_frame:
-                raise HTTPException(
-                    400,
-                    "uploaded_first_frame is required for first_frame mode"
-                )
 
         # Generate workflow ID
         workflow_id = f"wf_{uuid.uuid4().hex[:12]}"
