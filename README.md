@@ -212,10 +212,25 @@ wan22-service/
 
 ## 文档
 
-- [API 文档](http://localhost:8000/docs)
-- [Workflow 指南](WORKFLOW_GUIDE.md)
-- [Story 模式说明](STORY_UPDATES.md)
-- [时长计算指南](DURATION_GUIDE.md)
+### 用户指南
+- [快速开始](docs/user-guide/quickstart.md) - 一键安装和快速测试
+- [Workflow 指南](docs/user-guide/workflow-guide.md) - Workflow 基础使用
+- [高级 Workflow](docs/user-guide/advanced-workflow.md) - 高级功能和自定义
+- [Prompt 最佳实践](docs/user-guide/prompt-best-practices.md) - 提示词编写技巧
+- [时长计算指南](docs/user-guide/duration-guide.md) - 视频时长和帧数计算
+
+### Story Mode
+- [Story Mode 概述](docs/story-mode/README.md) - Story Mode 功能介绍
+- [快速开始](docs/story-mode/quickstart.md) - Story Mode 快速上手
+- [API 示例](docs/story-mode/api-examples.md) - API 调用示例
+
+### 技术文档
+- [LORA 推荐系统](docs/design/lora-recommendation/system-design.md) - 整体架构设计
+- [语义搜索系统](docs/design/search/semantic-search.md) - 语义搜索原理
+- [视频生成工作流](docs/design/video-workflow/workflow-v2.md) - 工作流设计
+
+### 完整文档索引
+查看 [docs/README.md](docs/README.md) 获取完整的文档列表和导航
 
 ## 常见问题
 
