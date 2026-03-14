@@ -44,9 +44,11 @@ Thumbs.db
 # Redis
 dump.rdb
 
-# Test files
+# Test files (exclude tests/ directory from ignore)
 test_*.py
 *_test.py
+!tests/test_*.py
+!tests/*_test.py
 
 # Workflows (keep only templates)
 workflows/__MACOSX/
