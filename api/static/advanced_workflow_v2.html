@@ -584,6 +584,9 @@ document.getElementById('imageFile').addEventListener('change', async function(e
         const result = await response.json();
         uploadedImageUrl = result.url;
         console.log('图片已上传，URL:', uploadedImageUrl);
+
+        // 保存到 localStorage
+        saveFormParams();
     } catch (error) {
         console.error('上传图片失败:', error);
         alert('上传图片失败: ' + error.message);
@@ -627,6 +630,7 @@ function saveFormParams() {
         resolution: document.getElementById('resolution').value,
         aspectRatio: document.getElementById('aspectRatio').value,
         duration: document.getElementById('duration').value,
+        uploadedImageUrl: uploadedImageUrl,  // 保存上传的图片URL
         s1_autoAnalyze: document.getElementById('s1_autoAnalyze').checked,
         s1_autoLora: document.getElementById('s1_autoLora').checked,
         s1_autoPrompt: document.getElementById('s1_autoPrompt').checked,
@@ -677,6 +681,21 @@ function loadFormParams() {
         if (params.resolution) document.getElementById('resolution').value = params.resolution;
         if (params.aspectRatio) document.getElementById('aspectRatio').value = params.aspectRatio;
         if (params.duration) document.getElementById('duration').value = params.duration;
+
+        // 恢复上传的图片URL和预览
+        if (params.uploadedImageUrl) {
+            uploadedImageUrl = params.uploadedImageUrl;
+            const preview = document.getElementById('imagePreview');
+            const placeholder = document.querySelector('#uploadArea .placeholder');
+
+            // 显示图片预览
+            preview.src = uploadedImageUrl;
+            preview.style.display = 'block';
+            if (placeholder) {
+                placeholder.style.display = 'none';
+            }
+            console.log('恢复上传的图片URL:', uploadedImageUrl);
+        }
 
         // Stage 1
         if (params.s1_autoAnalyze !== undefined) document.getElementById('s1_autoAnalyze').checked = params.s1_autoAnalyze;
