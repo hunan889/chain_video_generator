@@ -30,6 +30,7 @@ VIDEO_BASE_URL = os.getenv("VIDEO_BASE_URL", "/api/v1/results")
 
 VIDEOS_DIR = STORAGE_PATH / "videos"
 UPLOADS_DIR = STORAGE_PATH / "uploads"
+RESULTS_DIR = UPLOADS_DIR  # Alias: /api/v1/results/ serves files from UPLOADS_DIR for images
 WORKFLOWS_DIR = PROJECT_ROOT / "workflows"
 
 _ALL_COMFYUI_URLS = {

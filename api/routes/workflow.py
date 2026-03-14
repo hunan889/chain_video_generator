@@ -562,9 +562,11 @@ async def seedream_edit(req: SeeDreamEditRequest, _=Depends(verify_api_key)):
 
         face_swapped = False
         swapped_data = scene_cropped
+        face_b64 = None  # Will be set if reference face is provided
+        face_data = None
 
-        # Step 1: Face swap with Reactor (if enabled and reference face provided)
-        if req.enable_face_swap and req.reference_face:
+        # Step 1: Load reference face (if provided)
+        if req.reference_face:
             # Decode or fetch reference face
             if req.reference_face.startswith('data:image'):
                 face_b64 = req.reference_face.split(',')[1]
@@ -576,6 +578,15 @@ async def seedream_edit(req: SeeDreamEditRequest, _=Depends(verify_api_key)):
                     face_data = None
                 else:
                     face_data = resp.content
+            elif req.reference_face.startswith('/uploads/'):
+                # Path like "/uploads/filename.jpg"
+                filename = req.reference_face.split('/')[-1]
+                local_path = UPLOADS_DIR / filename
+                if local_path.exists():
+                    face_data = local_path.read_bytes()
+                else:
+                    logger.warning(f"Local file not found: {req.reference_face}")
+                    face_data = None
             elif '/' not in req.reference_face and '.' in req.reference_face:
                 # Local filename (e.g., "abc123.png")
                 local_path = UPLOADS_DIR / req.reference_face
@@ -597,41 +608,42 @@ async def seedream_edit(req: SeeDreamEditRequest, _=Depends(verify_api_key)):
                 face_cropped = _crop_and_resize(face_data, target_w, target_h)
                 face_b64 = base64.b64encode(face_cropped).decode()
 
-                # Call Reactor
-                reactor_payload = {
-                    "source_image": face_b64,
-                    "target_image": scene_b64,
-                    "source_faces_index": [0],
-                    "face_index": [0],
-                    "model": "inswapper_128.onnx",
-                    "face_restorer": "CodeFormer",
-                    "restorer_visibility": 1,
-                    "codeformer_weight": 0.7,
-                    "restore_first": 1,
-                    "upscaler": "None",
-                    "scale": 1,
-                    "upscale_visibility": 1,
-                    "device": "CUDA",
-                    "mask_face": 1,
-                    "det_thresh": 0.5,
-                    "det_maxnum": 0,
-                }
+                # Call Reactor (only if face swap is enabled)
+                if req.enable_face_swap:
+                    reactor_payload = {
+                        "source_image": face_b64,
+                        "target_image": scene_b64,
+                        "source_faces_index": [0],
+                        "face_index": [0],
+                        "model": "inswapper_128.onnx",
+                        "face_restorer": "CodeFormer",
+                        "restorer_visibility": 1,
+                        "codeformer_weight": 0.7,
+                        "restore_first": 1,
+                        "upscaler": "None",
+                        "scale": 1,
+                        "upscale_visibility": 1,
+                        "device": "CUDA",
+                        "mask_face": 1,
+                        "det_thresh": 0.5,
+                        "det_maxnum": 0,
+                    }
 
-                logger.info(f"SeeDream Edit: Reactor face swap ({target_w}x{target_h})...")
-                try:
-                    reactor_resp = http_requests.post(
-                        f"{FORGE_URL}/reactor/image", json=reactor_payload, timeout=120
-                    )
+                    logger.info(f"SeeDream Edit: Reactor face swap ({target_w}x{target_h})...")
+                    try:
+                        reactor_resp = http_requests.post(
+                            f"{FORGE_URL}/reactor/image", json=reactor_payload, timeout=120
+                        )
 
-                    if reactor_resp.status_code == 200:
-                        swapped_b64 = reactor_resp.json()["image"]
-                        swapped_data = base64.b64decode(swapped_b64)
-                        face_swapped = True
-                        logger.info("Reactor face swap completed")
-                    else:
-                        logger.warning(f"Reactor failed: {reactor_resp.status_code}, using original")
-                except Exception as e:
-                    logger.warning(f"Reactor error: {e}, using original")
+                        if reactor_resp.status_code == 200:
+                            swapped_b64 = reactor_resp.json()["image"]
+                            swapped_data = base64.b64decode(swapped_b64)
+                            face_swapped = True
+                            logger.info("Reactor face swap completed")
+                        else:
+                            logger.warning(f"Reactor failed: {reactor_resp.status_code}, using original")
+                    except Exception as e:
+                        logger.warning(f"Reactor error: {e}, using original")
 
         # Step 2: SeeDream editing with mode-specific prompts
         swapped_b64_out = base64.b64encode(swapped_data).decode()
@@ -650,17 +662,20 @@ async def seedream_edit(req: SeeDreamEditRequest, _=Depends(verify_api_key)):
                 full_prompt = SCENE_SWAP_DEFAULT_PROMPT
 
         # Prepare image list for SeeDream multiref
-        if req.reference_face and face_swapped:
+        if req.reference_face and face_b64:
+            # We have a reference face - always pass two images to SeeDream
             image_list = [
-                f"data:image/jpeg;base64,{face_b64}",
-                f"data:image/jpeg;base64,{swapped_b64_out}",
+                f"data:image/jpeg;base64,{face_b64}",        # Image 1: Reference face
+                f"data:image/jpeg;base64,{swapped_b64_out}", # Image 2: Scene (possibly face-swapped)
             ]
+            logger.info(f"SeeDream: Using 2 images (reference + scene), face_swapped={face_swapped}")
         else:
             # No face reference, just edit the scene
             image_list = [f"data:image/jpeg;base64,{swapped_b64_out}"]
+            logger.info("SeeDream: Using 1 image (scene only)")
 
         # Call SeeDream
-        model_name = SEEDREAM_MODEL
+        model_name = "seedream-5-0-lite"  # Use lite version for faster processing
         payload = {
             "model": model_name,
             "prompt": full_prompt,
@@ -673,6 +688,7 @@ async def seedream_edit(req: SeeDreamEditRequest, _=Depends(verify_api_key)):
             payload["seed"] = req.seed
 
         logger.info(f"SeeDream Edit: mode={req.mode}, prompt={full_prompt[:100]}")
+        logger.info(f"SeeDream payload: model={model_name}, size={size}, num_images={len(image_list)}, seed={req.seed}")
 
         try:
             url = _call_byteplus(payload)
