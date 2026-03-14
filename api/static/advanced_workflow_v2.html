@@ -296,6 +296,14 @@ h2{color:#7c83ff;margin-bottom:20px;font-size:1.4em}
 </select>
 </div>
 <div class="field">
+<label>模型预设</label>
+<select id="s4_modelPreset">
+<option value="standard">Standard (标准)</option>
+<option value="nsfw_v2">NSFW V2 (成人内容)</option>
+</select>
+<div class="hint">选择模型变体，NSFW V2 适用于成人内容生成</div>
+</div>
+<div class="field">
 <label>采样步数</label>
 <input type="number" id="s4_steps" value="20" min="10" max="50">
 </div>
@@ -303,12 +311,12 @@ h2{color:#7c83ff;margin-bottom:20px;font-size:1.4em}
 <label>CFG Scale</label>
 <input type="number" id="s4_cfg" value="6.0" min="1" max="20" step="0.5">
 </div>
+</div>
+<div class="row">
 <div class="field">
 <label>Shift</label>
 <input type="number" id="s4_shift" value="5.0" min="0" max="10" step="0.5">
 </div>
-</div>
-<div class="row">
 <div class="field">
 <label>调度器</label>
 <select id="s4_scheduler">
@@ -638,6 +646,7 @@ function saveFormParams() {
         s3_strength: document.getElementById('s3_strength').value,
         s3_seed: document.getElementById('s3_seed').value,
         s4_model: document.getElementById('s4_model').value,
+        s4_modelPreset: document.getElementById('s4_modelPreset').value,
         s4_steps: document.getElementById('s4_steps').value,
         s4_cfg: document.getElementById('s4_cfg').value,
         s4_shift: document.getElementById('s4_shift').value,
@@ -695,6 +704,7 @@ function loadFormParams() {
 
         // Stage 4
         if (params.s4_model) document.getElementById('s4_model').value = params.s4_model;
+        if (params.s4_modelPreset) document.getElementById('s4_modelPreset').value = params.s4_modelPreset;
         if (params.s4_steps) document.getElementById('s4_steps').value = params.s4_steps;
         if (params.s4_cfg) document.getElementById('s4_cfg').value = params.s4_cfg;
         if (params.s4_shift) document.getElementById('s4_shift').value = params.s4_shift;
@@ -934,6 +944,7 @@ function buildRequestData() {
         stage4_video: {
             generation: {
                 model: document.getElementById('s4_model').value,
+                model_preset: document.getElementById('s4_modelPreset').value,
                 steps: parseInt(document.getElementById('s4_steps').value),
                 cfg: parseFloat(document.getElementById('s4_cfg').value),
                 shift: parseFloat(document.getElementById('s4_shift').value),

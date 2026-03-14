@@ -77,6 +77,7 @@ async def test_stage1_prompt_analysis(
         class MockRequest:
             def __init__(self):
                 self.user_prompt = req.user_prompt
+                self.mode = "face_reference"  # Default mode for testing
                 self.auto_analyze = req.auto_analyze
                 self.auto_lora = req.auto_lora
                 self.auto_prompt = req.auto_prompt
