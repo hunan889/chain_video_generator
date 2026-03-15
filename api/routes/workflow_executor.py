@@ -8,6 +8,7 @@ import base64
 import json
 from typing import Optional, Any
 import aiohttp
+from api.config import UPLOADS_DIR
 
 logger = logging.getLogger(__name__)
 
@@ -147,7 +148,7 @@ async def _apply_face_swap_to_frame(
         # Decode reference face
         if reference_face.startswith('data:image'):
             face_b64 = reference_face.split(',')[1]
-        elif reference_face.startswith('http'):
+        elif reference_face.startswith('http://') or reference_face.startswith('https://'):
             async with aiohttp.ClientSession() as session:
                 async with session.get(reference_face) as resp:
                     if resp.status != 200:
@@ -155,7 +156,27 @@ async def _apply_face_swap_to_frame(
                         return None
                     face_data = await resp.read()
             face_b64 = base64.b64encode(face_data).decode()
+        elif reference_face.startswith('/uploads/'):
+            # Path like "/uploads/filename.jpg"
+            filename = reference_face.split('/')[-1]
+            local_path = UPLOADS_DIR / filename
+            if local_path.exists():
+                face_data = local_path.read_bytes()
+                face_b64 = base64.b64encode(face_data).decode()
+            else:
+                logger.error(f"Local file not found: {reference_face}")
+                return None
+        elif '/' not in reference_face and '.' in reference_face:
+            # Local filename (e.g., "abc123.png")
+            local_path = UPLOADS_DIR / reference_face
+            if local_path.exists():
+                face_data = local_path.read_bytes()
+                face_b64 = base64.b64encode(face_data).decode()
+            else:
+                logger.error(f"Local file not found: {reference_face}")
+                return None
         else:
+            # Assume it's already base64
             face_b64 = reference_face
 
         # Call Reactor API
@@ -215,6 +236,10 @@ async def _execute_workflow(workflow_id: str, req, task_manager):
     try:
         # Validate configuration based on mode
         if req.mode in ["face_reference", "full_body_reference"]:
+            # Check if reference_image is provided
+            if not req.reference_image:
+                raise Exception(f"{req.mode} mode requires reference_image parameter")
+
             # Check if first frame is from user upload
             is_user_upload = (req.mode == "first_frame" or
                             (hasattr(req, 'uploaded_first_frame') and req.uploaded_first_frame))
@@ -303,6 +328,11 @@ async def _execute_workflow(workflow_id: str, req, task_manager):
                 details_dict["face_swapped"] = True
                 details_dict["face_swap_strength"] = face_swap_config.get("strength", 1.0)
                 details_dict["url"] = first_frame_url
+        elif face_swap_config.get("enabled") and not req.reference_image:
+            # Face swap enabled but no reference image provided
+            details_dict["face_swap_skipped"] = True
+            details_dict["face_swap_skip_reason"] = "未提供参考图片 (reference_image)"
+            logger.warning(f"[{workflow_id}] Face swap enabled but no reference_image provided")
 
         await _update_stage(task_manager, workflow_id, "first_frame_acquisition", "completed", details_dict=details_dict)
 
@@ -350,7 +380,6 @@ async def _execute_workflow(workflow_id: str, req, task_manager):
                                 detected_size = "832x1216"  # fallback
                 else:
                     # 本地文件路径
-                    from api.config import UPLOADS_DIR
                     local_path = UPLOADS_DIR / first_frame_url.split('/')[-1]
                     if local_path.exists():
                         img = Image.open(local_path)
@@ -383,15 +412,28 @@ async def _execute_workflow(workflow_id: str, req, task_manager):
             }
             await _update_stage(task_manager, workflow_id, "seedream_edit", "running", details_dict=running_details)
 
-            edited_frame_url = await _edit_first_frame(workflow_id, req, first_frame_url, size, task_manager)
-            if edited_frame_url:
+            edit_result = await _edit_first_frame(workflow_id, req, first_frame_url, size, task_manager)
+            if edit_result:
+                edited_frame_url = edit_result.url
                 await task_manager.redis.hset(f"workflow:{workflow_id}", "edited_frame_url", edited_frame_url)
 
-                # 完成时添加结果 URL
+                # 完成时添加结果 URL 和调试信息
                 running_details["url"] = edited_frame_url
+                running_details["model"] = edit_result.model
+                running_details["api_status"] = edit_result.api_status
+                running_details["face_swapped"] = edit_result.face_swapped
+                if edit_result.fallback_used:
+                    running_details["fallback_used"] = edit_result.fallback_used
+                    running_details["fallback_reason"] = edit_result.fallback_reason
+                if edit_result.error:
+                    running_details["error"] = edit_result.error
                 await _update_stage(task_manager, workflow_id, "seedream_edit", "completed", details_dict=running_details)
             else:
                 running_details["error"] = "编辑失败，使用原图"
+                running_details["api_status"] = "failed"
+                running_details["fallback_used"] = True
+                running_details["fallback_reason"] = "SeeDream 调用异常"
+                edited_frame_url = first_frame_url
                 await _update_stage(task_manager, workflow_id, "seedream_edit", "completed", details_dict=running_details)
         else:
             await _update_stage(task_manager, workflow_id, "seedream_edit", "completed", details_dict={"skipped": True, "reason": skip_reason})
@@ -426,16 +468,18 @@ async def _execute_workflow(workflow_id: str, req, task_manager):
         }
         await _update_stage(task_manager, workflow_id, "video_generation", "running", details_dict=running_details)
 
-        chain_id, final_video_url = await _generate_video(workflow_id, req, edited_frame_url, analysis_result, task_manager)
+        chain_id, final_video_url, loras_info = await _generate_video(workflow_id, req, edited_frame_url, analysis_result, task_manager)
 
         if chain_id:
             await task_manager.redis.hset(f"workflow:{workflow_id}", "chain_id", chain_id)
         if final_video_url:
             await task_manager.redis.hset(f"workflow:{workflow_id}", "final_video_url", final_video_url)
 
-        # 完成时添加结果
+        # 完成时添加结果和 LoRA 信息
         running_details["chain_id"] = chain_id
         running_details["video_url"] = final_video_url
+        if loras_info:
+            running_details["loras"] = loras_info
 
         await _update_stage(task_manager, workflow_id, "video_generation", "completed", details_dict=running_details)
 
@@ -497,7 +541,6 @@ async def _acquire_first_frame(workflow_id: str, req, analysis_result: Optional[
     Returns: URL of the first frame image
     """
     try:
-        from api.config import UPLOADS_DIR
         from api.services import storage
         import uuid
 
@@ -753,12 +796,12 @@ async def _edit_first_frame(workflow_id: str, req, first_frame_url: str, size: s
         )
 
         result = await seedream_edit(edit_req, _=None)
-        return result.url
+        return result  # Return full result object with debug info
 
     except Exception as e:
         logger.error(f"SeeDream editing failed: {e}", exc_info=True)
-        # Return original frame as fallback
-        return first_frame_url
+        # Return None to indicate failure
+        return None
 
 
 async def _generate_video(workflow_id: str, req, first_frame_url: str, analysis_result: Optional[dict], task_manager) -> tuple[Optional[str], Optional[str]]:
@@ -955,7 +998,6 @@ async def _generate_video(workflow_id: str, req, first_frame_url: str, analysis_
             logger.info(f"[{workflow_id}] Read first frame from results: {local_path}")
         elif first_frame_url.startswith('/uploads/'):
             # Uploads path - extract filename and read from UPLOADS_DIR
-            from api.config import UPLOADS_DIR
             filename = first_frame_url.split('/')[-1]
             local_path = UPLOADS_DIR / filename
             if not local_path.exists():
@@ -964,7 +1006,7 @@ async def _generate_video(workflow_id: str, req, first_frame_url: str, analysis_
             logger.info(f"[{workflow_id}] Read first frame from uploads: {local_path}")
         else:
             # Plain filename - try UPLOADS_DIR first, then RESULTS_DIR
-            from api.config import UPLOADS_DIR, RESULTS_DIR
+            from api.config import RESULTS_DIR
             filename = first_frame_url.split('/')[-1]
             local_path = UPLOADS_DIR / filename
             if not local_path.exists():
@@ -979,6 +1021,47 @@ async def _generate_video(workflow_id: str, req, first_frame_url: str, analysis_
             filename="first_frame.png",
             file=BytesIO(image_data)
         )
+
+        # Prepare face_image if reference_image is provided (for face_reference mode)
+        face_image_file = None
+        if req.reference_image and image_mode == ImageMode.FACE_REFERENCE:
+            # Load reference image
+            if req.reference_image.startswith('data:image'):
+                face_b64 = req.reference_image.split(',')[1]
+                face_data = base64.b64decode(face_b64)
+            elif req.reference_image.startswith('http://') or req.reference_image.startswith('https://'):
+                async with aiohttp.ClientSession() as session:
+                    async with session.get(req.reference_image) as resp:
+                        if resp.status == 200:
+                            face_data = await resp.read()
+                        else:
+                            logger.warning(f"[{workflow_id}] Failed to download reference image: {resp.status}")
+                            face_data = None
+            elif req.reference_image.startswith('/uploads/'):
+                filename = req.reference_image.split('/')[-1]
+                local_path = UPLOADS_DIR / filename
+                if local_path.exists():
+                    face_data = local_path.read_bytes()
+                else:
+                    logger.warning(f"[{workflow_id}] Reference image not found: {req.reference_image}")
+                    face_data = None
+            elif '/' not in req.reference_image and '.' in req.reference_image:
+                local_path = UPLOADS_DIR / req.reference_image
+                if local_path.exists():
+                    face_data = local_path.read_bytes()
+                else:
+                    logger.warning(f"[{workflow_id}] Reference image not found: {req.reference_image}")
+                    face_data = None
+            else:
+                logger.warning(f"[{workflow_id}] Unsupported reference_image format: {req.reference_image}")
+                face_data = None
+
+            if face_data:
+                face_image_file = UploadFile(
+                    filename="reference_face.png",
+                    file=BytesIO(face_data)
+                )
+                logger.info(f"[{workflow_id}] Prepared face_image for face_reference mode")
 
         # Build chain request
         chain_req = AutoChainRequest(
@@ -1054,7 +1137,7 @@ async def _generate_video(workflow_id: str, req, first_frame_url: str, analysis_
         logger.info(f"[{workflow_id}] Calling generate_chain with image_mode={chain_req.image_mode}")
         result = await generate_chain(
             image=image_file,
-            face_image=None,
+            face_image=face_image_file,
             initial_reference_image=None,
             params=params_json,
             _=None
@@ -1084,8 +1167,10 @@ async def _generate_video(workflow_id: str, req, first_frame_url: str, analysis_
         if not final_video_url:
             logger.warning(f"[{workflow_id}] Chain polling timeout, status: {status}")
 
-        return chain_id, final_video_url
+        # Return chain_id, final_video_url, and loras list
+        loras_info = [{"name": l.name, "strength": l.strength} for l in loras]
+        return chain_id, final_video_url, loras_info
 
     except Exception as e:
         logger.error(f"[{workflow_id}] Video generation failed: {e}", exc_info=True)
-        return None, None
+        return None, None, []

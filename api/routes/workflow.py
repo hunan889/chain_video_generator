@@ -493,6 +493,10 @@ class SeeDreamEditResponse(BaseModel):
     size: str
     seed: Optional[int]
     error: Optional[str] = None
+    model: Optional[str] = None  # Model name used for API call
+    api_status: Optional[str] = None  # 'success' or 'failed'
+    fallback_used: Optional[bool] = None  # Whether fallback was used
+    fallback_reason: Optional[str] = None  # Reason for fallback
 
 
 @router.post("/workflow/seedream-edit", response_model=SeeDreamEditResponse)
@@ -527,6 +531,22 @@ async def seedream_edit(req: SeeDreamEditRequest, _=Depends(verify_api_key)):
             if resp.status_code != 200:
                 raise HTTPException(400, f"Failed to fetch scene image: {resp.status_code}")
             scene_data = resp.content
+        elif req.scene_image.startswith('/api/v1/results/'):
+            # API results path - extract filename and read from UPLOADS_DIR
+            filename = req.scene_image.split('/')[-1]
+            local_path = UPLOADS_DIR / filename
+            if local_path.exists():
+                scene_data = local_path.read_bytes()
+            else:
+                raise HTTPException(400, f"Result file not found: {req.scene_image}")
+        elif req.scene_image.startswith('/uploads/'):
+            # Uploads path - extract filename and read from UPLOADS_DIR
+            filename = req.scene_image.split('/')[-1]
+            local_path = UPLOADS_DIR / filename
+            if local_path.exists():
+                scene_data = local_path.read_bytes()
+            else:
+                raise HTTPException(400, f"Upload file not found: {req.scene_image}")
         elif '/' not in req.scene_image and '.' in req.scene_image:
             # Local filename (e.g., "abc123.png")
             local_path = UPLOADS_DIR / req.scene_image
@@ -699,7 +719,10 @@ async def seedream_edit(req: SeeDreamEditRequest, _=Depends(verify_api_key)):
                 edit_mode=req.mode,
                 face_swapped=face_swapped,
                 size=size,
-                seed=req.seed
+                seed=req.seed,
+                model=model_name,
+                api_status="success",
+                fallback_used=False
             )
         except HTTPException as e:
             # Fallback: return Reactor result if available
@@ -712,6 +735,10 @@ async def seedream_edit(req: SeeDreamEditRequest, _=Depends(verify_api_key)):
                     face_swapped=face_swapped,
                     size=f"{target_w}x{target_h}",
                     seed=req.seed,
+                    model=model_name,
+                    api_status="failed",
+                    fallback_used=True,
+                    fallback_reason="SeeDream API 失败，使用 Reactor 换脸结果",
                     error="SeeDream failed, using Reactor result"
                 )
             else:
@@ -724,6 +751,10 @@ async def seedream_edit(req: SeeDreamEditRequest, _=Depends(verify_api_key)):
                     face_swapped=False,
                     size=f"{target_w}x{target_h}",
                     seed=req.seed,
+                    model=model_name,
+                    api_status="failed",
+                    fallback_used=True,
+                    fallback_reason="SeeDream API 失败且无 Reactor 结果，返回原始图片",
                     error=f"SeeDream failed: {str(e)}"
                 )
 
@@ -849,6 +880,25 @@ async def generate_advanced_workflow(req: WorkflowGenerateRequest, _=Depends(ver
         from api.main import task_manager
         from api.routes.workflow_executor import _execute_workflow
 
+        # Validate SeeDream edit_mode based on workflow mode
+        if req.seedream_params:
+            edit_mode = req.seedream_params.get("edit_mode", "face_wearings")
+
+            if req.mode == "face_reference":
+                # face_reference mode: only allow face_only
+                if edit_mode != "face_only":
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"Invalid SeeDream edit_mode '{edit_mode}' for face_reference mode. Only 'face_only' is allowed."
+                    )
+            elif req.mode == "full_body_reference":
+                # full_body_reference mode: only allow face_wearings or full_body
+                if edit_mode not in ["face_wearings", "full_body"]:
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"Invalid SeeDream edit_mode '{edit_mode}' for full_body_reference mode. Only 'face_wearings' or 'full_body' are allowed."
+                    )
+
         # Generate workflow ID
         workflow_id = f"wf_{uuid.uuid4().hex[:12]}"
 
@@ -856,6 +906,7 @@ async def generate_advanced_workflow(req: WorkflowGenerateRequest, _=Depends(ver
         logger.info(f"[WORKFLOW_PARAMS] {workflow_id} - Incoming request:")
         logger.info(f"[WORKFLOW_PARAMS] {workflow_id} - mode: {req.mode}")
         logger.info(f"[WORKFLOW_PARAMS] {workflow_id} - user_prompt: {req.user_prompt}")
+        logger.info(f"[WORKFLOW_PARAMS] {workflow_id} - reference_image: {req.reference_image[:50] + '...' if req.reference_image and len(req.reference_image) > 50 else req.reference_image}")
         logger.info(f"[WORKFLOW_PARAMS] {workflow_id} - first_frame_source: {req.first_frame_source}")
         logger.info(f"[WORKFLOW_PARAMS] {workflow_id} - resolution: {req.resolution}")
         logger.info(f"[WORKFLOW_PARAMS] {workflow_id} - aspect_ratio: {req.aspect_ratio}")
@@ -909,6 +960,7 @@ async def generate_advanced_workflow(req: WorkflowGenerateRequest, _=Depends(ver
             "mode": req.mode,
             "user_prompt": req.user_prompt,
             "first_frame_source": req.first_frame_source.value if req.first_frame_source else "",
+            "reference_image": req.reference_image or "",
             "created_at": str(int(asyncio.get_event_loop().time())),
             "internal_config": json.dumps(req.internal_config) if req.internal_config else "{}"
         })

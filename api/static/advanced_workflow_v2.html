@@ -776,6 +776,7 @@ function updateModeRelatedUI() {
     const s3EnabledCheckbox = document.getElementById('s3_enabled');
     const s3EnabledHint = document.getElementById('s3_enabledHint');
     const s3Header = document.getElementById('s3_header');
+    const s3ModeSelect = document.getElementById('s3_mode');
 
     // Stage 2 face swap: 仅在非 first_frame 模式下显示
     if (mode === 'first_frame') {
@@ -790,19 +791,45 @@ function updateModeRelatedUI() {
         s3Header.style.display = 'none';
         document.getElementById('s3_content').style.display = 'none';
     } else if (mode === 'full_body_reference') {
-        // full_body_reference 模式：必选
+        // full_body_reference 模式：必选，只能选择 face_wearings 或 full_body
         s3Header.style.display = 'flex';
         s3EnabledCheckbox.checked = true;
         s3EnabledCheckbox.disabled = true;
         s3EnabledHint.textContent = 'full_body_reference 模式必须启用 SeeDream';
         s3EnabledHint.style.color = '#f87171';
+        // 限制 SeeDream 编辑模式：只允许 face_wearings 和 full_body
+        Array.from(s3ModeSelect.options).forEach(option => {
+            if (option.value === 'face_only') {
+                option.disabled = true;
+                // 如果当前选中的是 face_only，切换到 face_wearings
+                if (s3ModeSelect.value === 'face_only') {
+                    s3ModeSelect.value = 'face_wearings';
+                    updateSeeDreamPrompt();
+                }
+            } else {
+                option.disabled = false;
+            }
+        });
         updateStage3Visibility();
     } else if (mode === 'face_reference') {
-        // face_reference 模式：可选，但至少需要 Stage 2 或 Stage 3 之一
+        // face_reference 模式：可选，只能选择 face_only
         s3Header.style.display = 'flex';
         s3EnabledCheckbox.disabled = false;
         s3EnabledHint.textContent = 'face_reference 模式至少需要启用 Stage 2 换脸或 Stage 3 SeeDream 之一';
         s3EnabledHint.style.color = '#7c83ff';
+        // 限制 SeeDream 编辑模式：只允许 face_only
+        Array.from(s3ModeSelect.options).forEach(option => {
+            if (option.value === 'face_only') {
+                option.disabled = false;
+            } else {
+                option.disabled = true;
+                // 如果当前选中的不是 face_only，切换到 face_only
+                if (s3ModeSelect.value !== 'face_only') {
+                    s3ModeSelect.value = 'face_only';
+                    updateSeeDreamPrompt();
+                }
+            }
+        });
         updateStage3Visibility();
     }
 }
@@ -1128,17 +1155,26 @@ function updateProgress(status) {
                     const imgUrl = details.url || status.first_frame_url;
                     detailsHtml += `<div style="margin-bottom:8px"><span style="color:#888">首帧图片:</span><br><img src="${imgUrl}" style="max-width:200px;border-radius:8px;margin-top:8px"></div>`;
                 }
-                if (details.face_swapped !== undefined) detailsHtml += `<div style="margin-bottom:8px"><span style="color:#888">是否换脸:</span> ${details.face_swapped ? '✅ 是' : '❌ 否'}</div>`;
+                if (details.face_swapped !== undefined) {
+                    detailsHtml += `<div style="margin-bottom:8px"><span style="color:#888">是否换脸:</span> ${details.face_swapped ? '✅ 是' : '❌ 否'}</div>`;
+                }
+                if (details.face_swap_skipped) {
+                    detailsHtml += `<div style="margin-bottom:8px;color:#fbbf24"><span style="color:#888">⚠️ 换脸跳过:</span> ${details.face_swap_skip_reason || '未知原因'}</div>`;
+                }
             } else if (stageInfo.title.includes('Stage 3')) {
                 if (details.skipped) {
                     detailsHtml += `<div style="margin-bottom:8px"><span style="color:#888">状态:</span> ${details.reason || '已跳过'}</div>`;
                 } else {
                     if (details.mode) detailsHtml += `<div style="margin-bottom:8px"><span style="color:#888">编辑模式:</span> ${details.mode}</div>`;
+                    if (details.model) detailsHtml += `<div style="margin-bottom:8px"><span style="color:#888">使用模型:</span> <code style="background:#1a1a1a;padding:2px 6px;border-radius:4px">${details.model}</code></div>`;
                     if (details.size) detailsHtml += `<div style="margin-bottom:8px"><span style="color:#888">图片尺寸:</span> ${details.size}</div>`;
                     if (details.enable_reactor !== undefined) detailsHtml += `<div style="margin-bottom:8px"><span style="color:#888">启用 ReActor:</span> ${details.enable_reactor ? '✅ 是' : '❌ 否'}</div>`;
+                    if (details.face_swapped !== undefined) detailsHtml += `<div style="margin-bottom:8px"><span style="color:#888">ReActor 换脸结果:</span> ${details.face_swapped ? '✅ 成功' : '❌ 未执行/失败'}</div>`;
                     if (details.strength !== undefined) detailsHtml += `<div style="margin-bottom:8px"><span style="color:#888">强度:</span> ${details.strength}</div>`;
                     if (details.seed !== undefined && details.seed !== null) detailsHtml += `<div style="margin-bottom:8px"><span style="color:#888">种子:</span> ${details.seed}</div>`;
                     if (details.prompt) detailsHtml += `<div style="margin-bottom:8px"><span style="color:#888">Prompt:</span> ${details.prompt}</div>`;
+                    if (details.api_status) detailsHtml += `<div style="margin-bottom:8px"><span style="color:#888">API 调用:</span> <span style="color:${details.api_status === 'success' ? '#4ade80' : '#ff6b6b'}">${details.api_status === 'success' ? '✅ 成功' : '❌ 失败'}</span></div>`;
+                    if (details.fallback_used) detailsHtml += `<div style="margin-bottom:8px;color:#fbbf24"><span style="color:#888">⚠️ Fallback:</span> ${details.fallback_reason || '使用了原图作为结果'}</div>`;
                     if (details.reference_image) detailsHtml += `<div style="margin-bottom:8px"><span style="color:#888">参考图:</span><br><img src="${details.reference_image}" style="max-width:150px;border-radius:8px;margin-top:8px"></div>`;
                     if (details.first_frame_url) detailsHtml += `<div style="margin-bottom:8px"><span style="color:#888">输入图:</span><br><img src="${details.first_frame_url}" style="max-width:150px;border-radius:8px;margin-top:8px"></div>`;
                     if (details.url || status.edited_frame_url) {
@@ -1152,6 +1188,10 @@ function updateProgress(status) {
                 if (details.resolution) detailsHtml += `<div style="margin-bottom:8px"><span style="color:#888">分辨率:</span> ${details.resolution}</div>`;
                 if (details.duration) detailsHtml += `<div style="margin-bottom:8px"><span style="color:#888">时长:</span> ${details.duration}</div>`;
                 if (details.prompt) detailsHtml += `<div style="margin-bottom:8px"><span style="color:#888">Prompt:</span> ${details.prompt}</div>`;
+                if (details.loras && details.loras.length > 0) {
+                    const lorasText = details.loras.map(l => `${l.name} (${l.strength})`).join(', ');
+                    detailsHtml += `<div style="margin-bottom:8px"><span style="color:#888">LoRAs:</span> ${lorasText}</div>`;
+                }
                 if (details.face_swap_enabled !== undefined) detailsHtml += `<div style="margin-bottom:8px"><span style="color:#888">视频换脸:</span> ${details.face_swap_enabled ? '✅ 启用' : '❌ 禁用'}</div>`;
                 if (details.upscale_enabled !== undefined) detailsHtml += `<div style="margin-bottom:8px"><span style="color:#888">超分:</span> ${details.upscale_enabled ? '✅ 启用' : '❌ 禁用'}</div>`;
                 if (details.interpolation_enabled !== undefined) detailsHtml += `<div style="margin-bottom:8px"><span style="color:#888">插帧:</span> ${details.interpolation_enabled ? '✅ 启用' : '❌ 禁用'}</div>`;

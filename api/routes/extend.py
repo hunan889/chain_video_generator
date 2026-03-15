@@ -155,7 +155,6 @@ async def generate_chain(
             if client and await client.is_alive():
                 upload_result = await client.upload_image(image_data, local_name)
                 image_filename = upload_result.get("name", local_name)
-
     # Handle face reference image for face swap mode
     if face_image:
         face_data = await face_image.read()
@@ -165,7 +164,6 @@ async def generate_chain(
             if client and await client.is_alive():
                 upload_result = await client.upload_image(face_data, local_name)
                 face_image_filename = upload_result.get("name", local_name)
-
     # Handle Story Mode continuation from parent chain/video
     parent_video_comfy_filename = ""
     if req.parent_chain_id or req.parent_video_url:
@@ -290,7 +288,10 @@ async def generate_chain(
                 if req.image_mode == "first_frame" and image_filename:
                     seg["image_filename"] = image_filename
                 elif req.image_mode == "face_reference":
-                    # Use face_image if provided, otherwise use image as face reference
+                    # Set first frame (edited image from SeeDream)
+                    if image_filename:
+                        seg["image_filename"] = image_filename
+                    # Set face reference (user uploaded image)
                     ref = face_image_filename or image_filename
                     if ref:
                         seg["face_image_filename"] = ref
@@ -299,10 +300,13 @@ async def generate_chain(
                             "enabled": True,
                             "strength": req.face_swap_strength,
                         }
-                    logger.info("Chain seg0 face_reference: face_image=%s image=%s -> face_image_filename=%s",
-                                face_image_filename, image_filename, ref)
+                    logger.info("Chain seg0 face_reference: image=%s face_image=%s -> image_filename=%s face_image_filename=%s",
+                                image_filename, face_image_filename, image_filename, ref)
                 elif req.image_mode == "full_body_reference":
-                    # Use face_image if provided, otherwise use image as full body reference
+                    # Set first frame (edited image from SeeDream)
+                    if image_filename:
+                        seg["image_filename"] = image_filename
+                    # Set face reference (user uploaded image)
                     ref = face_image_filename or image_filename
                     if ref:
                         seg["face_image_filename"] = ref
@@ -311,8 +315,8 @@ async def generate_chain(
                             "enabled": True,
                             "strength": req.face_swap_strength,
                         }
-                    logger.info("Chain seg0 full_body_reference: face_image=%s image=%s -> face_image_filename=%s",
-                                face_image_filename, image_filename, ref)
+                    logger.info("Chain seg0 full_body_reference: image=%s face_image=%s -> image_filename=%s face_image_filename=%s",
+                                image_filename, face_image_filename, image_filename, ref)
             # Add parent video filename for Story Mode continuation (multi-frame reference)
             if i == 0 and parent_video_comfy_filename:
                 seg["parent_video_filename"] = parent_video_comfy_filename
@@ -415,17 +419,35 @@ async def generate_chain(
             if req.image_mode == "first_frame" and image_filename:
                 seg["image_filename"] = image_filename
             elif req.image_mode == "face_reference":
+                # Set first frame (edited image from SeeDream)
+                if image_filename:
+                    seg["image_filename"] = image_filename
+                # Set face reference (user uploaded image)
                 ref = face_image_filename or image_filename
                 if ref:
                     seg["face_image_filename"] = ref
-                logger.info("Single-seg face_reference: face_image=%s image=%s -> face_image_filename=%s",
-                            face_image_filename, image_filename, ref)
+                    # Add face_swap config for T2V workflow
+                    seg["face_swap"] = {
+                        "enabled": True,
+                        "strength": req.face_swap_strength,
+                    }
+                logger.info("Single-seg face_reference: image=%s face_image=%s -> image_filename=%s face_image_filename=%s",
+                            image_filename, face_image_filename, image_filename, ref)
             elif req.image_mode == "full_body_reference":
+                # Set first frame (edited image from SeeDream)
+                if image_filename:
+                    seg["image_filename"] = image_filename
+                # Set face reference (user uploaded image)
                 ref = face_image_filename or image_filename
                 if ref:
                     seg["face_image_filename"] = ref
-                logger.info("Single-seg full_body_reference: face_image=%s image=%s -> face_image_filename=%s",
-                            face_image_filename, image_filename, ref)
+                    # Add face_swap config for full body mode
+                    seg["face_swap"] = {
+                        "enabled": True,
+                        "strength": req.face_swap_strength,
+                    }
+                logger.info("Single-seg full_body_reference: image=%s face_image=%s -> image_filename=%s face_image_filename=%s",
+                            image_filename, face_image_filename, image_filename, ref)
         if i == 0 and parent_video_comfy_filename:
             seg["parent_video_filename"] = parent_video_comfy_filename
         segments.append(seg)
