@@ -781,6 +781,7 @@ class WorkflowGenerateRequest(BaseModel):
         ..., description="Workflow mode"
     )
     user_prompt: str = Field(..., min_length=1, max_length=2000, description="User prompt")
+    pose_keys: Optional[list[str]] = Field(None, description="Selected pose keys for recommendation")
     reference_image: Optional[str] = Field(None, description="Reference image (base64 or URL)")
 
     # Video generation parameters (top-level, from v2 frontend)

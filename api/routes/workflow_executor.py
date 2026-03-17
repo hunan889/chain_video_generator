@@ -556,8 +556,31 @@ async def _update_stage(task_manager, workflow_id: str, stage_name: str, status:
 
 
 async def _analyze_prompt(req, task_manager) -> Optional[dict]:
-    """Call /workflow/analyze endpoint internally"""
+    """Call /workflow/analyze or /recommend/workflow endpoint internally"""
     try:
+        # If pose_keys provided, use pose-based recommendation
+        if req.pose_keys:
+            from api.routes.workflow_recommend import recommend_workflow, WorkflowRecommendRequest
+
+            recommend_req = WorkflowRecommendRequest(
+                prompt=req.user_prompt,
+                pose_keys=req.pose_keys
+            )
+
+            result = await recommend_workflow(recommend_req, _=None)
+
+            # Convert to analysis_result format
+            return {
+                "optimized_prompt": result.optimized_prompt,
+                "optimized_i2v_prompt": result.video_prompt,
+                "optimized_t2i_prompt": result.image_prompt,
+                "reference_image": result.reference_image,
+                "image_loras": [{"lora_id": l.lora_id, "name": l.lora_name, "weight": l.weight} for l in result.image_loras],
+                "video_loras": [{"lora_id": l.lora_id, "name": l.lora_name, "weight": l.weight} for l in result.video_loras],
+                "images": [{"url": result.reference_image}] if result.reference_image else []
+            }
+
+        # Otherwise, use vector-based search
         from api.routes.workflow import analyze_workflow, WorkflowAnalyzeRequest
 
         analyze_req = WorkflowAnalyzeRequest(
