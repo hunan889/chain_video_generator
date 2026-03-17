@@ -5,10 +5,15 @@ from fastapi import APIRouter, HTTPException, Depends, Query
 from typing import List, Optional
 from pydantic import BaseModel
 import pymysql
+import sqlite3
+from pathlib import Path
 from api.middleware.auth import verify_api_key
 from api.services.content_suggester import get_content_suggester
 
 router = APIRouter(prefix="/api/v1", tags=["resources"])
+
+PROJECT_ROOT = Path(__file__).parent.parent.parent
+POSE_DB_PATH = PROJECT_ROOT / "data" / "wan22.db"
 
 # 数据库配置
 DB_CONFIG = {
@@ -974,4 +979,125 @@ async def update_resource_metadata(
         conn.close()
         raise HTTPException(500, f"更新失败: {str(e)}")
 
+
+# ========== Pose Association API ==========
+
+class PoseKeysRequest(BaseModel):
+    """姿势关联请求"""
+    pose_keys: List[str]
+
+
+@router.get("/resources/{resource_id}/poses")
+async def get_resource_poses(
+    resource_id: int,
+    _: str = Depends(verify_api_key)
+):
+    """获取资源关联的姿势列表"""
+    mysql_conn = get_db()
+    mysql_cursor = mysql_conn.cursor(pymysql.cursors.DictCursor)
+
+    try:
+        # 获取资源URL
+        mysql_cursor.execute("SELECT url FROM resources WHERE id = %s", (resource_id,))
+        resource = mysql_cursor.fetchone()
+
+        if not resource:
+            raise HTTPException(404, "资源不存在")
+
+        # 从SQLite查询关联
+        sqlite_conn = sqlite3.connect(str(POSE_DB_PATH))
+        sqlite_conn.row_factory = sqlite3.Row
+        sqlite_cursor = sqlite_conn.cursor()
+
+        sqlite_cursor.execute("""
+            SELECT p.id, p.pose_key, p.name_cn as pose_name, p.name_en
+            FROM pose_reference_images pri
+            JOIN poses p ON pri.pose_id = p.id
+            WHERE pri.image_url = ?
+        """, (resource['url'],))
+
+        associations = [dict(row) for row in sqlite_cursor.fetchall()]
+
+        sqlite_cursor.close()
+        sqlite_conn.close()
+
+        return {"associations": associations}
+
+    finally:
+        mysql_cursor.close()
+        mysql_conn.close()
+
+
+@router.put("/resources/{resource_id}/poses")
+async def update_resource_poses(
+    resource_id: int,
+    request: PoseKeysRequest,
+    _: str = Depends(verify_api_key)
+):
+    """更新资源关联的姿势（替换所有关联）"""
+    mysql_conn = get_db()
+    mysql_cursor = mysql_conn.cursor(pymysql.cursors.DictCursor)
+
+    try:
+        # 获取资源URL
+        mysql_cursor.execute("SELECT url FROM resources WHERE id = %s", (resource_id,))
+        resource = mysql_cursor.fetchone()
+
+        if not resource:
+            raise HTTPException(404, "资源不存在")
+
+        image_url = resource['url']
+
+        # 操作SQLite
+        sqlite_conn = sqlite3.connect(str(POSE_DB_PATH))
+        sqlite_cursor = sqlite_conn.cursor()
+
+        # 删除现有关联
+        sqlite_cursor.execute("DELETE FROM pose_reference_images WHERE image_url = ?", (image_url,))
+
+        # 添加新关联
+        for pose_key in request.pose_keys:
+            # 获取pose_id
+            sqlite_cursor.execute("SELECT id FROM poses WHERE pose_key = ?", (pose_key,))
+            pose_row = sqlite_cursor.fetchone()
+
+            if pose_row:
+                pose_id = pose_row[0]
+                sqlite_cursor.execute("""
+                    INSERT INTO pose_reference_images (pose_id, image_url, angle, style, is_default)
+                    VALUES (?, ?, NULL, NULL, 0)
+                """, (pose_id, image_url))
+
+        sqlite_conn.commit()
+        sqlite_cursor.close()
+        sqlite_conn.close()
+
+        return {"success": True, "resource_id": resource_id, "pose_count": len(request.pose_keys)}
+
+    finally:
+        mysql_cursor.close()
+        mysql_conn.close()
+
+
+@router.get("/resources/{resource_id}")
+async def get_resource(
+    resource_id: int,
+    _: str = Depends(verify_api_key)
+):
+    """获取单个资源详情"""
+    conn = get_db()
+    cursor = conn.cursor(pymysql.cursors.DictCursor)
+
+    try:
+        cursor.execute("SELECT * FROM resources WHERE id = %s", (resource_id,))
+        resource = cursor.fetchone()
+
+        if not resource:
+            raise HTTPException(404, "资源不存在")
+
+        return resource
+
+    finally:
+        cursor.close()
+        conn.close()
 
