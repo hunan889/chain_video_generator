@@ -3,6 +3,100 @@
 ## Project
 Wan2.2 Video Generation Service — FastAPI wrapper around ComfyUI for Wan2.2 T2V/I2V video generation.
 
+## Development Workflow
+
+**CRITICAL: This project uses a local-dev + remote-staging workflow. ALL development work MUST follow this pattern.**
+
+### Environment Roles
+
+**Local Machine (Development)**
+- **Purpose**: Code development, git operations, file editing
+- **Location**: `/Users/carlosliu/PycharmProjects/chain_video_generator`
+- **Activities**:
+  - Write and modify code
+  - Commit changes to git
+  - Push to remote repository
+  - Local testing (if applicable)
+
+**Remote Server (Testing/Staging)**
+- **Purpose**: Deployment, verification, debugging, runtime testing
+- **Host**: `root@148.153.121.44`
+- **Password**: `docare@gogogo123`
+- **Location**: `/home/gime/soft/wan22-service`
+- **Activities**:
+  - Pull latest code from git
+  - Deploy and restart services
+  - Run tests and verify functionality
+  - Check logs and debug issues
+  - Monitor system resources and performance
+  - Gather runtime evidence and metrics
+
+### Standard Workflow
+
+1. **Development Phase (Local)**
+   - Write/modify code locally
+   - Test locally if possible
+   - Commit changes with clear messages
+   - Push to git repository
+
+2. **Deployment Phase (Remote)**
+   - SSH to remote server: `ssh root@148.153.121.44`
+   - Navigate to project: `cd /home/gime/soft/wan22-service`
+   - Pull latest changes: `git pull`
+   - Restart services: `bash scripts/stop_all.sh && bash scripts/start_all.sh`
+   - Verify deployment
+
+3. **Verification Phase (Remote)**
+   - Check service status: `ps aux | grep -E 'uvicorn|comfyui|redis'`
+   - Check logs: `tail -f api.log` or `tail -f logs/*.log`
+   - Test API endpoints
+   - Monitor system resources
+   - Gather evidence of success/failure
+
+4. **Debug Phase (Remote if issues found)**
+   - Analyze logs on remote server
+   - Check configuration files
+   - Verify data and state
+   - Reproduce issues
+   - Gather evidence for root cause analysis
+
+5. **Fix Phase (Local)**
+   - Return to local machine
+   - Implement fixes based on remote evidence
+   - Repeat cycle from step 1
+
+### Remote Access Commands
+
+```bash
+# Connect to remote server
+ssh root@148.153.121.44
+# Password: docare@gogogo123
+
+# Quick status check
+cd /home/gime/soft/wan22-service
+git status
+git log --oneline -5
+ps aux | grep -E 'uvicorn|comfyui|redis' | grep -v grep
+
+# Service management
+bash scripts/stop_all.sh
+bash scripts/start_all.sh
+screen -ls
+
+# Log monitoring
+tail -f api.log
+tail -f logs/*.log
+```
+
+### Important Rules
+
+- **NEVER** write code directly on the remote server
+- **ALWAYS** develop locally, then deploy to remote
+- **ALWAYS** verify changes on remote after deployment
+- **ALWAYS** gather evidence from remote before proposing fixes
+- **NEVER** assume local behavior matches remote behavior
+- **ALWAYS** check remote logs and metrics for debugging
+
 ## Architecture
 - `api/` — FastAPI app (config, routes, services, models, middleware, static UI)
 - `api/config.py` — All paths resolved relative to PROJECT_ROOT via `_resolve_path()`
