@@ -77,10 +77,17 @@ def _get_config(req, stage: str, key: str, default: Any = None) -> Any:
 
     elif stage == "stage4_video":
         # Check nested generation config first
-        if key in ["model", "resolution", "duration", "steps", "cfg", "shift", "scheduler", "noise_aug_strength", "motion_amplitude"]:
+        if key in ["model", "resolution", "duration", "steps", "cfg", "shift", "scheduler", "noise_aug_strength", "motion_amplitude", "model_preset"]:
             # These are under stage4_video.generation in internal_config
-            pass  # Will be handled by internal_config check above
-        elif req.video_params and key in req.video_params:
+            if req.internal_config and "stage4_video" in req.internal_config:
+                generation_config = req.internal_config["stage4_video"].get("generation", {})
+                if key in generation_config:
+                    result = generation_config[key]
+                    source = "internal_config.generation"
+                    logger.debug(f"[CONFIG] {stage}.generation.{key} = {result} (from {source})")
+                    return result
+        # Fallback to legacy video_params
+        if req.video_params and key in req.video_params:
             result = req.video_params[key]
             source = "legacy"
 
@@ -121,7 +128,7 @@ async def _apply_face_swap_to_frame(
     Apply face swap to a single frame using Reactor.
 
     Args:
-        frame_url: URL of the frame image
+        frame_url: URL of the frame image (can be relative path like /api/v1/results/...)
         reference_face: Reference face image (base64 or URL)
         strength: Face swap strength (0.0-1.0)
         task_manager: TaskManager instance
@@ -131,9 +138,14 @@ async def _apply_face_swap_to_frame(
     """
     try:
         import requests as http_requests
-        from api.config import FORGE_URL
+        from api.config import FORGE_URL, API_HOST, API_PORT
         from api.services import storage
         import uuid
+
+        # Normalize frame_url to full URL if it's a relative path
+        if frame_url.startswith('/api/v1/'):
+            frame_url = f"http://{API_HOST}:{API_PORT}{frame_url}"
+            logger.info(f"Normalized relative frame URL to: {frame_url}")
 
         # Download frame image
         async with aiohttp.ClientSession() as session:
@@ -205,8 +217,16 @@ async def _apply_face_swap_to_frame(
         )
 
         if reactor_resp.status_code == 200:
-            swapped_b64 = reactor_resp.json()["image"]
+            resp_json = reactor_resp.json()
+            swapped_b64 = resp_json["image"]
             swapped_data = base64.b64decode(swapped_b64)
+
+            # Log Reactor response info for debugging
+            info_keys = [k for k in resp_json.keys() if k != "image"]
+            if info_keys:
+                logger.info(f"Reactor response info: {info_keys}")
+                for key in info_keys:
+                    logger.info(f"  {key}: {resp_json[key]}")
 
             # Save result
             filename = f"face_swap_{uuid.uuid4().hex[:8]}.png"
@@ -215,7 +235,7 @@ async def _apply_face_swap_to_frame(
             logger.info(f"Face swap completed: {url}")
             return url
         else:
-            logger.error(f"Reactor failed: {reactor_resp.status_code}")
+            logger.error(f"Reactor failed: {reactor_resp.status_code}, response: {reactor_resp.text[:200]}")
             return None
 
     except Exception as e:
@@ -314,8 +334,10 @@ async def _execute_workflow(workflow_id: str, req, task_manager):
 
         # Stage 2.1: 首帧换脸（可选）
         face_swap_config = _get_config(req, "stage2_first_frame", "face_swap", {})
+        logger.info(f"[{workflow_id}] Face swap check: config={face_swap_config}, enabled={face_swap_config.get('enabled')}, reference_image={req.reference_image}")
+
         if face_swap_config.get("enabled") and req.reference_image:
-            logger.info("Applying face swap to first frame")
+            logger.info(f"[{workflow_id}] Applying face swap to first frame: {first_frame_url}")
             swapped_url = await _apply_face_swap_to_frame(
                 first_frame_url,
                 req.reference_image,
@@ -323,16 +345,21 @@ async def _execute_workflow(workflow_id: str, req, task_manager):
                 task_manager=task_manager
             )
             if swapped_url:
+                logger.info(f"[{workflow_id}] Face swap succeeded: {swapped_url}")
                 first_frame_url = swapped_url
                 await task_manager.redis.hset(f"workflow:{workflow_id}", "first_frame_url", first_frame_url)
                 details_dict["face_swapped"] = True
                 details_dict["face_swap_strength"] = face_swap_config.get("strength", 1.0)
                 details_dict["url"] = first_frame_url
+            else:
+                logger.warning(f"[{workflow_id}] Face swap returned None (failed)")
         elif face_swap_config.get("enabled") and not req.reference_image:
             # Face swap enabled but no reference image provided
             details_dict["face_swap_skipped"] = True
             details_dict["face_swap_skip_reason"] = "未提供参考图片 (reference_image)"
             logger.warning(f"[{workflow_id}] Face swap enabled but no reference_image provided")
+        else:
+            logger.info(f"[{workflow_id}] Face swap not enabled or conditions not met")
 
         await _update_stage(task_manager, workflow_id, "first_frame_acquisition", "completed", details_dict=details_dict)
 
@@ -363,31 +390,45 @@ async def _execute_workflow(workflow_id: str, req, task_manager):
                 skip_reason = "跳过（未启用）"
 
         if should_run_seedream and req.reference_image:
-            # 获取首帧图片的实际尺寸
+            # SeeDream 固定使用 1080p 分辨率以保证编辑质量
+            # 根据宽高比计算实际尺寸
             try:
-                from PIL import Image
-                import io
-
-                # 下载首帧图片获取尺寸
-                if first_frame_url.startswith('http'):
-                    async with aiohttp.ClientSession() as session:
-                        async with session.get(first_frame_url) as resp:
-                            if resp.status == 200:
-                                image_data = await resp.read()
-                                img = Image.open(io.BytesIO(image_data))
-                                detected_size = f"{img.width}x{img.height}"
-                            else:
-                                detected_size = "832x1216"  # fallback
+                # 解析宽高比
+                if req.aspect_ratio:
+                    ar_parts = req.aspect_ratio.split(':')
+                    ar_width = int(ar_parts[0])
+                    ar_height = int(ar_parts[1])
                 else:
-                    # 本地文件路径
-                    local_path = UPLOADS_DIR / first_frame_url.split('/')[-1]
-                    if local_path.exists():
-                        img = Image.open(local_path)
-                        detected_size = f"{img.width}x{img.height}"
+                    # Derive aspect ratio from resolution config
+                    video_resolution = _get_config(req, "stage4_video", "generation", {}).get("resolution", "720p_3_4")
+                    if "16_9" in video_resolution or "16:9" in video_resolution:
+                        ar_width, ar_height = 16, 9
+                    elif "3_4" in video_resolution or "3:4" in video_resolution:
+                        ar_width, ar_height = 3, 4
                     else:
-                        detected_size = "832x1216"  # fallback
+                        ar_width, ar_height = 3, 4
+                    logger.info(f"[{workflow_id}] SeeDream: aspect_ratio not provided, derived {ar_width}:{ar_height} from resolution {video_resolution}")
+
+                # 基于 1080p 计算尺寸
+                base_width = 1920
+                base_height = 1080
+
+                if ar_width / ar_height > base_width / base_height:
+                    width = base_width
+                    height = round(base_width * ar_height / ar_width)
+                else:
+                    height = base_height
+                    width = round(base_height * ar_width / ar_height)
+
+                # 确保是 8 的倍数
+                width = round(width / 8) * 8
+                height = round(height / 8) * 8
+
+                detected_size = f"{width}x{height}"
+                aspect_ratio_str = req.aspect_ratio if req.aspect_ratio else f"{ar_width}:{ar_height}"
+                logger.info(f"[{workflow_id}] SeeDream will use 1080p resolution: {detected_size} (aspect ratio: {aspect_ratio_str})")
             except Exception as e:
-                logger.warning(f"Failed to detect image size: {e}, using default")
+                logger.warning(f"Failed to calculate SeeDream size: {e}, using default")
                 detected_size = "832x1216"
 
             # 保存 SeeDream 参数（在开始时就显示）
@@ -581,6 +622,11 @@ async def _acquire_first_frame(workflow_id: str, req, analysis_result: Optional[
                 # Already uploaded, return as-is (relative URL path)
                 logger.info(f"[{workflow_id}] Using already uploaded image: {req.uploaded_first_frame}")
                 return req.uploaded_first_frame
+            elif req.uploaded_first_frame.startswith('/uploads/'):
+                # Short uploads path - convert to /api/v1/uploads/
+                converted_path = '/api/v1' + req.uploaded_first_frame
+                logger.info(f"[{workflow_id}] Converting {req.uploaded_first_frame} to {converted_path}")
+                return converted_path
             elif '/' not in req.uploaded_first_frame and '.' in req.uploaded_first_frame:
                 # Local filename (e.g., "abc123.png") - assume it's in uploads directory
                 logger.info(f"[{workflow_id}] Using local filename: {req.uploaded_first_frame}")
@@ -625,27 +671,38 @@ async def _acquire_first_frame(workflow_id: str, req, analysis_result: Optional[
                 logger.info(f"[{workflow_id}] Recommend API returned {len(recommended_images)} images")
 
             if not recommended_images:
-                raise Exception("No recommended images found for select_existing mode")
+                logger.warning(f"[{workflow_id}] No recommended images found for select_existing mode, falling back to T2I generation")
+                # Fallback to T2I generation
+                return await _generate_t2i_image(req, analysis_result, task_manager)
 
             # Select the first (highest similarity) result
             selected_image = recommended_images[0]
             selected_url = selected_image.get("url")
             logger.info(f"[{workflow_id}] Auto-selected resource: {selected_url} (similarity: {selected_image.get('similarity', 0.0):.3f})")
 
-            # Calculate target dimensions from resolution and aspect_ratio
-            resolution_map = {
-                '480p': {'width': 854, 'height': 480},
-                '720p': {'width': 1280, 'height': 720},
-                '1080p': {'width': 1920, 'height': 1080}
-            }
-            base_res = resolution_map.get(req.resolution, resolution_map['720p'])
+            # IMPORTANT: Use high resolution (1080p) for first frame extraction
+            # The frame will be used for face swap and SeeDream editing, which need high quality
+            # Video generation will resize to user's target resolution later
+            base_res = {'width': 1920, 'height': 1080}  # Always use 1080p for image processing
 
-            # Parse aspect ratio
-            ar_parts = req.aspect_ratio.split(':')
-            ar_width = int(ar_parts[0])
-            ar_height = int(ar_parts[1])
+            # Parse aspect ratio - handle missing aspect_ratio by deriving from resolution
+            if req.aspect_ratio:
+                ar_parts = req.aspect_ratio.split(':')
+                ar_width = int(ar_parts[0])
+                ar_height = int(ar_parts[1])
+            else:
+                # Derive aspect ratio from resolution config
+                video_resolution = _get_config(req, "stage4_video", "generation", {}).get("resolution", "720p_3_4")
+                if "16_9" in video_resolution or "16:9" in video_resolution:
+                    ar_width, ar_height = 16, 9
+                elif "3_4" in video_resolution or "3:4" in video_resolution:
+                    ar_width, ar_height = 3, 4
+                else:
+                    # Default to 3:4 for portrait videos
+                    ar_width, ar_height = 3, 4
+                logger.info(f"[{workflow_id}] aspect_ratio not provided, derived {ar_width}:{ar_height} from resolution {video_resolution}")
 
-            # Calculate actual dimensions based on aspect ratio
+            # Calculate actual dimensions based on aspect ratio (maintaining 1080p quality)
             if ar_width / ar_height > base_res['width'] / base_res['height']:
                 width = base_res['width']
                 height = round(base_res['width'] * ar_height / ar_width)
@@ -656,6 +713,8 @@ async def _acquire_first_frame(workflow_id: str, req, analysis_result: Optional[
             # Ensure dimensions are multiples of 8
             width = round(width / 8) * 8
             height = round(height / 8) * 8
+
+            logger.info(f"[{workflow_id}] Extracting frame at high resolution: {width}x{height} (aspect ratio {req.aspect_ratio})")
 
             # Convert video to first frame if needed
             selected_url = await convert_video_url_to_frame(selected_url, width, height)
@@ -712,12 +771,49 @@ async def _generate_t2i_image(req, analysis_result: Optional[dict], task_manager
         if not t2i_config and req.t2i_params:
             t2i_config = req.t2i_params
 
-        width = t2i_config.get("width", 832)
-        height = t2i_config.get("height", 1216)
+        # IMPORTANT: Use high resolution (1080p) for T2I generation
+        # Calculate dimensions based on aspect ratio, maintaining 1080p quality
+        if req.aspect_ratio:
+            ar_parts = req.aspect_ratio.split(':')
+            ar_width = int(ar_parts[0])
+            ar_height = int(ar_parts[1])
+        else:
+            # Derive aspect ratio from resolution config
+            video_resolution = _get_config(req, "stage4_video", "generation", {}).get("resolution", "720p_3_4")
+            if "16_9" in video_resolution or "16:9" in video_resolution:
+                ar_width, ar_height = 16, 9
+            elif "3_4" in video_resolution or "3:4" in video_resolution:
+                ar_width, ar_height = 3, 4
+            else:
+                ar_width, ar_height = 3, 4
+            logger.info(f"T2I: aspect_ratio not provided, derived {ar_width}:{ar_height} from resolution {video_resolution}")
+
+        if req.aspect_ratio or True:  # Always calculate dimensions
+            # 基于 1080p 计算尺寸
+            base_width = 1920
+            base_height = 1080
+
+            if ar_width / ar_height > base_width / base_height:
+                width = base_width
+                height = round(base_width * ar_height / ar_width)
+            else:
+                height = base_height
+                width = round(base_height * ar_width / ar_height)
+
+            # 确保是 8 的倍数
+            width = round(width / 8) * 8
+            height = round(height / 8) * 8
+        else:
+            # 如果没有宽高比，使用配置的尺寸或默认值
+            width = t2i_config.get("width", 832)
+            height = t2i_config.get("height", 1216)
+
         steps = t2i_config.get("steps", 20)
         cfg_scale = t2i_config.get("cfg_scale", 7.0)
         sampler = t2i_config.get("sampler", "DPM++ 2M Karras")
         seed = t2i_config.get("seed", -1)
+
+        logger.info(f"T2I generation at high resolution: {width}x{height}")
 
         # Call SD WebUI txt2img API
         payload = {
@@ -837,7 +933,7 @@ async def _generate_video(workflow_id: str, req, first_frame_url: str, analysis_
 
         video_resolution = _get_config(req, "stage4_video", "resolution", None)
         if video_resolution is None and req.internal_config:
-            video_resolution = req.internal_config.get("stage4_video", ).get("generation", {}).get("resolution", "480p_3:4")
+            video_resolution = req.internal_config.get("stage4_video", {}).get("generation", {}).get("resolution", "480p_3:4")
         if video_resolution is None:
             video_resolution = "480p_3:4"
 
@@ -892,7 +988,7 @@ async def _generate_video(workflow_id: str, req, first_frame_url: str, analysis_
 
         clip_preset = _get_config(req, "stage4_video", "clip_preset", None)
         if clip_preset is None and req.internal_config:
-            clip_preset = req.internal_config.get("stage4_video", ).get("generation", {}).get("clip_preset", "nsfw")
+            clip_preset = req.internal_config.get("stage4_video", {}).get("generation", {}).get("clip_preset", "nsfw")
         if clip_preset is None:
             clip_preset = "nsfw"
 
@@ -909,12 +1005,14 @@ async def _generate_video(workflow_id: str, req, first_frame_url: str, analysis_
         cfg = video_cfg
 
         # Parse resolution (must be multiples of 16 for VAE)
-        if resolution == "720p_3:4":
+        if resolution == "720p_3:4" or resolution == "720p_3_4":
             width, height = 608, 832
-        elif resolution == "720p_16:9":
+        elif resolution == "720p_16:9" or resolution == "720p_16_9":
             width, height = 1280, 720
-        elif resolution == "1080p_16:9":
+        elif resolution == "1080p_16:9" or resolution == "1080p_16_9":
             width, height = 1920, 1080
+        elif resolution == "1080p_3:4" or resolution == "1080p_3_4":
+            width, height = 832, 1088  # 3:4 ratio at 1080p height
         elif resolution == "480p_3:4" or resolution == "480p_3_4":
             width, height = 352, 480  # 352 is closest 16-multiple to 360 (3:4 ratio ≈ 0.73)
         elif resolution == "480p_16:9" or resolution == "480p_16_9":
@@ -996,6 +1094,14 @@ async def _generate_video(workflow_id: str, req, first_frame_url: str, analysis_
                 raise Exception(f"First frame file not found in results: {first_frame_url}")
             image_data = local_path.read_bytes()
             logger.info(f"[{workflow_id}] Read first frame from results: {local_path}")
+        elif first_frame_url.startswith('/api/v1/uploads/'):
+            # API uploads path - extract filename and read from UPLOADS_DIR
+            filename = first_frame_url.split('/')[-1]
+            local_path = UPLOADS_DIR / filename
+            if not local_path.exists():
+                raise Exception(f"First frame file not found in uploads: {first_frame_url}")
+            image_data = local_path.read_bytes()
+            logger.info(f"[{workflow_id}] Read first frame from API uploads: {local_path}")
         elif first_frame_url.startswith('/uploads/'):
             # Uploads path - extract filename and read from UPLOADS_DIR
             filename = first_frame_url.split('/')[-1]

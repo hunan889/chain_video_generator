@@ -1,0 +1,392 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>姿势图片预览 - Pose Image Preview</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+            color: #e0e0e0; padding: 20px; min-height: 100vh;
+        }
+        .container { max-width: 1600px; margin: 0 auto; }
+        header { text-align: center; margin-bottom: 30px; padding: 20px; background: rgba(255,255,255,0.05); border-radius: 15px; }
+        h1 { font-size: 2em; margin-bottom: 8px; background: linear-gradient(135deg, #667eea, #764ba2); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text; }
+        .stats { display: flex; justify-content: center; gap: 20px; margin: 15px 0; flex-wrap: wrap; }
+        .stat-card { background: rgba(102,126,234,0.1); padding: 10px 25px; border-radius: 10px; border: 1px solid rgba(102,126,234,0.3); }
+        .stat-label { font-size: 0.85em; color: #a0a0a0; }
+        .stat-value { font-size: 1.6em; font-weight: bold; color: #667eea; }
+        .controls { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; padding: 15px; background: rgba(255,255,255,0.05); border-radius: 10px; flex-wrap: wrap; gap: 10px; }
+        .filter-group { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+        select, input { padding: 8px 12px; border: 1px solid rgba(255,255,255,0.2); border-radius: 8px; background: rgba(255,255,255,0.1); color: #e0e0e0; font-size: 0.95em; outline: none; }
+        select:focus, input:focus { border-color: #667eea; box-shadow: 0 0 0 2px rgba(102,126,234,0.2); }
+        .tag-filter { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 10px; padding: 10px 15px; background: rgba(255,255,255,0.03); border-radius: 8px; }
+        .tag-btn { padding: 5px 12px; border: 1px solid rgba(255,255,255,0.15); border-radius: 15px; background: transparent; color: #a0a0a0; cursor: pointer; font-size: 0.85em; transition: all 0.2s; }
+        .tag-btn:hover { border-color: #667eea; color: #667eea; }
+        .tag-btn.active { background: #667eea; border-color: #667eea; color: white; }
+        .gallery { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 16px; margin-bottom: 40px; }
+
+        /* Unified Card Component */
+        .image-card { position: relative; background: rgba(255,255,255,0.05); border-radius: 12px; overflow: hidden; transition: all 0.3s; border: 2px solid rgba(255,255,255,0.1); }
+        .image-card:hover { transform: translateY(-3px); box-shadow: 0 8px 25px rgba(102,126,234,0.3); border-color: #667eea; }
+        .image-card.hidden { display: none; }
+
+        /* Favorite Button */
+        .btn-favorite { position: absolute; top: 8px; left: 8px; z-index: 10; width: 32px; height: 32px; border-radius: 50%; background: rgba(0,0,0,0.6); border: none; cursor: pointer; transition: all 0.2s; display: flex; align-items: center; justify-content: center; }
+        .btn-favorite:hover { transform: scale(1.1); }
+        .btn-favorite[data-favorited="true"] { background: #ff9e4a; }
+        .btn-favorite[data-favorited="true"] .heart-icon { fill: white; }
+        .btn-favorite[data-favorited="false"] .heart-icon { fill: none; stroke: white; stroke-width: 2; }
+        .btn-favorite.animating { animation: pulse 0.3s ease-in-out; }
+        @keyframes pulse { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.2); } }
+        .heart-icon { width: 18px; height: 18px; }
+
+        /* Card Overlay */
+        .card-overlay { position: absolute; inset: 0; background: rgba(0,0,0,0.75); display: flex; align-items: center; justify-content: center; gap: 12px; opacity: 0; transition: opacity 0.2s; pointer-events: none; z-index: 5; }
+        .image-wrapper:hover .card-overlay { opacity: 1; pointer-events: auto; }
+        .btn-quick-action { width: 48px; height: 48px; border-radius: 50%; background: rgba(102,126,234,0.9); border: none; font-size: 20px; cursor: pointer; transition: transform 0.2s; display: flex; align-items: center; justify-content: center; color: white; }
+        .btn-quick-action:hover { transform: scale(1.15); background: #667eea; }
+
+        .image-wrapper { position: relative; width: 100%; padding-top: 100%; background: rgba(0,0,0,0.3); overflow: hidden; }
+        .image-wrapper img, .image-wrapper video { position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: cover; }
+        .image-wrapper .badge { position: absolute; top: 8px; right: 8px; padding: 3px 8px; border-radius: 5px; font-size: 0.75em; font-weight: bold; z-index: 2; }
+        .badge-video { background: rgba(255,59,48,0.85); color: white; }
+        .badge-realistic { background: rgba(52,199,89,0.85); color: white; }
+        .badge-anime { background: rgba(255,149,0,0.85); color: white; }
+        .image-info { padding: 12px; }
+        .image-name { font-size: 0.8em; color: #b0b0b0; margin-bottom: 6px; word-break: break-all; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .image-meta { display: flex; justify-content: space-between; font-size: 0.8em; color: #808080; margin-bottom: 6px; }
+        .image-keywords { font-size: 0.75em; color: #667eea; line-height: 1.4; max-height: 3.6em; overflow: hidden; word-break: break-all; }
+        .image-model { font-size: 0.75em; color: #a080d0; margin-top: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .modal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.92); z-index: 1000; padding: 20px; overflow-y: auto; }
+        .modal.active { display: flex; flex-direction: column; align-items: center; }
+        .modal-header { display: flex; justify-content: flex-end; width: 100%; max-width: 1200px; margin-bottom: 10px; }
+        .modal-close { background: #667eea; color: white; border: none; padding: 8px 18px; border-radius: 8px; cursor: pointer; font-size: 0.95em; }
+        .modal-close:hover { background: #764ba2; }
+        .modal-body { display: flex; gap: 20px; max-width: 1200px; width: 100%; flex-wrap: wrap; justify-content: center; }
+        .modal-media { flex: 1; min-width: 300px; max-width: 700px; text-align: center; }
+        .modal-media img, .modal-media video { max-width: 100%; max-height: 80vh; object-fit: contain; border-radius: 10px; }
+        .modal-info { flex: 1; min-width: 280px; max-width: 500px; background: rgba(255,255,255,0.05); border-radius: 10px; padding: 20px; }
+        .modal-info h3 { color: #667eea; margin-bottom: 12px; }
+        .modal-info .field { margin-bottom: 12px; }
+        .modal-info .field-label { font-size: 0.85em; color: #a0a0a0; margin-bottom: 4px; }
+        .modal-info .field-value { font-size: 0.9em; line-height: 1.5; word-break: break-all; color: #e0e0e0; max-height: 200px; overflow-y: auto; }
+        .loading { text-align: center; padding: 60px; font-size: 1.2em; color: #a0a0a0; }
+        @media (max-width: 768px) {
+            .gallery { grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 10px; }
+            .modal-body { flex-direction: column; }
+            h1 { font-size: 1.5em; }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>姿势图片预览</h1>
+            <div class="stats">
+                <div class="stat-card"><div class="stat-label">总数</div><div class="stat-value" id="totalCount">0</div></div>
+                <div class="stat-card"><div class="stat-label">当前显示</div><div class="stat-value" id="displayCount">0</div></div>
+                <div class="stat-card"><div class="stat-label">姿势</div><div class="stat-value" id="poseCount">0</div></div>
+                <div class="stat-card"><div class="stat-label">真人</div><div class="stat-value" id="realisticCount">0</div></div>
+                <div class="stat-card"><div class="stat-label">动漫</div><div class="stat-value" id="animeCount">0</div></div>
+            </div>
+        </header>
+
+        <div class="controls">
+            <div class="filter-group">
+                <select id="poseFilter"><option value="all">全部姿势</option></select>
+                <select id="typeFilter">
+                    <option value="all">全部类型</option>
+                    <option value="realistic">仅真人</option>
+                    <option value="anime">仅动漫</option>
+                    <option value="unknown">未分类</option>
+                    <option value="video">仅视频</option>
+                </select>
+                <input type="text" id="searchInput" placeholder="搜索关键词/prompt..." style="min-width:200px;">
+            </div>
+        </div>
+
+        <div class="gallery" id="gallery">
+            <div class="loading">正在加载图片...</div>
+        </div>
+    </div>
+
+    <div class="modal" id="modal">
+        <div class="modal-header"><button class="modal-close" onclick="closeModal()">关闭 ✕</button></div>
+        <div class="modal-body">
+            <div class="modal-media" id="modalMedia"></div>
+            <div class="modal-info" id="modalInfo"></div>
+        </div>
+    </div>
+
+    <script>
+        let allImages = [];
+        let currentPage = 0;
+        const ITEMS_PER_PAGE = 50;
+        let isLoading = false;
+
+        // 动漫/真人判断
+        const ANIME_KW = ['score_9','score_8','score_7','source_anime','anime','manga','hentai','cartoon','1girl','1boy','2girls','masterpiece','best quality','illustration','lineart','cel shading'];
+        const REAL_KW = ['realistic','photorealistic','photo','hyperrealistic','raw photo','dslr','film grain','bokeh','skin texture','skin pores','8k uhd','real','ulzzang'];
+        const REAL_MODELS = ['realistic','photon','juggernaut','epicrealism','realdream','realvis','cyberrealistic','absolutereality','photopedia','korean','taiwan','doll'];
+
+        function classifyImage(img) {
+            const prompt = (img.prompt || '').toLowerCase();
+            const model = (img.model || '').toLowerCase();
+
+            // 检查真人特征（优先级最高）
+            const hasRealisticTag = /\brealistic\s*:\s*[\d.]+/.test(prompt) || /\(realistic/.test(prompt);
+            const hasOriginalTag = /\boriginal\s*:\s*[\d.]+/.test(prompt);
+            const hasRealisticWord = prompt.includes('realistic') || prompt.includes('photorealism') || prompt.includes('photorealistic');
+
+            const animeScore = ANIME_KW.filter(k => prompt.includes(k)).length;
+            const realScore = REAL_KW.filter(k => prompt.includes(k)).length;
+            const modelReal = REAL_MODELS.some(k => model.includes(k));
+
+            // 优先判断：只要有 realistic 相关词就判定为真人（即使有动漫特征词）
+            if (hasRealisticTag || hasOriginalTag || hasRealisticWord || realScore >= 1 || modelReal) {
+                return 'realistic';
+            }
+            // 其次判断动漫
+            if (animeScore >= 2) return 'anime';
+
+            return 'unknown';
+        }
+
+        async function loadImages() {
+            try {
+                const response = await fetch('/api/pose-images');
+                const data = await response.json();
+                allImages = (data.images || []).map(img => ({...img, category: classifyImage(img)}));
+                updateStats(allImages);
+                renderGallery(allImages, true);
+                buildPoseFilter();
+            } catch (error) {
+                document.getElementById('gallery').innerHTML = '<div class="loading">加载失败，请确保API服务正在运行</div>';
+            }
+        }
+
+        function updateStats(images) {
+            const poses = new Set(allImages.map(i => i.pose));
+            document.getElementById('totalCount').textContent = allImages.length;
+            document.getElementById('displayCount').textContent = images.length;
+            document.getElementById('poseCount').textContent = poses.size;
+            document.getElementById('realisticCount').textContent = allImages.filter(i => i.category === 'realistic').length;
+            document.getElementById('animeCount').textContent = allImages.filter(i => i.category === 'anime').length;
+        }
+
+        function buildPoseFilter() {
+            const poses = [...new Set(allImages.map(i => i.pose))].sort();
+            const sel = document.getElementById('poseFilter');
+            sel.innerHTML = '<option value="all">全部姿势</option>';
+            poses.forEach(p => {
+                const count = allImages.filter(i => i.pose === p).length;
+                sel.innerHTML += `<option value="${escAttr(p)}">${escHtml(p)} (${count})</option>`;
+            });
+        }
+
+        function getFiltered() {
+            const pose = document.getElementById('poseFilter').value;
+            const type = document.getElementById('typeFilter').value;
+            const search = document.getElementById('searchInput').value.toLowerCase();
+
+            return allImages.filter(img => {
+                if (pose !== 'all' && img.pose !== pose) return false;
+                if (type === 'realistic' && img.category !== 'realistic') return false;
+                if (type === 'anime' && img.category !== 'anime') return false;
+                if (type === 'unknown' && img.category !== 'unknown') return false;
+                if (type === 'video' && img.type !== 'video') return false;
+                if (search) {
+                    const hay = `${img.filename} ${img.prompt} ${img.model} ${img.search_tag} ${img.pose}`.toLowerCase();
+                    if (!hay.includes(search)) return false;
+                }
+                return true;
+            });
+        }
+
+        function applyFilter() {
+            const filtered = getFiltered();
+            currentPage = 0;
+            renderGallery(filtered, true);
+            document.getElementById('displayCount').textContent = filtered.length;
+        }
+
+        function escAttr(s) {
+            return String(s).replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/'/g,'&#39;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+        }
+        function escHtml(s) {
+            return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+        }
+
+        function renderGallery(images, reset = false) {
+            const gallery = document.getElementById('gallery');
+
+            if (reset) {
+                gallery.innerHTML = '';
+                currentPage = 0;
+            }
+
+            if (!images.length) {
+                gallery.innerHTML = '<div class="loading">没有找到图片</div>';
+                return;
+            }
+
+            const start = currentPage * ITEMS_PER_PAGE;
+            const end = start + ITEMS_PER_PAGE;
+            const pageImages = images.slice(start, end);
+
+            if (!pageImages.length) return;
+
+            const fragment = pageImages.map((img, idx) => {
+                const globalIdx = start + idx;
+                const isVideo = img.type === 'video';
+                const media = isVideo
+                    ? `<video src="${escAttr(img.url)}" muted loop playsinline onmouseenter="this.play()" onmouseleave="this.pause()"></video>`
+                    : `<img src="${escAttr(img.url)}" alt="${escAttr(img.filename)}" loading="lazy">`;
+                const catBadge = img.category === 'realistic' ? '<span class="badge badge-realistic">真人</span>'
+                    : img.category === 'anime' ? '<span class="badge badge-anime">动漫</span>' : '';
+                const videoBadge = isVideo ? '<span class="badge badge-video">视频</span>' : '';
+                const keywords = (img.prompt || '').substring(0, 120);
+                const model = img.model || '';
+
+                return `
+                <div class="image-card" data-idx="${globalIdx}">
+                    <button class="btn-favorite" data-resource-id="${img.id || globalIdx}" data-favorited="false" onclick="event.stopPropagation(); toggleFavorite(${img.id || globalIdx}, event)">
+                        <svg class="heart-icon" viewBox="0 0 24 24">
+                            <path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/>
+                        </svg>
+                    </button>
+                    <div class="image-wrapper" onclick="openModal(${globalIdx})" style="cursor:pointer">
+                        ${media}
+                        ${catBadge}${videoBadge}
+                    </div>
+                    <div class="image-info">
+                        <div class="image-name" title="${escAttr(img.filename)}">${escHtml(img.filename)}</div>
+                        <div class="image-meta"><span>${escHtml(img.pose)}</span><span>${escHtml(img.size)}</span></div>
+                        ${keywords ? `<div class="image-keywords" title="${escAttr(keywords)}">${escHtml(keywords)}...</div>` : '<div class="image-keywords" style="color:#666">无prompt信息</div>'}
+                        ${model ? `<div class="image-model" title="${escAttr(model)}">Model: ${escHtml(model)}</div>` : ''}
+                    </div>
+                </div>`;
+            }).join('');
+
+            gallery.insertAdjacentHTML('beforeend', fragment);
+            currentPage++;
+        }
+
+        let currentFiltered = [];
+        function openModal(idx) {
+            currentFiltered = getFiltered();
+            const img = currentFiltered[idx];
+            if (!img) return;
+
+            const mediaEl = document.getElementById('modalMedia');
+            const infoEl = document.getElementById('modalInfo');
+
+            if (img.type === 'video') {
+                mediaEl.innerHTML = `<video src="${escAttr(img.url)}" controls autoplay loop style="max-width:100%;max-height:80vh;border-radius:10px;"></video>`;
+            } else {
+                mediaEl.innerHTML = `<img src="${escAttr(img.url)}" style="max-width:100%;max-height:80vh;border-radius:10px;">`;
+            }
+
+            const catLabel = img.category === 'realistic' ? '✅ 真人' : img.category === 'anime' ? '🎨 动漫' : '❓ 未分类';
+            infoEl.innerHTML = `
+                <h3>${escHtml(img.filename)}</h3>
+                <div class="field"><div class="field-label">姿势</div><div class="field-value">${escHtml(img.pose)}</div></div>
+                <div class="field"><div class="field-label">分类</div><div class="field-value">${catLabel}</div></div>
+                <div class="field"><div class="field-label">搜索标签</div><div class="field-value">${escHtml(img.search_tag || '-')}</div></div>
+                <div class="field"><div class="field-label">模型</div><div class="field-value">${escHtml(img.model || '-')}</div></div>
+                <div class="field"><div class="field-label">大小</div><div class="field-value">${escHtml(img.size)}</div></div>
+                <div class="field"><div class="field-label">Civitai ID</div><div class="field-value">${escHtml(img.civitai_id || '-')}</div></div>
+                <div class="field"><div class="field-label">Prompt / Keywords</div><div class="field-value">${escHtml(img.prompt || '无')}</div></div>
+            `;
+
+            document.getElementById('modal').classList.add('active');
+        }
+
+        function closeModal() {
+            document.getElementById('modal').classList.remove('active');
+            const v = document.querySelector('.modal-media video');
+            if (v) v.pause();
+        }
+
+        // 事件委托：点击卡片打开modal
+        document.getElementById('gallery').addEventListener('click', e => {
+            // Don't open modal if clicking on buttons
+            if (e.target.closest('.btn-favorite')) {
+                return;
+            }
+            const card = e.target.closest('.image-card');
+            if (!card) return;
+            const idx = parseInt(card.dataset.idx, 10);
+            if (!isNaN(idx)) openModal(idx);
+        });
+
+        document.getElementById('poseFilter').addEventListener('change', applyFilter);
+        document.getElementById('typeFilter').addEventListener('change', applyFilter);
+        document.getElementById('searchInput').addEventListener('input', applyFilter);
+        document.getElementById('modal').addEventListener('click', e => { if (e.target.id === 'modal') closeModal(); });
+        document.addEventListener('keydown', e => { if (e.key === 'Escape') closeModal(); });
+
+        // Favorites functionality
+        async function toggleFavorite(resourceId, event) {
+            const btn = event.currentTarget;
+            const isFavorited = btn.dataset.favorited === 'true';
+
+            // Optimistic UI update
+            btn.dataset.favorited = !isFavorited;
+            btn.classList.add('animating');
+
+            try {
+                if (isFavorited) {
+                    await fetch(`/api/v1/favorites/${resourceId}`, {
+                        method: 'DELETE'
+                    });
+                } else {
+                    await fetch(`/api/v1/favorites/${resourceId}`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ note: null })
+                    });
+                }
+
+                btn.classList.remove('animating');
+
+            } catch (error) {
+                // Revert on error
+                btn.dataset.favorited = isFavorited;
+                btn.classList.remove('animating');
+                console.error('Failed to toggle favorite:', error);
+            }
+        }
+
+        // 无限滚动加载
+        let scrollTimeout;
+        window.addEventListener('scroll', () => {
+            if (isLoading) return;
+
+            clearTimeout(scrollTimeout);
+            scrollTimeout = setTimeout(() => {
+                const scrollHeight = document.documentElement.scrollHeight;
+                const scrollTop = document.documentElement.scrollTop || document.body.scrollTop;
+                const clientHeight = document.documentElement.clientHeight;
+
+                // 距离底部200px时加载下一页
+                if (scrollHeight - scrollTop - clientHeight < 200) {
+                    const filtered = getFiltered();
+                    const totalPages = Math.ceil(filtered.length / ITEMS_PER_PAGE);
+
+                    if (currentPage < totalPages) {
+                        isLoading = true;
+                        renderGallery(filtered, false);
+                        isLoading = false;
+                    }
+                }
+            }, 100);
+        });
+
+        loadImages();
+    </script>
+</body>
+</html>

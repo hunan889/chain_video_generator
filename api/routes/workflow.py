@@ -878,12 +878,16 @@ async def generate_advanced_workflow(req: WorkflowGenerateRequest, _=Depends(ver
         import uuid
         import asyncio
         from api.main import task_manager
-        from api.routes.workflow_executor import _execute_workflow
+        from api.routes.workflow_executor import _execute_workflow, _get_config
 
         # Validate SeeDream edit_mode based on workflow mode
-        if req.seedream_params:
-            edit_mode = req.seedream_params.get("edit_mode", "face_wearings")
+        # IMPORTANT: Use _get_config() to read from internal_config first, then seedream_params
+        # This ensures we validate the actual value that will be used during execution
+        edit_mode = _get_config(req, "stage3_seedream", "mode", "face_wearings")
 
+        # Only validate if SeeDream is enabled
+        stage3_enabled = _get_config(req, "stage3_seedream", "enabled", False)
+        if stage3_enabled:
             if req.mode == "face_reference":
                 # face_reference mode: only allow face_only
                 if edit_mode != "face_only":

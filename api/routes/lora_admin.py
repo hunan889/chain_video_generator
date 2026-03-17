@@ -2,11 +2,14 @@
 LORA管理API路由
 """
 import logging
+import json
+import os
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from typing import Optional
 from api.middleware.auth import verify_api_key
 from api.services.lora_classifier import get_lora_classifier
+from api.services.content_suggester import get_content_suggester
 import pymysql
 
 logger = logging.getLogger(__name__)
@@ -21,6 +24,9 @@ DB_CONFIG = {
     'database': 'tudou_soga',
     'charset': 'utf8mb4'
 }
+
+# 关键词对照文件路径
+KEYWORDS_FILE = '/home/gime/soft/wan22-service/config/keywords.json'
 
 
 class CategorySuggestionResponse(BaseModel):
@@ -79,6 +85,62 @@ async def suggest_lora_category(lora_id: int, _=Depends(verify_api_key)):
     except Exception as e:
         logger.error(f"Failed to suggest category for LORA #{lora_id}: {e}")
         raise HTTPException(500, f"分类失败: {str(e)}")
+
+
+@router.post("/admin/loras/{lora_id}/suggest-keywords")
+async def suggest_lora_keywords(lora_id, _=Depends(verify_api_key)):
+    """为LORA生成search_keywords和trigger_prompt建议"""
+    try:
+        # 判断是否为图片LORA
+        is_image_lora = isinstance(lora_id, str) and lora_id.startswith('img_')
+
+        conn = pymysql.connect(**DB_CONFIG)
+        cursor = conn.cursor(pymysql.cursors.DictCursor)
+
+        if is_image_lora:
+            # 图片LORA - 从文件系统获取信息
+            cursor.execute("SELECT * FROM image_lora_metadata WHERE id = %s", (lora_id,))
+            lora = cursor.fetchone()
+
+            if not lora:
+                # 如果数据库中没有，返回基本信息
+                lora = {
+                    'id': lora_id,
+                    'name': lora_id.replace('img_', ''),
+                    'description': None,
+                    'tags': '[]',
+                    'trigger_words': '[]'
+                }
+        else:
+            # 视频LORA - 从数据库获取
+            cursor.execute("""
+                SELECT id, name, file, description, tags, trigger_words
+                FROM lora_metadata
+                WHERE id = %s
+            """, (lora_id,))
+            lora = cursor.fetchone()
+
+        cursor.close()
+        conn.close()
+
+        if not lora and not is_image_lora:
+            raise HTTPException(404, f"LORA #{lora_id} not found")
+
+        # 使用AI生成建议
+        suggester = get_content_suggester()
+        result = await suggester.suggest_for_lora(lora)
+
+        return {
+            "search_keywords": result.get("search_keywords", ""),
+            "trigger_prompt": result.get("trigger_prompt", ""),
+            "reasoning": result.get("reasoning", "")
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to suggest keywords for LORA #{lora_id}: {e}")
+        raise HTTPException(500, f"生成建议失败: {str(e)}")
 
 
 @router.post("/admin/loras/sync-image-lora")
@@ -370,6 +432,19 @@ async def list_loras_admin(
                 lora_description = metadata.get('description')
                 lora_tags = metadata.get('tags', '[]')
 
+                # Look for preview image
+                preview_url = None
+                base_name = filename.replace('.safetensors', '')
+                preview_candidates = [
+                    filepath.replace('.safetensors', '.preview.png'),
+                    filepath.replace('.safetensors', '.png')
+                ]
+                for preview_path in preview_candidates:
+                    if os.path.exists(preview_path):
+                        preview_relative = os.path.relpath(preview_path, lora_dir)
+                        preview_url = f'/api/v1/image-lora-preview/{preview_relative}'
+                        break
+
                 # Apply filters
                 if category and lora_category != category:
                     continue
@@ -389,7 +464,7 @@ async def list_loras_admin(
                     'noise_stage': 'single',
                     'quality_score': lora_quality,
                     'civitai_id': None,
-                    'preview_url': None,
+                    'preview_url': preview_url,
                     'enabled': lora_enabled,
                     'lora_type': 'image',
                     'filepath': relative_path
@@ -400,3 +475,59 @@ async def list_loras_admin(
     except Exception as e:
         logger.error(f"Failed to list LORAs: {e}")
         raise HTTPException(500, f"查询失败: {str(e)}")
+
+
+@router.get("/image-lora-preview/{filepath:path}")
+async def get_image_lora_preview(filepath: str):
+    """获取图片LORA预览图"""
+    import os
+    from fastapi.responses import FileResponse
+
+    lora_dir = '/home/gime/soft/lora/stable-diffusion-webui-forge/models/Lora'
+    full_path = os.path.join(lora_dir, filepath)
+
+    # Security check - ensure path is within lora_dir
+    real_path = os.path.realpath(full_path)
+    real_lora_dir = os.path.realpath(lora_dir)
+
+    if not real_path.startswith(real_lora_dir):
+        raise HTTPException(403, "Access denied")
+
+    if not os.path.exists(real_path):
+        raise HTTPException(404, "Preview image not found")
+
+    return FileResponse(real_path, media_type="image/png")
+
+
+@router.get("/admin/keywords")
+async def get_keywords(_=Depends(verify_api_key)):
+    """获取关键词对照表"""
+    try:
+        if os.path.exists(KEYWORDS_FILE):
+            with open(KEYWORDS_FILE, 'r', encoding='utf-8') as f:
+                keywords = json.load(f)
+        else:
+            # 返回空对象
+            keywords = {}
+
+        return keywords
+    except Exception as e:
+        logger.error(f"Failed to load keywords: {e}")
+        raise HTTPException(500, f"加载关键词失败: {str(e)}")
+
+
+@router.post("/admin/keywords")
+async def save_keywords(keywords: dict, _=Depends(verify_api_key)):
+    """保存关键词对照表"""
+    try:
+        # 确保目录存在
+        os.makedirs(os.path.dirname(KEYWORDS_FILE), exist_ok=True)
+
+        # 保存到文件
+        with open(KEYWORDS_FILE, 'w', encoding='utf-8') as f:
+            json.dump(keywords, f, ensure_ascii=False, indent=2)
+
+        return {"success": True, "count": len(keywords)}
+    except Exception as e:
+        logger.error(f"Failed to save keywords: {e}")
+        raise HTTPException(500, f"保存关键词失败: {str(e)}")

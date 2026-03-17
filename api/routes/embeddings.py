@@ -90,7 +90,7 @@ async def rebuild_favorites_index(_=Depends(verify_api_key)):
 
             # 查询收藏资源
             cursor.execute("""
-                SELECT DISTINCT r.id, r.prompt
+                SELECT DISTINCT r.id, r.prompt, r.search_keywords
                 FROM favorites f
                 JOIN resources r ON f.resource_id = r.id
                 WHERE r.prompt IS NOT NULL AND r.prompt != ''
@@ -118,7 +118,8 @@ async def rebuild_favorites_index(_=Depends(verify_api_key)):
 
                     await embedding_service.index_resource(
                         resource_id=resource['id'],
-                        prompt=prompt
+                        prompt=prompt,
+                        search_keywords=resource.get('search_keywords')
                     )
 
                     _index_tasks[task_id]['processed'] = i + 1
@@ -158,7 +159,7 @@ async def rebuild_loras_index(_=Depends(verify_api_key)):
 
             # 查询所有启用的LORA
             cursor.execute("""
-                SELECT id, name, description, tags, trigger_words, trigger_prompt
+                SELECT id, name, description, tags, trigger_words, trigger_prompt, search_keywords
                 FROM lora_metadata
                 WHERE enabled = TRUE OR enabled IS NULL
                 ORDER BY id
@@ -182,13 +183,20 @@ async def rebuild_loras_index(_=Depends(verify_api_key)):
                     # 构建example_prompts
                     example_prompts = []
 
-                    # 优先使用trigger_prompt
+                    # 1. 优先使用search_keywords（最重要的搜索关键词）
+                    search_keywords = lora.get('search_keywords')
+                    if search_keywords and search_keywords.strip():
+                        example_prompts.append(search_keywords)
+
+                    # 2. 使用trigger_prompt
                     if lora.get('trigger_prompt'):
                         example_prompts.append(lora['trigger_prompt'])
 
+                    # 3. 使用description
                     if lora['description']:
                         example_prompts.append(lora['description'])
 
+                    # 4. 使用trigger_words
                     trigger_words = lora.get('trigger_words')
                     if isinstance(trigger_words, str):
                         try:
@@ -198,6 +206,7 @@ async def rebuild_loras_index(_=Depends(verify_api_key)):
                     if trigger_words:
                         example_prompts.extend(trigger_words)
 
+                    # 5. 使用tags
                     tags = lora.get('tags')
                     if isinstance(tags, str):
                         try:

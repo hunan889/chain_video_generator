@@ -1,0 +1,39 @@
+{
+  "position_keywords": [
+    "doggy style",
+    "missionary",
+    "cowgirl",
+    "reverse cowgirl",
+    "standing",
+    "spooning",
+    "69",
+    "sideways",
+    "lotus",
+    "prone bone"
+  ],
+  "action_keywords": [
+    "oral",
+    "anal",
+    "blowjob",
+    "handjob",
+    "footjob",
+    "titjob",
+    "rimming",
+    "fingering",
+    "masturbation"
+  ],
+  "attribute_keywords": [
+    "bdsm",
+    "bondage",
+    "threesome",
+    "gangbang",
+    "lesbian",
+    "gay",
+    "interracial",
+    "creampie",
+    "cumshot",
+    "facial"
+  ],
+  "boost_weight": 0.35,
+  "description": "Feature keywords for search boosting. boost_weight controls how much weight is given to keyword matching (0-1, default 0.35 means 35% keyword + 65% semantic)"
+}

@@ -25,6 +25,7 @@ DB_CONFIG = {
 
 class ResourceUpdateRequest(BaseModel):
     search_keywords: Optional[str] = None
+    trigger_prompt: Optional[str] = None
 
 
 def generate_image_search_keywords(url: str, prompt: str = "") -> str:
@@ -130,6 +131,10 @@ async def update_resource_metadata(resource_id: int, req: ResourceUpdateRequest,
         if req.search_keywords is not None:
             updates.append("search_keywords = %s")
             params.append(req.search_keywords)
+
+        if req.trigger_prompt is not None:
+            updates.append("trigger_prompt = %s")
+            params.append(req.trigger_prompt)
 
         if not updates:
             raise HTTPException(400, "No fields to update")

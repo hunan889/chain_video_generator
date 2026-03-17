@@ -61,7 +61,7 @@ async def save_upload(data: bytes, original_name: str) -> tuple[str, str]:
     """Save uploaded image. Returns (filename, url_or_filename).
 
     filename is always the local name (ComfyUI needs it).
-    url_or_filename is the COS URL if enabled, otherwise the local filename.
+    url_or_filename is the COS URL if enabled, otherwise the local API path.
     Runs COS upload in a thread to avoid blocking the event loop.
     """
     ext = Path(original_name).suffix or ".png"
@@ -75,7 +75,8 @@ async def save_upload(data: bytes, original_name: str) -> tuple[str, str]:
         # Don't delete — ComfyUI may need the local file
         return filename, url
 
-    return filename, filename
+    # Return local API path when COS is not enabled
+    return filename, f"/uploads/{filename}"
 
 
 async def get_video_path(filename: str) -> Path | None:

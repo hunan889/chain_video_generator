@@ -1,0 +1,2056 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>姿势管理 - Wan2.2</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: #0a0a0f;
+      color: #e0e0e0;
+      padding: 20px;
+    }
+    .header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 24px;
+      padding-bottom: 16px;
+      border-bottom: 1px solid #2a2a3a;
+    }
+    h1 { font-size: 24px; color: #fff; }
+    .filters {
+      display: flex;
+      gap: 12px;
+      margin-bottom: 20px;
+    }
+    .filters select, .filters input {
+      padding: 8px 12px;
+      background: #1a1a2e;
+      border: 1px solid #2a2a3a;
+      border-radius: 6px;
+      color: #e0e0e0;
+      font-size: 14px;
+    }
+    .pose-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(400px, 1fr));
+      gap: 20px;
+    }
+    .pose-card {
+      background: #1a1a2e;
+      border: 1px solid #2a2a3a;
+      border-radius: 8px;
+      padding: 16px;
+      transition: all 0.2s;
+    }
+    .pose-card:hover {
+      border-color: #7c83ff;
+      box-shadow: 0 4px 12px rgba(124, 131, 255, 0.15);
+    }
+    .pose-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: start;
+      margin-bottom: 12px;
+    }
+    .pose-title {
+      font-size: 18px;
+      font-weight: 600;
+      color: #fff;
+      margin-bottom: 4px;
+    }
+    .pose-key {
+      font-size: 12px;
+      color: #7c83ff;
+      font-family: monospace;
+    }
+    .pose-badges {
+      display: flex;
+      gap: 6px;
+      flex-wrap: wrap;
+    }
+    .badge {
+      padding: 3px 8px;
+      border-radius: 4px;
+      font-size: 11px;
+      font-weight: 500;
+    }
+    .badge-category { background: #2a2a3a; color: #a0a0b0; }
+    .badge-difficulty { background: #4ade80; color: #0a0a0f; }
+    .badge-difficulty.medium { background: #ff9e4a; }
+    .badge-difficulty.hard { background: #f87171; }
+    .pose-description {
+      font-size: 13px;
+      color: #a0a0b0;
+      line-height: 1.5;
+      margin-bottom: 12px;
+    }
+    .pose-keywords {
+      font-size: 12px;
+      color: #9ca3af;
+      line-height: 1.6;
+      margin-bottom: 12px;
+      padding: 8px;
+      background: #16162a;
+      border-radius: 4px;
+      border-left: 2px solid #7c83ff;
+    }
+    .pose-keywords strong {
+      color: #7c83ff;
+      margin-right: 4px;
+    }
+    .pose-preview-section {
+      background: #16162a;
+      border: 1px solid #2a2a3a;
+      border-radius: 8px;
+      padding: 12px;
+      margin-bottom: 12px;
+    }
+    .pose-preview-title {
+      font-size: 12px;
+      color: #7c83ff;
+      font-weight: 600;
+      margin-bottom: 10px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding-bottom: 8px;
+      border-bottom: 1px solid #2a2a3a;
+    }
+    .pose-preview-empty {
+      text-align: center;
+      padding: 20px 12px;
+      color: #666;
+      font-size: 12px;
+      background: #0f0f1e;
+      border-radius: 6px;
+      border: 1px dashed #2a2a3a;
+    }
+    .pose-preview-empty button {
+      margin-top: 8px;
+    }
+    .pose-preview-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(80px, 1fr));
+      gap: 6px;
+      margin-bottom: 8px;
+    }
+    .pose-preview-item {
+      position: relative;
+      width: 100%;
+      padding-top: 100%;
+      background: #0a0a23;
+      border-radius: 6px;
+      overflow: hidden;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    .pose-preview-item:hover {
+      transform: scale(1.05);
+      box-shadow: 0 4px 12px rgba(124, 131, 255, 0.3);
+    }
+    .pose-preview-item img, .pose-preview-item video {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+    }
+    .pose-preview-item video {
+      pointer-events: none;
+    }
+    .pose-preview-badge {
+      position: absolute;
+      top: 4px;
+      right: 4px;
+      background: rgba(248, 113, 113, 0.9);
+      color: white;
+      padding: 2px 6px;
+      border-radius: 3px;
+      font-size: 9px;
+      font-weight: 600;
+      z-index: 2;
+    }
+    .pose-preview-delete {
+      position: absolute;
+      top: 4px;
+      left: 4px;
+      background: rgba(248, 113, 113, 0.9);
+      color: white;
+      padding: 4px 6px;
+      border-radius: 3px;
+      font-size: 11px;
+      font-weight: 600;
+      z-index: 3;
+      cursor: pointer;
+      opacity: 0;
+      transition: opacity 0.2s;
+    }
+    .pose-preview-item:hover .pose-preview-delete {
+      opacity: 1;
+    }
+    .pose-preview-delete:hover {
+      background: rgba(220, 38, 38, 1);
+    }
+    .pose-lora-delete {
+      background: rgba(248, 113, 113, 0.9);
+      color: white;
+      padding: 4px 8px;
+      border-radius: 3px;
+      font-size: 10px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 0.2s;
+      flex-shrink: 0;
+    }
+    .pose-lora-delete:hover {
+      background: rgba(220, 38, 38, 1);
+    }
+    .pose-preview-more {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: rgba(0, 0, 0, 0.7);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: #fff;
+      font-size: 14px;
+      font-weight: 600;
+    }
+    .pose-lora-list {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+    .pose-lora-item {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px;
+      background: #0f0f1e;
+      border-radius: 6px;
+      font-size: 11px;
+      border: 1px solid #1a1a2e;
+      transition: all 0.2s;
+    }
+    .pose-lora-item:hover {
+      background: #1a1a2e;
+      border-color: #2a2a3a;
+    }
+    .pose-lora-preview {
+      width: 40px;
+      height: 40px;
+      border-radius: 4px;
+      object-fit: cover;
+      background: #0a0a23;
+      flex-shrink: 0;
+    }
+    .pose-lora-info {
+      flex: 1;
+      min-width: 0;
+    }
+    .pose-lora-name {
+      color: #e0e0e0;
+      font-weight: 600;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      cursor: pointer;
+      transition: color 0.2s;
+    }
+    .pose-lora-name:hover {
+      color: #7c83ff;
+      text-decoration: underline;
+    }
+    .pose-lora-type {
+      color: #7c83ff;
+      font-size: 10px;
+    }
+    .view-all-btn {
+      display: inline-block;
+      padding: 4px 10px;
+      background: #16213e;
+      border: 1px solid #7c83ff;
+      color: #7c83ff;
+      border-radius: 4px;
+      font-size: 11px;
+      cursor: pointer;
+      text-decoration: none;
+      transition: all 0.2s;
+    }
+    .view-all-btn:hover {
+      background: #0f3460;
+    }
+    .image-zoom-modal {
+      display: none;
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: rgba(0, 0, 0, 0.95);
+      z-index: 2000;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+    }
+    .image-zoom-modal.active {
+      display: flex;
+    }
+    .image-zoom-content {
+      max-width: 90vw;
+      max-height: 90vh;
+    }
+
+    /* 资源选择器模态框 */
+    .resource-selector-modal {
+      display: none;
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: rgba(0, 0, 0, 0.8);
+      z-index: 3000;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+    }
+    .resource-selector-modal.active {
+      display: flex;
+    }
+    .resource-selector-content {
+      background: #0f0f23;
+      border-radius: 12px;
+      width: 90%;
+      max-width: 1000px;
+      max-height: 80vh;
+      display: flex;
+      flex-direction: column;
+      border: 1px solid #2a2a3a;
+    }
+    .resource-selector-header {
+      padding: 20px;
+      border-bottom: 1px solid #2a2a3a;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .resource-selector-header h3 {
+      margin: 0;
+      color: #e0e0e0;
+      font-size: 18px;
+    }
+    .resource-selector-filters {
+      padding: 16px 20px;
+      border-bottom: 1px solid #2a2a3a;
+      display: flex;
+      gap: 12px;
+      align-items: center;
+      flex-wrap: wrap;
+    }
+    .resource-selector-body {
+      padding: 20px;
+      overflow-y: auto;
+      flex: 1;
+    }
+    .resource-selector-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+      gap: 12px;
+    }
+    .resource-selector-item {
+      position: relative;
+      background: #16162a;
+      border: 2px solid #2a2a3a;
+      border-radius: 8px;
+      overflow: hidden;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    .resource-selector-item:hover {
+      border-color: #7c83ff;
+      transform: translateY(-2px);
+    }
+    .resource-selector-item.selected {
+      border-color: #7c83ff;
+      background: #1a1a3a;
+    }
+    .resource-selector-item-preview {
+      width: 100%;
+      padding-top: 100%;
+      position: relative;
+      background: #0a0a23;
+    }
+    .resource-selector-item-preview img,
+    .resource-selector-item-preview video {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+    }
+    .resource-selector-item-checkbox {
+      position: absolute;
+      top: 8px;
+      right: 8px;
+      width: 20px;
+      height: 20px;
+      background: rgba(0, 0, 0, 0.7);
+      border: 2px solid #7c83ff;
+      border-radius: 4px;
+      z-index: 2;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: #7c83ff;
+      font-weight: bold;
+    }
+    .resource-selector-item.selected .resource-selector-item-checkbox {
+      background: #7c83ff;
+      color: white;
+    }
+    .resource-selector-item-info {
+      padding: 8px;
+      font-size: 11px;
+      color: #999;
+    }
+    .resource-selector-footer {
+      padding: 16px 20px;
+      border-top: 1px solid #2a2a3a;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .resource-selector-footer-info {
+      color: #7c83ff;
+      font-size: 13px;
+    }
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+    }
+    .image-zoom-modal.active {
+      display: flex;
+    }
+    .image-zoom-content {
+      max-width: 90vw;
+      max-height: 90vh;
+      position: relative;
+    }
+    .image-zoom-content img,
+    .image-zoom-content video {
+      max-width: 100%;
+      max-height: 90vh;
+      object-fit: contain;
+      border-radius: 8px;
+    }
+    .image-zoom-close {
+      position: absolute;
+      top: -40px;
+      right: 0;
+      background: #7c83ff;
+      color: white;
+      border: none;
+      padding: 8px 16px;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 14px;
+    }
+    .image-zoom-close:hover {
+      background: #6b72e6;
+    }
+    .pose-stats {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 8px;
+      margin-top: 12px;
+      padding-top: 12px;
+      border-top: 1px solid #2a2a3a;
+    }
+    .stat {
+      text-align: center;
+    }
+    .stat-value {
+      font-size: 18px;
+      font-weight: 600;
+      color: #7c83ff;
+    }
+    .stat-label {
+      font-size: 11px;
+      color: #666;
+      margin-top: 2px;
+    }
+    .pose-actions {
+      display: flex;
+      gap: 8px;
+      margin-top: 12px;
+    }
+    .btn {
+      flex: 1;
+      padding: 8px;
+      border: none;
+      border-radius: 6px;
+      font-size: 13px;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    .btn-primary {
+      background: #7c83ff;
+      color: #fff;
+    }
+    .btn-primary:hover {
+      background: #6b72e6;
+    }
+    .btn-secondary {
+      background: #2a2a3a;
+      color: #e0e0e0;
+    }
+    .btn-secondary:hover {
+      background: #3a3a4a;
+    }
+    .empty-state {
+      text-align: center;
+      padding: 60px 20px;
+      color: #666;
+    }
+    .loading {
+      text-align: center;
+      padding: 40px;
+      color: #7c83ff;
+    }
+    .modal {
+      display: none;
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background: rgba(0, 0, 0, 0.8);
+      z-index: 1000;
+      align-items: center;
+      justify-content: center;
+    }
+    .modal.active { display: flex; }
+    .modal-content {
+      background: #1a1a2e;
+      border: 1px solid #2a2a3a;
+      border-radius: 12px;
+      padding: 24px;
+      max-width: 800px;
+      max-height: 90vh;
+      overflow-y: auto;
+      width: 90%;
+    }
+    .modal-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 20px;
+      padding-bottom: 16px;
+      border-bottom: 1px solid #2a2a3a;
+    }
+    .modal-title {
+      font-size: 20px;
+      font-weight: 600;
+      color: #fff;
+    }
+    .close-btn {
+      background: none;
+      border: none;
+      color: #666;
+      font-size: 24px;
+      cursor: pointer;
+      padding: 0;
+      width: 32px;
+      height: 32px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      border-radius: 4px;
+    }
+    .close-btn:hover {
+      background: #2a2a3a;
+      color: #e0e0e0;
+    }
+    .config-section {
+      margin-bottom: 20px;
+    }
+    .config-section h3 {
+      font-size: 16px;
+      color: #fff;
+      margin-bottom: 12px;
+    }
+    .config-list {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    .config-item {
+      background: #0a0a23;
+      padding: 12px;
+      border-radius: 6px;
+      font-size: 13px;
+    }
+    .config-item-title {
+      font-weight: 600;
+      color: #7c83ff;
+      margin-bottom: 4px;
+    }
+    .config-item-detail {
+      color: #a0a0b0;
+      font-size: 12px;
+    }
+    .image-preview {
+      width: 100%;
+      border-radius: 6px;
+      margin-top: 8px;
+    }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <h1>姿势管理</h1>
+    <div style="display: flex; gap: 12px;">
+      <button class="btn btn-primary" onclick="showCreateModal()" style="padding: 8px 16px;">+ 新建姿势</button>
+      <a href="/" style="color: #7c83ff; text-decoration: none; display: flex; align-items: center;">← 返回首页</a>
+    </div>
+  </div>
+
+  <div class="filters">
+    <input type="text" id="search-input" placeholder="搜索姿势（支持自然语言，如：woman on top riding）..." style="flex: 1;">
+    <button id="search-mode-btn" class="btn btn-secondary" style="min-width: 100px;" onclick="toggleSearchMode()">
+      <span id="search-mode-text">智能搜索</span>
+    </button>
+    <select id="category-filter">
+      <option value="">所有分类</option>
+      <option value="standing">站立</option>
+      <option value="lying">躺卧</option>
+      <option value="kneeling">跪姿</option>
+      <option value="sitting">坐姿</option>
+      <option value="other">其他</option>
+    </select>
+    <select id="difficulty-filter">
+      <option value="">所有难度</option>
+      <option value="easy">简单</option>
+      <option value="medium">中等</option>
+      <option value="hard">困难</option>
+    </select>
+  </div>
+
+  <div id="pose-container" class="pose-grid">
+    <div class="loading">加载中...</div>
+  </div>
+
+  <div id="config-modal" class="modal">
+    <div class="modal-content">
+      <div class="modal-header">
+        <div class="modal-title" id="modal-title"></div>
+        <button class="close-btn" onclick="closeModal()">×</button>
+      </div>
+      <div id="modal-body"></div>
+    </div>
+  </div>
+
+  <div id="create-modal" class="modal">
+    <div class="modal-content">
+      <div class="modal-header">
+        <div class="modal-title">新建姿势</div>
+        <button class="close-btn" onclick="closeCreateModal()">×</button>
+      </div>
+      <div style="display: flex; flex-direction: column; gap: 12px;">
+        <div>
+          <label style="display: block; margin-bottom: 4px; font-size: 13px; color: #aaa;">姿势Key (英文)</label>
+          <input type="text" id="create-pose-key" placeholder="例如: missionary" style="width: 100%; padding: 8px; background: #0a0a23; border: 1px solid #444; border-radius: 6px; color: #e0e0e0;">
+        </div>
+        <div>
+          <label style="display: block; margin-bottom: 4px; font-size: 13px; color: #aaa;">英文名称</label>
+          <input type="text" id="create-name-en" placeholder="例如: Missionary" style="width: 100%; padding: 8px; background: #0a0a23; border: 1px solid #444; border-radius: 6px; color: #e0e0e0;">
+        </div>
+        <div>
+          <label style="display: block; margin-bottom: 4px; font-size: 13px; color: #aaa;">中文名称</label>
+          <input type="text" id="create-name-cn" placeholder="例如: 传教士" style="width: 100%; padding: 8px; background: #0a0a23; border: 1px solid #444; border-radius: 6px; color: #e0e0e0;">
+        </div>
+        <div>
+          <label style="display: block; margin-bottom: 4px; font-size: 13px; color: #aaa;">描述</label>
+          <textarea id="create-description" placeholder="姿势描述..." style="width: 100%; padding: 8px; background: #0a0a23; border: 1px solid #444; border-radius: 6px; color: #e0e0e0; min-height: 60px;"></textarea>
+        </div>
+        <div style="display: flex; gap: 12px;">
+          <div style="flex: 1;">
+            <label style="display: block; margin-bottom: 4px; font-size: 13px; color: #aaa;">分类</label>
+            <select id="create-category" style="width: 100%; padding: 8px; background: #0a0a23; border: 1px solid #444; border-radius: 6px; color: #e0e0e0;">
+              <option value="standing">站立</option>
+              <option value="lying">躺卧</option>
+              <option value="kneeling">跪姿</option>
+              <option value="sitting">坐姿</option>
+              <option value="other">其他</option>
+            </select>
+          </div>
+          <div style="flex: 1;">
+            <label style="display: block; margin-bottom: 4px; font-size: 13px; color: #aaa;">难度</label>
+            <select id="create-difficulty" style="width: 100%; padding: 8px; background: #0a0a23; border: 1px solid #444; border-radius: 6px; color: #e0e0e0;">
+              <option value="easy">简单</option>
+              <option value="medium" selected>中等</option>
+              <option value="hard">困难</option>
+            </select>
+          </div>
+        </div>
+        <div style="display: flex; gap: 8px; margin-top: 12px;">
+          <button class="btn btn-secondary" onclick="closeCreateModal()" style="flex: 1;">取消</button>
+          <button class="btn btn-primary" onclick="createPose()" style="flex: 1;">创建</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="edit-modal" class="modal">
+    <div class="modal-content">
+      <div class="modal-header">
+        <div class="modal-title">编辑姿势</div>
+        <button class="close-btn" onclick="closeEditModal()">×</button>
+      </div>
+      <div style="display: flex; flex-direction: column; gap: 12px;">
+        <input type="hidden" id="edit-pose-id">
+        <div>
+          <label style="display: block; margin-bottom: 4px; font-size: 13px; color: #aaa;">英文名称</label>
+          <input type="text" id="edit-name-en" style="width: 100%; padding: 8px; background: #0a0a23; border: 1px solid #444; border-radius: 6px; color: #e0e0e0;">
+        </div>
+        <div>
+          <label style="display: block; margin-bottom: 4px; font-size: 13px; color: #aaa;">中文名称</label>
+          <input type="text" id="edit-name-cn" style="width: 100%; padding: 8px; background: #0a0a23; border: 1px solid #444; border-radius: 6px; color: #e0e0e0;">
+        </div>
+        <div>
+          <label style="display: block; margin-bottom: 4px; font-size: 13px; color: #aaa;">描述</label>
+          <textarea id="edit-description" style="width: 100%; padding: 8px; background: #0a0a23; border: 1px solid #444; border-radius: 6px; color: #e0e0e0; min-height: 60px;"></textarea>
+        </div>
+        <div style="display: flex; gap: 12px;">
+          <div style="flex: 1;">
+            <label style="display: block; margin-bottom: 4px; font-size: 13px; color: #aaa;">分类</label>
+            <select id="edit-category" style="width: 100%; padding: 8px; background: #0a0a23; border: 1px solid #444; border-radius: 6px; color: #e0e0e0;">
+              <option value="standing">站立</option>
+              <option value="lying">躺卧</option>
+              <option value="kneeling">跪姿</option>
+              <option value="sitting">坐姿</option>
+              <option value="other">其他</option>
+            </select>
+          </div>
+          <div style="flex: 1;">
+            <label style="display: block; margin-bottom: 4px; font-size: 13px; color: #aaa;">难度</label>
+            <select id="edit-difficulty" style="width: 100%; padding: 8px; background: #0a0a23; border: 1px solid #444; border-radius: 6px; color: #e0e0e0;">
+              <option value="easy">简单</option>
+              <option value="medium">中等</option>
+              <option value="hard">困难</option>
+            </select>
+          </div>
+        </div>
+        <div style="display: flex; gap: 8px; margin-top: 12px;">
+          <button class="btn btn-secondary" onclick="closeEditModal()" style="flex: 1;">取消</button>
+          <button class="btn btn-primary" onclick="updatePose()" style="flex: 1;">保存</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const API_KEY = 'wan22-default-key-change-me';
+    let allPoses = [];
+    let currentFilters = { search: '', category: '', difficulty: '' };
+    let searchMode = 'simple'; // 'simple' or 'intelligent'
+    let intelligentResults = [];
+
+    async function loadPoses() {
+      try {
+        const response = await fetch('/api/v1/poses');
+        const data = await response.json();
+        allPoses = data.poses || [];
+        renderPoses();
+      } catch (error) {
+        console.error('加载姿势失败:', error);
+        document.getElementById('pose-container').innerHTML =
+          '<div class="empty-state">加载失败，请刷新页面重试</div>';
+      }
+    }
+
+    function toggleSearchMode() {
+      searchMode = searchMode === 'simple' ? 'intelligent' : 'simple';
+      const btn = document.getElementById('search-mode-text');
+      const input = document.getElementById('search-input');
+
+      if (searchMode === 'intelligent') {
+        btn.textContent = '简单搜索';
+        input.placeholder = '智能搜索（输入自然语言，如：woman on top riding）...';
+        document.getElementById('search-mode-btn').style.background = '#7c83ff';
+      } else {
+        btn.textContent = '智能搜索';
+        input.placeholder = '搜索姿势（支持自然语言，如：woman on top riding）...';
+        document.getElementById('search-mode-btn').style.background = '#2a2a3a';
+      }
+
+      // 如果有搜索内容，重新搜索
+      if (currentFilters.search) {
+        handleSearch();
+      }
+    }
+
+    async function intelligentSearch(query) {
+      try {
+        const response = await fetch('/api/v1/poses/match', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            query: query,
+            top_k: 20,
+            min_score: 0.2
+          })
+        });
+        const data = await response.json();
+        return data.matches || [];
+      } catch (error) {
+        console.error('智能搜索失败:', error);
+        return [];
+      }
+    }
+
+    async function handleSearch() {
+      const query = currentFilters.search.trim();
+
+      if (!query) {
+        intelligentResults = [];
+        renderPoses();
+        return;
+      }
+
+      if (searchMode === 'intelligent') {
+        // 智能搜索模式
+        const matches = await intelligentSearch(query);
+        intelligentResults = matches.map(m => m.pose_id);
+        renderPoses();
+      } else {
+        // 简单搜索模式
+        intelligentResults = [];
+        renderPoses();
+      }
+    }
+
+    function filterPoses() {
+      let filtered = allPoses;
+
+      // 智能搜索模式：只显示匹配的姿势
+      if (searchMode === 'intelligent' && intelligentResults.length > 0) {
+        filtered = filtered.filter(pose => intelligentResults.includes(pose.id));
+      }
+      // 简单搜索模式：字符串匹配
+      else if (searchMode === 'simple' && currentFilters.search) {
+        filtered = filtered.filter(pose => {
+          const matchSearch =
+            pose.name_cn.includes(currentFilters.search) ||
+            pose.name_en.toLowerCase().includes(currentFilters.search.toLowerCase()) ||
+            pose.pose_key.toLowerCase().includes(currentFilters.search.toLowerCase()) ||
+            (pose.keywords && pose.keywords.some(k => k.toLowerCase().includes(currentFilters.search.toLowerCase())));
+          return matchSearch;
+        });
+      }
+
+      // 分类和难度过滤
+      filtered = filtered.filter(pose => {
+        const matchCategory = !currentFilters.category || pose.category === currentFilters.category;
+        const matchDifficulty = !currentFilters.difficulty || pose.difficulty === currentFilters.difficulty;
+        return matchCategory && matchDifficulty && pose.enabled;
+      });
+
+      return filtered;
+    }
+
+    async function renderPoses() {
+      const container = document.getElementById('pose-container');
+      const filtered = filterPoses();
+
+      if (filtered.length === 0) {
+        container.innerHTML = '<div class="empty-state">没有找到匹配的姿势</div>';
+        return;
+      }
+
+      // 先渲染基本卡片
+      container.innerHTML = filtered.map(pose => `
+        <div class="pose-card" id="pose-card-${pose.id}">
+          <div class="pose-header">
+            <div>
+              <div class="pose-title">${pose.name_cn}</div>
+              <div class="pose-key">${pose.pose_key}</div>
+            </div>
+            <div class="pose-badges">
+              <span class="badge badge-category">${getCategoryName(pose.category)}</span>
+              <span class="badge badge-difficulty ${pose.difficulty}">${getDifficultyName(pose.difficulty)}</span>
+            </div>
+          </div>
+          <div class="pose-description">${pose.description || '暂无描述'}</div>
+          ${pose.keywords && pose.keywords.length > 0 ? `
+          <div class="pose-keywords">
+            <strong>关键词:</strong> ${pose.keywords.join(', ')}
+          </div>
+          ` : ''}
+          <div id="pose-details-${pose.id}" style="color:#888;font-size:12px;padding:8px 0;">加载详情中...</div>
+          <div class="pose-actions">
+            <button class="btn btn-primary" onclick="viewConfig(${pose.id})">查看全部</button>
+            <button class="btn btn-secondary" onclick="autoAssociate(${pose.id})">自动关联</button>
+            <button class="btn btn-secondary" onclick="editPose(${pose.id})" style="background: #2a2a3a;">编辑</button>
+            <button class="btn btn-secondary" onclick="deletePose(${pose.id})" style="background: #4a1a1a; color: #f87171;">删除</button>
+          </div>
+        </div>
+      `).join('');
+
+      // 异步加载每个姿势的详细配置
+      filtered.forEach(pose => loadPoseDetails(pose.id));
+    }
+
+    // Helper function to merge HIGH/LOW LORA variants
+    function mergeLORAVariants(loras) {
+      const loraMap = new Map();
+
+      for (const lora of loras) {
+        let baseName = lora.lora_name || '';
+        const highLowMatch = baseName.match(/^(.+?)_(HIGH|LOW|high|low|highnoise|lownoise)(_.*)?$/i);
+
+        if (highLowMatch) {
+          baseName = highLowMatch[1] + (highLowMatch[3] || '');
+        }
+
+        if (loraMap.has(baseName)) {
+          const existing = loraMap.get(baseName);
+          // Prefer preview_url from whichever variant has it
+          if (!existing.preview_url && lora.preview_url) {
+            existing.preview_url = lora.preview_url;
+          }
+          if (!existing.civitai_id && lora.civitai_id) {
+            existing.civitai_id = lora.civitai_id;
+          }
+          if (!existing.lora_id && lora.lora_id) {
+            existing.lora_id = lora.lora_id;
+          }
+          // Store all variant IDs for deletion
+          if (!existing.variant_ids) {
+            existing.variant_ids = [existing.id];
+          }
+          existing.variant_ids.push(lora.id);
+          // Mark as merged
+          existing.is_merged = true;
+        } else {
+          loraMap.set(baseName, { ...lora, baseName });
+        }
+      }
+
+      return Array.from(loraMap.values());
+    }
+
+    async function loadPoseDetails(poseId) {
+      try {
+        const response = await fetch(`/api/v1/poses/${poseId}/config`);
+        const data = await response.json();
+
+        const detailsContainer = document.getElementById(`pose-details-${poseId}`);
+        if (!detailsContainer) return;
+
+        // Merge HIGH/LOW variants for both video and image LORAs
+        if (data.video_loras) {
+          data.video_loras = mergeLORAVariants(data.video_loras);
+        }
+        if (data.image_loras) {
+          data.image_loras = mergeLORAVariants(data.image_loras);
+        }
+
+        let html = '';
+
+        // 参考图预览（始终显示）
+        html += `
+          <div class="pose-preview-section">
+            <div class="pose-preview-title">📷 参考图 (${data.reference_images?.length || 0})</div>
+        `;
+
+        if (data.reference_images && data.reference_images.length > 0) {
+          const displayImages = data.reference_images.slice(0, 4);
+          const remaining = data.reference_images.length - 4;
+
+          html += `
+            <div class="pose-preview-grid">
+              ${displayImages.map((img, idx) => {
+                const isVideo = img.image_url && (img.image_url.endsWith('.mp4') || img.image_url.endsWith('.webm'));
+                if (isVideo) {
+                  return `
+                    <div class="pose-preview-item"
+                         ondblclick="openImageZoom('${img.image_url}', true)"
+                         onmouseenter="playPreviewVideo(this)"
+                         onmouseleave="pausePreviewVideo(this)">
+                      <video src="${img.image_url}" muted loop playsinline></video>
+                      <span class="pose-preview-badge">视频</span>
+                      <span class="pose-preview-delete" onclick="event.stopPropagation(); deleteReferenceImage(${poseId}, ${img.id})">×</span>
+                    </div>
+                  `;
+                } else {
+                  return `
+                    <div class="pose-preview-item" ondblclick="openImageZoom('${img.image_url}', false)">
+                      <img src="${img.image_url}" loading="lazy">
+                      <span class="pose-preview-delete" onclick="event.stopPropagation(); deleteReferenceImage(${poseId}, ${img.id})">×</span>
+                    </div>
+                  `;
+                }
+              }).join('')}
+              ${remaining > 0 ? `
+                <div class="pose-preview-item" onclick="viewConfig(${poseId})">
+                  <div class="pose-preview-more">+${remaining}</div>
+                </div>
+              ` : ''}
+            </div>
+          `;
+        } else {
+          html += `
+            <div class="pose-preview-empty">
+              暂无参考图
+              <br>
+              <button class="btn btn-secondary" onclick="openResourceSelector(${poseId})" style="padding:4px 12px;font-size:11px;">添加参考图</button>
+            </div>
+          `;
+        }
+        html += `</div>`;
+
+        // 视频 LORA（始终显示）
+        html += `
+          <div class="pose-preview-section">
+            <div class="pose-preview-title">🎬 视频LORA (${data.video_loras?.length || 0})</div>
+        `;
+
+        if (data.video_loras && data.video_loras.length > 0) {
+          const displayLoras = data.video_loras.slice(0, 3);
+          const remaining = data.video_loras.length - 3;
+
+          html += `
+            <div class="pose-lora-list">
+              ${displayLoras.map(lora => {
+                const isVideo = lora.preview_url && (lora.preview_url.endsWith('.mp4') || lora.preview_url.endsWith('.webm'));
+                const previewHtml = lora.preview_url
+                  ? (isVideo
+                      ? `<video src="${lora.preview_url}" class="pose-lora-preview" muted loop playsinline onmouseenter="this.play()" onmouseleave="this.pause()" onclick="openImageZoom('${lora.preview_url}', true)" style="cursor:pointer"></video>`
+                      : `<img src="${lora.preview_url}" class="pose-lora-preview" onclick="openImageZoom('${lora.preview_url}', false)" style="cursor:pointer">`)
+                  : '<div class="pose-lora-preview"></div>';
+
+                const civitaiLink = lora.civitai_id
+                  ? `https://civitai.com/models/${lora.civitai_id}`
+                  : null;
+
+                const displayName = lora.is_merged
+                  ? `${lora.baseName} <span style="color:#7c83ff;font-size:9px;">[HIGH/LOW]</span>`
+                  : (lora.lora_name || `LORA ${lora.lora_id}`);
+
+                const nameHtml = civitaiLink
+                  ? `<div class="pose-lora-name" onclick="window.open('${civitaiLink}', '_blank')" title="点击访问 Civitai">${displayName} 🔗</div>`
+                  : `<div class="pose-lora-name" onclick="viewLoraDetail(${lora.lora_id})" title="点击查看详情">${displayName}</div>`;
+
+                const deleteHandler = lora.is_merged
+                  ? `deleteMultiplePoseLoras(${poseId}, [${lora.variant_ids.join(',')}])`
+                  : `deletePoseLora(${poseId}, ${lora.id})`;
+
+                return `
+                  <div class="pose-lora-item">
+                    ${previewHtml}
+                    <div class="pose-lora-info">
+                      ${nameHtml}
+                      <div class="pose-lora-type">权重: ${lora.recommended_weight || 1.0}</div>
+                    </div>
+                    <div class="pose-lora-delete" onclick="${deleteHandler}">删除</div>
+                  </div>
+                `;
+              }).join('')}
+              ${remaining > 0 ? `<div style="text-align:center;padding:4px;color:#7c83ff;font-size:11px;">还有 ${remaining} 个...</div>` : ''}
+            </div>
+          `;
+        } else {
+          html += `
+            <div class="pose-preview-empty">
+              暂无视频LORA
+              <br>
+              <button class="btn btn-secondary" onclick="openLoraSelector(${poseId}, 'video')" style="padding:4px 12px;font-size:11px;">添加视频LORA</button>
+            </div>
+          `;
+        }
+        html += `</div>`;
+
+        // 图片 LORA（始终显示）
+        html += `
+          <div class="pose-preview-section">
+            <div class="pose-preview-title">🖼️ 图片LORA (${data.image_loras?.length || 0})</div>
+        `;
+
+        if (data.image_loras && data.image_loras.length > 0) {
+          const displayLoras = data.image_loras.slice(0, 3);
+          const remaining = data.image_loras.length - 3;
+
+          html += `
+            <div class="pose-lora-list">
+              ${displayLoras.map(lora => {
+                const isVideo = lora.preview_url && (lora.preview_url.endsWith('.mp4') || lora.preview_url.endsWith('.webm'));
+                const previewHtml = lora.preview_url
+                  ? (isVideo
+                      ? `<video src="${lora.preview_url}" class="pose-lora-preview" muted loop playsinline onmouseenter="this.play()" onmouseleave="this.pause()" onclick="openImageZoom('${lora.preview_url}', true)" style="cursor:pointer"></video>`
+                      : `<img src="${lora.preview_url}" class="pose-lora-preview" onclick="openImageZoom('${lora.preview_url}', false)" style="cursor:pointer">`)
+                  : '<div class="pose-lora-preview"></div>';
+
+                const civitaiLink = lora.civitai_id
+                  ? `https://civitai.com/models/${lora.civitai_id}`
+                  : null;
+
+                const displayName = lora.is_merged
+                  ? `${lora.baseName} <span style="color:#7c83ff;font-size:9px;">[HIGH/LOW]</span>`
+                  : (lora.lora_name || `LORA ${lora.lora_id}`);
+
+                const nameHtml = civitaiLink
+                  ? `<div class="pose-lora-name" onclick="window.open('${civitaiLink}', '_blank')" title="点击访问 Civitai">${displayName} 🔗</div>`
+                  : `<div class="pose-lora-name" onclick="viewLoraDetail(${lora.lora_id})" title="点击查看详情">${displayName}</div>`;
+
+                const deleteHandler = lora.is_merged
+                  ? `deleteMultiplePoseLoras(${poseId}, [${lora.variant_ids.join(',')}])`
+                  : `deletePoseLora(${poseId}, ${lora.id})`;
+
+                return `
+                  <div class="pose-lora-item">
+                    ${previewHtml}
+                    <div class="pose-lora-info">
+                      ${nameHtml}
+                      <div class="pose-lora-type">权重: ${lora.recommended_weight || 1.0}</div>
+                    </div>
+                    <div class="pose-lora-delete" onclick="${deleteHandler}">删除</div>
+                  </div>
+                `;
+              }).join('')}
+              ${remaining > 0 ? `<div style="text-align:center;padding:4px;color:#7c83ff;font-size:11px;">还有 ${remaining} 个...</div>` : ''}
+            </div>
+          `;
+        } else {
+          html += `
+            <div class="pose-preview-empty">
+              暂无图片LORA
+              <br>
+              <button class="btn btn-secondary" onclick="openLoraSelector(${poseId}, 'image')" style="padding:4px 12px;font-size:11px;">添加图片LORA</button>
+            </div>
+          `;
+        }
+        html += `</div>`;
+
+        detailsContainer.innerHTML = html;
+      } catch (error) {
+        console.error(`加载姿势 ${poseId} 详情失败:`, error);
+        const detailsContainer = document.getElementById(`pose-details-${poseId}`);
+        if (detailsContainer) {
+          detailsContainer.innerHTML = '<div style="color:#f87171;font-size:12px;">加载失败</div>';
+        }
+      }
+    }
+
+    async function viewConfig(poseId) {
+      try {
+        const response = await fetch(`/api/v1/poses/${poseId}/config`);
+        const data = await response.json();
+
+        document.getElementById('modal-title').textContent =
+          `${data.pose.name_cn} (${data.pose.pose_key})`;
+
+        let html = '';
+
+        // Reference images
+        if (data.reference_images && data.reference_images.length > 0) {
+          html += '<div class="config-section"><h3>参考首帧图</h3><div class="config-list">';
+          data.reference_images.forEach(img => {
+            html += `
+              <div class="config-item">
+                <div class="config-item-title">
+                  ${img.angle || '未指定角度'} · ${img.style || '未指定风格'}
+                  ${img.is_default ? ' · 默认' : ''}
+                </div>
+                <div class="config-item-detail">质量评分: ${img.quality_score || 'N/A'}</div>
+                <img src="${img.image_url}" class="image-preview" loading="lazy">
+              </div>
+            `;
+          });
+          html += '</div></div>';
+        }
+
+        // Video LORAs
+        if (data.video_loras && data.video_loras.length > 0) {
+          html += '<div class="config-section"><h3>视频 LORA</h3><div class="config-list">';
+          data.video_loras.forEach(lora => {
+            html += `
+              <div class="config-item">
+                <div class="config-item-title">
+                  ${lora.lora_name || `LORA ID: ${lora.lora_id}`}
+                  ${lora.is_default ? ' · 默认' : ''}
+                </div>
+                <div class="config-item-detail">
+                  LORA ID: ${lora.lora_id}<br>
+                  噪声阶段: ${lora.noise_stage || 'N/A'}<br>
+                  触发词: ${lora.trigger_words || 'N/A'}<br>
+                  推荐权重: ${lora.recommended_weight || 1.0}
+                </div>
+              </div>
+            `;
+          });
+          html += '</div></div>';
+        }
+
+        // Image LORAs
+        if (data.image_loras && data.image_loras.length > 0) {
+          html += '<div class="config-section"><h3>图片 LORA</h3><div class="config-list">';
+          data.image_loras.forEach(lora => {
+            html += `
+              <div class="config-item">
+                <div class="config-item-title">
+                  ${lora.lora_name || `LORA ID: ${lora.lora_id}`}
+                  ${lora.is_default ? ' · 默认' : ''}
+                </div>
+                <div class="config-item-detail">
+                  LORA ID: ${lora.lora_id}<br>
+                  触发词: ${lora.trigger_words || 'N/A'}<br>
+                  推荐权重: ${lora.recommended_weight || 1.0}
+                </div>
+              </div>
+            `;
+          });
+          html += '</div></div>';
+        }
+
+        // Prompt templates
+        if (data.prompt_templates && data.prompt_templates.length > 0) {
+          html += '<div class="config-section"><h3>提示词模板</h3><div class="config-list">';
+          data.prompt_templates.forEach(tpl => {
+            html += `
+              <div class="config-item">
+                <div class="config-item-title">
+                  ${tpl.template_type}
+                  ${tpl.angle ? ` · ${tpl.angle}` : ''}
+                </div>
+                <div class="config-item-detail">${tpl.prompt_template || tpl.template_text || 'N/A'}</div>
+              </div>
+            `;
+          });
+          html += '</div></div>';
+        }
+
+        if (!html) {
+          html = '<div class="empty-state">暂无配置数据</div>';
+        }
+
+        document.getElementById('modal-body').innerHTML = html;
+        document.getElementById('config-modal').classList.add('active');
+      } catch (error) {
+        console.error('加载配置失败:', error);
+        alert('加载配置失败');
+      }
+    }
+
+    function closeModal() {
+      document.getElementById('config-modal').classList.remove('active');
+    }
+
+    function showCreateModal() {
+      document.getElementById('create-modal').classList.add('active');
+    }
+
+    function closeCreateModal() {
+      document.getElementById('create-modal').classList.remove('active');
+      document.getElementById('create-pose-key').value = '';
+      document.getElementById('create-name-en').value = '';
+      document.getElementById('create-name-cn').value = '';
+      document.getElementById('create-description').value = '';
+      document.getElementById('create-category').value = 'other';
+      document.getElementById('create-difficulty').value = 'medium';
+    }
+
+    async function createPose() {
+      const poseKey = document.getElementById('create-pose-key').value.trim();
+      const nameEn = document.getElementById('create-name-en').value.trim();
+      const nameCn = document.getElementById('create-name-cn').value.trim();
+      const description = document.getElementById('create-description').value.trim();
+      const category = document.getElementById('create-category').value;
+      const difficulty = document.getElementById('create-difficulty').value;
+
+      if (!poseKey || !nameEn || !nameCn) {
+        alert('请填写必填字段：姿势Key、英文名称、中文名称');
+        return;
+      }
+
+      try {
+        const response = await fetch('/api/v1/admin/poses', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-API-Key': API_KEY
+          },
+          body: JSON.stringify({
+            pose_key: poseKey,
+            name_en: nameEn,
+            name_cn: nameCn,
+            description: description || null,
+            category: category,
+            difficulty: difficulty
+          })
+        });
+
+        if (!response.ok) {
+          const error = await response.json();
+          throw new Error(error.detail || '创建失败');
+        }
+
+        alert('姿势创建成功');
+        closeCreateModal();
+        await loadPoses();
+      } catch (error) {
+        console.error('创建姿势失败:', error);
+        alert('创建失败: ' + error.message);
+      }
+    }
+
+    function closeEditModal() {
+      document.getElementById('edit-modal').classList.remove('active');
+    }
+
+    async function editPose(poseId) {
+      const pose = allPoses.find(p => p.id === poseId);
+      if (!pose) return;
+
+      document.getElementById('edit-pose-id').value = poseId;
+      document.getElementById('edit-name-en').value = pose.name_en;
+      document.getElementById('edit-name-cn').value = pose.name_cn;
+      document.getElementById('edit-description').value = pose.description || '';
+      document.getElementById('edit-category').value = pose.category;
+      document.getElementById('edit-difficulty').value = pose.difficulty;
+
+      document.getElementById('edit-modal').classList.add('active');
+    }
+
+    async function updatePose() {
+      const poseId = document.getElementById('edit-pose-id').value;
+      const nameEn = document.getElementById('edit-name-en').value.trim();
+      const nameCn = document.getElementById('edit-name-cn').value.trim();
+      const description = document.getElementById('edit-description').value.trim();
+      const category = document.getElementById('edit-category').value;
+      const difficulty = document.getElementById('edit-difficulty').value;
+
+      if (!nameEn || !nameCn) {
+        alert('请填写必填字段：英文名称、中文名称');
+        return;
+      }
+
+      try {
+        const response = await fetch(`/api/v1/admin/poses/${poseId}`, {
+          method: 'PUT',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-API-Key': API_KEY
+          },
+          body: JSON.stringify({
+            name_en: nameEn,
+            name_cn: nameCn,
+            description: description || null,
+            category: category,
+            difficulty: difficulty
+          })
+        });
+
+        if (!response.ok) {
+          const error = await response.json();
+          throw new Error(error.detail || '更新失败');
+        }
+
+        alert('姿势更新成功');
+        closeEditModal();
+        await loadPoses();
+      } catch (error) {
+        console.error('更新姿势失败:', error);
+        alert('更新失败: ' + error.message);
+      }
+    }
+
+    async function deletePose(poseId) {
+      if (!confirm('确定要删除这个姿势吗？')) {
+        return;
+      }
+
+      try {
+        const response = await fetch(`/api/v1/admin/poses/${poseId}`, {
+          method: 'DELETE',
+          headers: {
+            'X-API-Key': API_KEY
+          }
+        });
+
+        if (!response.ok) {
+          const error = await response.json();
+          throw new Error(error.detail || '删除失败');
+        }
+
+        alert('姿势已删除');
+        await loadPoses();
+      } catch (error) {
+        console.error('删除姿势失败:', error);
+        alert('删除失败: ' + error.message);
+      }
+    }
+
+    async function autoAssociate(poseId) {
+      if (!confirm('确定要自动关联收藏的资源和启用的LORA到这个姿势吗？\n\n系统会根据关键词匹配自动关联相关资源。')) {
+        return;
+      }
+
+      try {
+        const response = await fetch(`/api/v1/admin/poses/${poseId}/auto-associate`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-API-Key': API_KEY
+          },
+          body: JSON.stringify({
+            pose_id: poseId,
+            match_threshold: 0.3
+          })
+        });
+
+        if (!response.ok) {
+          const error = await response.json();
+          throw new Error(error.detail || '自动关联失败');
+        }
+
+        const result = await response.json();
+        alert(`自动关联完成！\n\n关联了 ${result.associated_resources} 个资源\n关联了 ${result.associated_loras} 个LORA`);
+
+        // 重新加载姿势列表以更新统计信息
+        await loadPoses();
+      } catch (error) {
+        console.error('自动关联失败:', error);
+        alert('自动关联失败: ' + error.message);
+      }
+    }
+
+    function getCategoryName(category) {
+      const names = {
+        standing: '站立',
+        lying: '躺卧',
+        kneeling: '跪姿',
+        sitting: '坐姿',
+        other: '其他'
+      };
+      return names[category] || category;
+    }
+
+    function getDifficultyName(difficulty) {
+      const names = {
+        easy: '简单',
+        medium: '中等',
+        hard: '困难'
+      };
+      return names[difficulty] || difficulty;
+    }
+
+    // Event listeners
+    let searchTimeout;
+    document.getElementById('search-input').addEventListener('input', (e) => {
+      currentFilters.search = e.target.value;
+
+      // 防抖：延迟300ms执行搜索
+      clearTimeout(searchTimeout);
+      searchTimeout = setTimeout(() => {
+        handleSearch();
+      }, 300);
+    });
+
+    document.getElementById('category-filter').addEventListener('change', (e) => {
+      currentFilters.category = e.target.value;
+      renderPoses();
+    });
+
+    document.getElementById('difficulty-filter').addEventListener('change', (e) => {
+      currentFilters.difficulty = e.target.value;
+      renderPoses();
+    });
+
+    // Close modal on outside click
+    document.getElementById('config-modal').addEventListener('click', (e) => {
+      if (e.target.id === 'config-modal') {
+        closeModal();
+      }
+    });
+
+    document.getElementById('create-modal').addEventListener('click', (e) => {
+      if (e.target.id === 'create-modal') {
+        closeCreateModal();
+      }
+    });
+
+    document.getElementById('edit-modal').addEventListener('click', (e) => {
+      if (e.target.id === 'edit-modal') {
+        closeEditModal();
+      }
+    });
+
+    // Load poses on page load
+    loadPoses();
+
+    // ========== 新增辅助函数 ==========
+
+    // 视频悬停播放
+    function playPreviewVideo(element) {
+      const video = element.querySelector('video');
+      if (video) {
+        video.play().catch(e => console.log('Video play failed:', e));
+      }
+    }
+
+    function pausePreviewVideo(element) {
+      const video = element.querySelector('video');
+      if (video) {
+        video.pause();
+        video.currentTime = 0;
+      }
+    }
+
+    // 图片/视频放大查看
+    function openImageZoom(url, isVideo) {
+      const modal = document.createElement('div');
+      modal.className = 'image-zoom-modal active';
+      modal.id = 'imageZoomModal';
+
+      const mediaHtml = isVideo
+        ? `<video src="${url}" controls autoplay loop style="max-width:100%;max-height:90vh;border-radius:8px;"></video>`
+        : `<img src="${url}" style="max-width:100%;max-height:90vh;border-radius:8px;">`;
+
+      modal.innerHTML = `
+        <div class="image-zoom-content">
+          <button class="image-zoom-close" onclick="closeImageZoom()">关闭 ✕</button>
+          ${mediaHtml}
+        </div>
+      `;
+
+      modal.onclick = (e) => {
+        if (e.target.className === 'image-zoom-modal active') {
+          closeImageZoom();
+        }
+      };
+
+      document.body.appendChild(modal);
+    }
+
+    function closeImageZoom() {
+      const modal = document.getElementById('imageZoomModal');
+      if (modal) {
+        const video = modal.querySelector('video');
+        if (video) video.pause();
+        modal.remove();
+      }
+    }
+
+    // 删除参考图
+    async function deleteReferenceImage(poseId, imageId) {
+      if (!confirm('确定要删除这张参考图吗？')) return;
+
+      try {
+        const response = await fetch(`/api/v1/admin/poses/reference-images/${imageId}`, {
+          method: 'DELETE',
+          headers: { 'X-API-Key': 'wan22-default-key-change-me' }
+        });
+
+        if (!response.ok) {
+          const error = await response.json();
+          throw new Error(error.detail || '删除失败');
+        }
+
+        alert('删除成功');
+        // 重新加载该姿势的详情
+        await loadPoseDetails(poseId);
+      } catch (error) {
+        console.error('删除参考图失败:', error);
+        alert('删除失败: ' + error.message);
+      }
+    }
+
+    // 删除姿势LORA关联
+    async function deletePoseLora(poseId, loraId) {
+      if (!confirm('确定要删除这个LORA关联吗？')) return;
+
+      try {
+        const response = await fetch(`/api/v1/admin/poses/loras/${loraId}`, {
+          method: 'DELETE',
+          headers: { 'X-API-Key': 'wan22-default-key-change-me' }
+        });
+
+        if (!response.ok) {
+          const error = await response.json();
+          throw new Error(error.detail || '删除失败');
+        }
+
+        alert('删除成功');
+        // 重新加载该姿势的详情
+        await loadPoseDetails(poseId);
+      } catch (error) {
+        console.error('删除LORA关联失败:', error);
+        alert('删除失败: ' + error.message);
+      }
+    }
+
+    async function deleteMultiplePoseLoras(poseId, loraIds) {
+      if (!confirm(`确定要删除这${loraIds.length}个LORA关联吗？`)) return;
+
+      try {
+        for (const loraId of loraIds) {
+          const response = await fetch(`/api/v1/admin/poses/loras/${loraId}`, {
+            method: 'DELETE',
+            headers: { 'X-API-Key': 'wan22-default-key-change-me' }
+          });
+
+          if (!response.ok) {
+            const error = await response.json();
+            throw new Error(error.detail || '删除失败');
+          }
+        }
+
+        alert('删除成功');
+        // 重新加载该姿势的详情
+        await loadPoseDetails(poseId);
+      } catch (error) {
+        console.error('删除LORA关联失败:', error);
+        alert('删除失败: ' + error.message);
+      }
+    }
+
+    // LORA 详情跳转
+    function viewLoraDetail(loraId) {
+      window.location.href = `/lora_manager.html#lora-${loraId}`;
+    }
+
+    // 资源选择器相关变量
+    let currentPoseIdForResource = null;
+    let selectedResourceIds = new Set();
+    let allResources = [];
+
+    // 打开资源选择器
+    async function openResourceSelector(poseId) {
+      console.log("openResourceSelector called with poseId:", poseId);
+      currentPoseIdForResource = poseId;
+      selectedResourceIds.clear();
+
+      const modal = document.getElementById('resourceSelectorModal');
+      modal.classList.add('active');
+
+      // 加载资源列表
+      await loadResourcesForSelector();
+    }
+
+    // 加载资源列表
+    async function loadResourcesForSelector() {
+      try {
+        const response = await fetch('/api/v1/resources?page=1&page_size=100&resource_type=image,video', {
+          headers: { 'X-API-Key': 'wan22-default-key-change-me' }
+        });
+        const data = await response.json();
+        allResources = data.resources || [];
+        console.log("Fetched resources:", allResources.length);
+
+        renderResourceSelector();
+      } catch (error) {
+        console.error('加载资源失败:', error);
+        document.getElementById('resourceSelectorGrid').innerHTML =
+          '<div style="text-align:center;padding:40px;color:#f87171;grid-column:1/-1;">加载失败</div>';
+      }
+    }
+
+    // 渲染资源选择器
+    function renderResourceSelector() {
+      const grid = document.getElementById('resourceSelectorGrid');
+      const searchTerm = document.getElementById('resourceSearchInput').value.toLowerCase();
+      const typeFilter = document.getElementById('resourceTypeFilter').value;
+
+      let filtered = allResources.filter(r => {
+        const matchSearch = !searchTerm ||
+          (r.prompt && r.prompt.toLowerCase().includes(searchTerm)) ||
+          (r.url && r.url.toLowerCase().includes(searchTerm));
+        const matchType = !typeFilter || r.resource_type === typeFilter;
+        return matchSearch && matchType;
+      });
+
+      if (filtered.length === 0) {
+        grid.innerHTML = '<div style="text-align:center;padding:40px;color:#666;grid-column:1/-1;">没有找到资源</div>';
+        return;
+      }
+
+      grid.innerHTML = filtered.map(resource => {
+        const isSelected = selectedResourceIds.has(resource.id);
+        const isVideo = resource.resource_type === 'video' || resource.url.match(/\.(mp4|webm)$/i);
+
+        return `
+          <div class="resource-selector-item ${isSelected ? 'selected' : ''}"
+               onclick="toggleResourceSelection(${resource.id})">
+            <div class="resource-selector-item-preview">
+              ${isVideo
+                ? `<video src="${resource.url}" muted loop playsinline></video>`
+                : `<img src="${resource.url}" loading="lazy">`
+              }
+              <div class="resource-selector-item-checkbox">
+                ${isSelected ? '✓' : ''}
+              </div>
+            </div>
+            <div class="resource-selector-item-info">
+              ${resource.prompt ? resource.prompt.substring(0, 50) + '...' : 'ID: ' + resource.id}
+            </div>
+          </div>
+        `;
+      }).join('');
+
+      updateResourceSelectedCount();
+    }
+
+    // 切换资源选择
+    function toggleResourceSelection(resourceId) {
+      if (selectedResourceIds.has(resourceId)) {
+        selectedResourceIds.delete(resourceId);
+      } else {
+        selectedResourceIds.add(resourceId);
+      }
+      renderResourceSelector();
+    }
+
+    // 更新选择计数
+    function updateResourceSelectedCount() {
+      document.getElementById('resourceSelectedCount').textContent = selectedResourceIds.size;
+    }
+
+    // 确认资源选择
+    async function confirmResourceSelection() {
+      if (selectedResourceIds.size === 0) {
+        alert('请至少选择一个资源');
+        return;
+      }
+
+      try {
+        for (const resourceId of selectedResourceIds) {
+          const response = await fetch('/api/v1/admin/poses/reference-images', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'X-API-Key': 'wan22-default-key-change-me'
+            },
+            body: JSON.stringify({
+              pose_id: currentPoseIdForResource,
+              resource_id: resourceId,
+              is_default: false
+            })
+          });
+
+          if (!response.ok) {
+            const error = await response.json();
+            console.error(`添加资源 ${resourceId} 失败:`, error);
+          }
+        }
+
+        alert(`成功添加 ${selectedResourceIds.size} 个参考图`);
+        closeResourceSelector();
+        await loadPoseDetails(currentPoseIdForResource);
+      } catch (error) {
+        console.error('添加参考图失败:', error);
+        alert('添加失败: ' + error.message);
+      }
+    }
+
+    // 关闭资源选择器
+    function closeResourceSelector() {
+      document.getElementById('resourceSelectorModal').classList.remove('active');
+      selectedResourceIds.clear();
+      currentPoseIdForResource = null;
+    }
+
+    // LORA选择器相关变量
+    let currentPoseIdForLora = null;
+    let currentLoraType = null;
+    let selectedLoraIds = new Set();
+    let allLoras = [];
+
+    // 打开LORA选择器
+    async function openLoraSelector(poseId, loraType) {
+      console.log("openLoraSelector called with poseId:", poseId, "type:", loraType);
+      currentPoseIdForLora = poseId;
+      currentLoraType = loraType;
+      selectedLoraIds.clear();
+
+      const modal = document.getElementById('loraSelectorModal');
+      const title = document.getElementById('loraSelectorTitle');
+      title.textContent = loraType === 'video' ? '选择视频LORA' : '选择图片LORA';
+      modal.classList.add('active');
+
+      // 加载LORA列表
+      await loadLorasForSelector();
+    }
+
+    // 加载LORA列表
+    async function loadLorasForSelector() {
+      try {
+        // 使用管理端API获取LORA列表
+        const response = await fetch(`/api/v1/admin/loras?lora_type=${currentLoraType}`, {
+          headers: { 'X-API-Key': 'wan22-default-key-change-me' }
+        });
+
+        const loras = await response.json();
+
+        // 合并HIGH/LOW变体
+        const loraMap = new Map();
+        for (const lora of loras) {
+          // 提取基础名称（去除_HIGH/_LOW后缀）
+          let baseName = lora.name || '';
+          const highLowMatch = baseName.match(/^(.+?)_(HIGH|LOW|high|low)$/i);
+          if (highLowMatch) {
+            baseName = highLowMatch[1];
+          }
+
+          if (loraMap.has(baseName)) {
+            // 已存在，合并信息
+            const existing = loraMap.get(baseName);
+            // 优先使用有preview_url的
+            if (!existing.preview_url && lora.preview_url) {
+              existing.preview_url = lora.preview_url;
+            }
+            // 收集所有ID
+            if (!existing.variant_ids) {
+              existing.variant_ids = [existing.id];
+            }
+            existing.variant_ids.push(lora.id);
+          } else {
+            // 新LORA
+            const loraData = { ...lora, baseName };
+            loraMap.set(baseName, loraData);
+          }
+        }
+
+        allLoras = Array.from(loraMap.values());
+        console.log("Loaded and merged LORAs:", allLoras.length);
+        renderLoraSelector();
+      } catch (error) {
+        console.error('加载LORA失败:', error);
+        document.getElementById('loraSelectorGrid').innerHTML =
+          '<div style="text-align:center;padding:40px;color:#f87171;grid-column:1/-1;">加载失败</div>';
+      }
+    }
+
+    // 渲染LORA选择器
+    function renderLoraSelector() {
+      const grid = document.getElementById('loraSelectorGrid');
+      const searchTerm = document.getElementById('loraSearchInput').value.toLowerCase();
+
+      let filtered = allLoras.filter(lora => {
+        const matchSearch = !searchTerm ||
+          (lora.name && lora.name.toLowerCase().includes(searchTerm)) ||
+          (lora.baseName && lora.baseName.toLowerCase().includes(searchTerm));
+        return matchSearch;
+      });
+
+      if (filtered.length === 0) {
+        grid.innerHTML = '<div style="text-align:center;padding:40px;color:#666;grid-column:1/-1;">没有找到LORA</div>';
+        return;
+      }
+
+      grid.innerHTML = filtered.map(lora => {
+        const isSelected = selectedLoraIds.has(lora.id);
+        const hasPreview = lora.preview_url;
+        const hasVariants = lora.variant_ids && lora.variant_ids.length > 1;
+        const displayName = lora.baseName || lora.name || 'LORA ' + lora.id;
+
+        return `
+          <div class="resource-selector-item ${isSelected ? 'selected' : ''}"
+               onclick="toggleLoraSelection(${lora.id})">
+            <div class="resource-selector-item-preview">
+              ${hasPreview
+                ? (lora.preview_url.match(/\.(mp4|webm)$/i)
+                    ? `<video src="${lora.preview_url}" muted loop playsinline></video>`
+                    : `<img src="${lora.preview_url}" loading="lazy">`)
+                : '<div style="display:flex;align-items:center;justify-content:center;height:100%;color:#666;">无预览</div>'
+              }
+              <div class="resource-selector-item-checkbox">
+                ${isSelected ? '✓' : ''}
+              </div>
+              ${hasVariants ? '<div style="position:absolute;top:4px;left:4px;background:rgba(124,131,255,0.9);color:white;padding:2px 6px;border-radius:3px;font-size:9px;font-weight:600;z-index:2;">HIGH/LOW</div>' : ''}
+            </div>
+            <div class="resource-selector-item-info">
+              ${displayName}
+            </div>
+          </div>
+        `;
+      }).join('');
+
+      updateLoraSelectedCount();
+    }
+
+    // 切换LORA选择
+    function toggleLoraSelection(loraId) {
+      if (selectedLoraIds.has(loraId)) {
+        selectedLoraIds.delete(loraId);
+      } else {
+        selectedLoraIds.add(loraId);
+      }
+      renderLoraSelector();
+    }
+
+    // 更新LORA选择计数
+    function updateLoraSelectedCount() {
+      document.getElementById('loraSelectedCount').textContent = selectedLoraIds.size;
+    }
+
+    // 确认LORA选择
+    async function confirmLoraSelection() {
+      if (selectedLoraIds.size === 0) {
+        alert('请至少选择一个LORA');
+        return;
+      }
+
+      try {
+        let addedCount = 0;
+
+        for (const loraId of selectedLoraIds) {
+          // 找到对应的LORA对象
+          const lora = allLoras.find(l => l.id === loraId);
+
+          // 如果有变体ID，添加所有变体
+          const idsToAdd = lora && lora.variant_ids ? lora.variant_ids : [loraId];
+
+          for (const id of idsToAdd) {
+            const response = await fetch('/api/v1/admin/poses/loras', {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'X-API-Key': 'wan22-default-key-change-me'
+              },
+              body: JSON.stringify({
+                pose_id: currentPoseIdForLora,
+                lora_id: id,
+                lora_type: currentLoraType,
+                recommended_weight: 1.0,
+                is_default: false
+              })
+            });
+
+            if (!response.ok) {
+              const error = await response.json();
+              console.error(`添加LORA ${id} 失败:`, error);
+            } else {
+              addedCount++;
+            }
+          }
+        }
+
+        alert(`成功添加 ${addedCount} 个LORA`);
+        closeLoraSelector();
+        await loadPoseDetails(currentPoseIdForLora);
+      } catch (error) {
+        console.error('添加LORA失败:', error);
+        alert('添加失败: ' + error.message);
+      }
+    }
+
+    // 关闭LORA选择器
+    function closeLoraSelector() {
+      document.getElementById('loraSelectorModal').classList.remove('active');
+      selectedLoraIds.clear();
+      currentPoseIdForLora = null;
+      currentLoraType = null;
+    }
+
+    // 添加搜索和筛选事件监听
+    document.addEventListener('DOMContentLoaded', () => {
+      const resourceSearchInput = document.getElementById('resourceSearchInput');
+      const resourceTypeFilter = document.getElementById('resourceTypeFilter');
+      const loraSearchInput = document.getElementById('loraSearchInput');
+
+      if (resourceSearchInput) {
+        resourceSearchInput.addEventListener('input', renderResourceSelector);
+      }
+      if (resourceTypeFilter) {
+        resourceTypeFilter.addEventListener('change', renderResourceSelector);
+      }
+      if (loraSearchInput) {
+        loraSearchInput.addEventListener('input', renderLoraSelector);
+      }
+    });
+
+    // ESC 键关闭放大图片
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') {
+        closeImageZoom();
+        closeResourceSelector();
+        closeLoraSelector();
+      }
+    });
+  </script>
+
+  <!-- 资源选择器模态框 -->
+  <div id="resourceSelectorModal" class="resource-selector-modal">
+    <div class="resource-selector-content">
+      <div class="resource-selector-header">
+        <h3 id="resourceSelectorTitle">选择参考图</h3>
+        <button class="btn btn-secondary" onclick="closeResourceSelector()">关闭</button>
+      </div>
+      <div class="resource-selector-filters">
+        <input type="text" id="resourceSearchInput" placeholder="搜索资源..." style="flex:1;padding:8px;background:#16162a;border:1px solid #2a2a3a;border-radius:4px;color:#e0e0e0;">
+        <select id="resourceTypeFilter" style="padding:8px;background:#16162a;border:1px solid #2a2a3a;border-radius:4px;color:#e0e0e0;">
+          <option value="">所有类型</option>
+          <option value="image">图片</option>
+          <option value="video">视频</option>
+        </select>
+      </div>
+      <div class="resource-selector-body">
+        <div id="resourceSelectorGrid" class="resource-selector-grid">
+          <div style="text-align:center;padding:40px;color:#666;grid-column:1/-1;">加载中...</div>
+        </div>
+      </div>
+      <div class="resource-selector-footer">
+        <div class="resource-selector-footer-info">
+          已选择 <span id="resourceSelectedCount">0</span> 个资源
+        </div>
+        <div style="display:flex;gap:12px;">
+          <button class="btn btn-secondary" onclick="closeResourceSelector()">取消</button>
+          <button class="btn btn-primary" onclick="confirmResourceSelection()">确认添加</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- LORA选择器模态框 -->
+  <div id="loraSelectorModal" class="resource-selector-modal">
+    <div class="resource-selector-content">
+      <div class="resource-selector-header">
+        <h3 id="loraSelectorTitle">选择LORA</h3>
+        <button class="btn btn-secondary" onclick="closeLoraSelector()">关闭</button>
+      </div>
+      <div class="resource-selector-filters">
+        <input type="text" id="loraSearchInput" placeholder="搜索LORA..." style="flex:1;padding:8px;background:#16162a;border:1px solid #2a2a3a;border-radius:4px;color:#e0e0e0;">
+        <select id="loraTypeFilter" style="padding:8px;background:#16162a;border:1px solid #2a2a3a;border-radius:4px;color:#e0e0e0;">
+          <option value="">所有分类</option>
+        </select>
+      </div>
+      <div class="resource-selector-body">
+        <div id="loraSelectorGrid" class="resource-selector-grid">
+          <div style="text-align:center;padding:40px;color:#666;grid-column:1/-1;">加载中...</div>
+        </div>
+      </div>
+      <div class="resource-selector-footer">
+        <div class="resource-selector-footer-info">
+          已选择 <span id="loraSelectedCount">0</span> 个LORA
+        </div>
+        <div style="display:flex;gap:12px;">
+          <button class="btn btn-secondary" onclick="closeLoraSelector()">取消</button>
+          <button class="btn btn-primary" onclick="confirmLoraSelection()">确认添加</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</body>
+</html>
