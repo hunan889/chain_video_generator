@@ -758,8 +758,8 @@ async function initializePoseSelects(favorites) {
       const select = document.getElementById(`pose-select-${fav.resource_id}`);
       if (select) {
         select.innerHTML = allPoses.map(pose => {
-          const isSelected = associatedKeys.has(pose.key);
-          return `<option value="${escapeHtml(pose.key)}" ${isSelected ? 'selected' : ''}>${escapeHtml(pose.name)} (${escapeHtml(pose.key)})</option>`;
+          const isSelected = associatedKeys.has(pose.pose_key);
+          return `<option value="${escapeHtml(pose.pose_key)}" ${isSelected ? 'selected' : ''}>${escapeHtml(pose.name_cn || pose.name_en)} (${escapeHtml(pose.pose_key)})</option>`;
         }).join('');
       }
     } else if (fav.type === 'pose_image') {
@@ -767,8 +767,8 @@ async function initializePoseSelects(favorites) {
       const select = document.getElementById(`pose-select-pose-${safeId}`);
       if (select) {
         select.innerHTML = allPoses.map(pose => {
-          const isSelected = associatedKeys.has(pose.key);
-          return `<option value="${escapeHtml(pose.key)}" ${isSelected ? 'selected' : ''}>${escapeHtml(pose.name)} (${escapeHtml(pose.key)})</option>`;
+          const isSelected = associatedKeys.has(pose.pose_key);
+          return `<option value="${escapeHtml(pose.pose_key)}" ${isSelected ? 'selected' : ''}>${escapeHtml(pose.name_cn || pose.name_en)} (${escapeHtml(pose.pose_key)})</option>`;
         }).join('');
       }
     } else if (fav.type === 'video_lora' || fav.type === 'image_lora') {
@@ -787,8 +787,8 @@ async function initializeResourcePoseSelect(resourceId) {
 
   // Populate select
   select.innerHTML = allPoses.map(pose => {
-    const isSelected = associatedKeys.has(pose.key);
-    return `<option value="${escapeHtml(pose.key)}" ${isSelected ? 'selected' : ''}>${escapeHtml(pose.name)} (${escapeHtml(pose.key)})</option>`;
+    const isSelected = associatedKeys.has(pose.pose_key);
+    return `<option value="${escapeHtml(pose.pose_key)}" ${isSelected ? 'selected' : ''}>${escapeHtml(pose.name_cn || pose.name_en)} (${escapeHtml(pose.pose_key)})</option>`;
   }).join('');
 }
 
@@ -802,8 +802,8 @@ async function initializePoseImagePoseSelect(resourcePath, safeId) {
 
   // Populate select
   select.innerHTML = allPoses.map(pose => {
-    const isSelected = associatedKeys.has(pose.key);
-    return `<option value="${escapeHtml(pose.key)}" ${isSelected ? 'selected' : ''}>${escapeHtml(pose.name)} (${escapeHtml(pose.key)})</option>`;
+    const isSelected = associatedKeys.has(pose.pose_key);
+    return `<option value="${escapeHtml(pose.pose_key)}" ${isSelected ? 'selected' : ''}>${escapeHtml(pose.name_cn || pose.name_en)} (${escapeHtml(pose.pose_key)})</option>`;
   }).join('');
 }
 
@@ -817,8 +817,8 @@ async function initializeLoraPoseSelect(loraId) {
 
   // Populate select
   select.innerHTML = allPoses.map(pose => {
-    const isSelected = associatedKeys.has(pose.key);
-    return `<option value="${escapeHtml(pose.key)}" ${isSelected ? 'selected' : ''}>${escapeHtml(pose.name)} (${escapeHtml(pose.key)})</option>`;
+    const isSelected = associatedKeys.has(pose.pose_key);
+    return `<option value="${escapeHtml(pose.pose_key)}" ${isSelected ? 'selected' : ''}>${escapeHtml(pose.name_cn || pose.name_en)} (${escapeHtml(pose.pose_key)})</option>`;
   }).join('');
 }
 
