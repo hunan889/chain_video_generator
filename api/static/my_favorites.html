@@ -49,8 +49,8 @@ h1{text-align:center;color:#7c83ff;margin-bottom:24px;font-size:1.6em}
 .badge-lora{background:#fbbf24;color:#000}
 .badge-pose{background:#a78bfa;color:#fff}
 
-.card-media{position:relative;width:100%;height:280px;background:#0a0a23;overflow:hidden}
-.card-media img,.card-media video{width:100%;height:100%;object-fit:cover}
+.card-media{position:relative;width:100%;padding-top:133.33%;background:#0a0a23;overflow:hidden}
+.card-media img,.card-media video{position:absolute;top:0;left:0;width:100%;height:100%;object-fit:cover}
 
 .card-body{padding:12px}
 .card-title{font-size:13px;font-weight:600;color:#e0e0e0;margin-bottom:6px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -91,23 +91,35 @@ h1{text-align:center;color:#7c83ff;margin-bottom:24px;font-size:1.6em}
 .pose-card-key{font-size:11px;color:#aaa}
 .check-mark{position:absolute;top:4px;right:4px;width:24px;height:24px;background:#4ade80;border-radius:50%;display:flex;align-items:center;justify-content:center;color:#fff;font-size:14px;font-weight:bold}
 .association-summary{font-size:13px;color:#aaa}
-.card-poses{display:flex;gap:4px;flex-wrap:wrap;margin-top:8px}
+.card-poses{display:flex;gap:4px;flex-wrap:wrap;margin-top:8px;cursor:pointer}
+.card-poses.expanded{max-height:none}
 .pose-badge{padding:3px 8px;background:#0a0a23;border:1px solid #444;border-radius:4px;font-size:10px;color:#7c83ff}
+.pose-badge.more{cursor:pointer;background:#16213e;border-color:#7c83ff}
+.pose-badge.more:hover{background:#1a2540}
 
 /* Card Actions */
 .card-actions{display:flex;gap:8px;margin-top:12px;padding-top:12px;border-top:1px solid #333}
 .btn-action{flex:1;padding:8px 12px;background:#16213e;border:1px solid #444;border-radius:6px;color:#e0e0e0;font-size:12px;cursor:pointer;transition:all 0.2s;display:flex;align-items:center;justify-content:center;gap:6px}
 .btn-action:hover{border-color:#7c83ff;color:#7c83ff;background:#1a2540}
 
-/* Pose Association Inline */
+/* Pose Association */
 .pose-association-inline{margin-top:12px;padding-top:12px;border-top:1px solid #333}
 .pose-association-inline label{display:block;font-size:11px;color:#aaa;margin-bottom:6px}
-.pose-select-inline{width:100%;padding:6px 8px;background:#0a0a23;border:1px solid #444;border-radius:6px;color:#e0e0e0;font-size:11px;max-height:80px}
-.pose-select-inline:focus{outline:none;border-color:#7c83ff}
-.pose-actions{display:flex;gap:6px;margin-top:8px}
-.btn-save-pose{flex:1;padding:6px 12px;background:#4ade80;border:none;border-radius:6px;color:#000;font-size:11px;font-weight:600;cursor:pointer;transition:background 0.2s}
-.btn-save-pose:hover{background:#3bc970}
-.btn-save-pose:disabled{opacity:0.5;cursor:not-allowed}
+.btn-manage-poses{width:100%;padding:8px;background:#16213e;border:1px solid #444;border-radius:6px;color:#e0e0e0;font-size:12px;cursor:pointer;transition:all 0.2s}
+.btn-manage-poses:hover{border-color:#7c83ff;background:#1a2540}
+.pose-modal{background:#1a1a2e;border:1px solid #333;border-radius:12px;width:90%;max-width:800px;max-height:85vh;display:flex;flex-direction:column}
+.pose-search{width:100%;padding:10px;background:#0a0a23;border:1px solid #444;border-radius:6px;color:#e0e0e0;font-size:13px;margin-bottom:16px}
+.pose-search:focus{outline:none;border-color:#7c83ff}
+.selected-poses{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:16px;min-height:32px}
+.selected-pose-tag{padding:6px 12px;background:#0f3460;border:1px solid #7c83ff;border-radius:6px;font-size:12px;color:#fff;display:flex;align-items:center;gap:6px}
+.selected-pose-tag button{background:none;border:none;color:#fff;cursor:pointer;font-size:14px;padding:0;width:16px;height:16px}
+.pose-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:10px;max-height:400px;overflow-y:auto}
+.pose-item{padding:8px;background:#16213e;border:2px solid #333;border-radius:8px;text-align:center;cursor:pointer;transition:all 0.2s;overflow:hidden}
+.pose-item:hover{border-color:#7c83ff;transform:translateY(-2px)}
+.pose-item.selected{border-color:#4ade80;background:#1a4a2e}
+.pose-item-thumb{width:100%;aspect-ratio:3/4;background:#0a0a23;border-radius:4px;margin-bottom:6px;overflow:hidden}
+.pose-item-thumb img,.pose-item-thumb video{width:100%;height:100%;object-fit:cover}
+.pose-item-name{font-size:12px;color:#e0e0e0;margin-top:4px}
 
 /* Pagination */
 .pagination{display:flex;justify-content:center;align-items:center;gap:8px;margin-top:24px}
@@ -167,6 +179,25 @@ h1{text-align:center;color:#7c83ff;margin-bottom:24px;font-size:1.6em}
   </div>
 </div>
 
+<!-- Pose Association Modal -->
+<div class="modal-overlay" id="poseModal">
+  <div class="pose-modal">
+    <div class="modal-header">
+      <h3>关联姿势</h3>
+      <button class="modal-close" onclick="closePoseModal()">&times;</button>
+    </div>
+    <div class="modal-body">
+      <input type="text" class="pose-search" id="poseSearch" placeholder="搜索姿势..." onkeyup="filterPoses()">
+      <div class="selected-poses" id="selectedPoses"></div>
+      <div class="pose-grid" id="poseGrid"></div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn-secondary" onclick="closePoseModal()">取消</button>
+      <button class="btn-primary" onclick="savePoseSelection()">保存</button>
+    </div>
+  </div>
+</div>
+
 <script>
 const API_KEY = 'wan22-default-key-change-me';
 let currentType = 'all';
@@ -174,6 +205,10 @@ let currentPage = 1;
 const pageSize = 24;
 let totalPages = 1;
 let stats = {};
+let allPoses = [];
+let currentPoseResourceId = null;
+let currentPoseResourceType = null;
+let selectedPoseKeys = new Set();
 
 async function loadStats() {
   try {
@@ -251,6 +286,9 @@ async function loadFavorites() {
   grid.innerHTML = '<div class="loading">加载中...</div>';
 
   try {
+    // Ensure poses are loaded first
+    if (allPoses.length === 0) await loadAllPoses();
+
     const params = new URLSearchParams({
       page: currentPage,
       page_size: pageSize
@@ -284,8 +322,39 @@ function renderFavorites(favorites) {
 
   grid.innerHTML = favorites.map(fav => createCard(fav)).join('');
 
-  // Initialize pose selects for all cards
-  initializePoseSelects(favorites);
+  // Render pose badges for each card
+  favorites.forEach(fav => {
+    const poseKeys = fav.pose_keys || [];
+    const poseNames = poseKeys.map(key => {
+      const pose = allPoses.find(p => p.pose_key === key);
+      return pose ? (pose.name_cn || pose.name_en) : key;
+    });
+
+    let containerId;
+    if (fav.type === 'resource') {
+      containerId = `pose-badges-${fav.resource_id}`;
+    } else if (fav.type === 'pose_image') {
+      const safeId = fav.resource_path.replace(/[^a-zA-Z0-9]/g, '_');
+      containerId = `pose-badges-pose-${safeId}`;
+    } else if (fav.type === 'video_lora' || fav.type === 'image_lora') {
+      containerId = `pose-badges-lora-${fav.lora_id}`;
+    }
+
+    const container = document.getElementById(containerId);
+    if (container) {
+      container.dataset.poseKeys = JSON.stringify(poseKeys);
+      container.dataset.poseNames = JSON.stringify(poseNames);
+      if (poseNames.length > 0) {
+        const badges = poseNames.slice(0, 3).map(name =>
+          `<span class="pose-badge">${escapeHtml(name)}</span>`
+        ).join('');
+        const more = poseNames.length > 3
+          ? `<span class="pose-badge more" onclick="expandPoseBadges('${containerId}')">+${poseNames.length - 3}</span>`
+          : '';
+        container.innerHTML = badges + more;
+      }
+    }
+  });
 }
 
 async function loadResourcePoseBadges(resourceId) {
@@ -383,20 +452,10 @@ function createResourceCard(resource) {
         <div class="card-prompt">${escapeHtml(resource.prompt || '')}</div>
         <div class="card-poses" id="pose-badges-${resource.resource_id}"></div>
         <div class="card-meta">收藏于 ${formatDate(resource.created_at)}</div>
-        <div class="card-actions">
-          <button class="btn-action" onclick="openEditModal(${resource.resource_id}, 'resource')">
-            <span>✏️</span>
-            <span>编辑标签</span>
-          </button>
-        </div>
+        <div class="card-poses" id="pose-badges-${resource.resource_id}"></div>
         <div class="pose-association-inline">
-          <label>🎭 关联姿势（可多选）</label>
-          <select id="pose-select-${resource.resource_id}" class="pose-select-inline" multiple data-resource-id="${resource.resource_id}" data-resource-type="resource">
-            <option value="" disabled>加载中...</option>
-          </select>
-          <div class="pose-actions">
-            <button class="btn-save-pose" onclick="savePoseAssociationInline(${resource.resource_id}, 'resource')">保存关联</button>
-          </div>
+          <label>🎭 关联姿势</label>
+          <button class="btn-manage-poses" onclick="openPoseModal(${resource.resource_id}, 'resource')">管理关联</button>
         </div>
       </div>
     </div>
@@ -427,14 +486,10 @@ function createPoseImageCard(poseImage) {
         <div class="card-prompt">${escapeHtml(poseImage.filename)}</div>
         <div class="card-poses" id="pose-badges-pose-${safeId}"></div>
         <div class="card-meta">收藏于 ${formatDate(poseImage.created_at)}</div>
+        <div class="card-poses" id="pose-badges-pose-${safeId}"></div>
         <div class="pose-association-inline">
-          <label>🎭 关联姿势（可多选）</label>
-          <select id="pose-select-pose-${safeId}" class="pose-select-inline" multiple data-resource-path="${escapeHtml(poseImage.resource_path)}" data-resource-type="pose_image">
-            <option value="" disabled>加载中...</option>
-          </select>
-          <div class="pose-actions">
-            <button class="btn-save-pose" onclick="savePoseAssociationInline('${safeResourcePath}', 'pose_image')">保存关联</button>
-          </div>
+          <label>🎭 关联姿势</label>
+          <button class="btn-manage-poses" data-resource-path="${escapeHtml(poseImage.resource_path)}" onclick="openPoseModalByData(this, 'pose_image')">管理关联</button>
         </div>
       </div>
     </div>
@@ -461,20 +516,10 @@ function createLoraCard(lora) {
         <div class="card-prompt">${escapeHtml(lora.description || lora.trigger_prompt || '')}</div>
         <div class="card-poses" id="pose-badges-lora-${lora.lora_id}"></div>
         <div class="card-meta">已启用</div>
-        <div class="card-actions">
-          <button class="btn-action" onclick="openEditModal(${lora.lora_id}, '${lora.lora_type}_lora')">
-            <span>✏️</span>
-            <span>编辑标签</span>
-          </button>
-        </div>
+        <div class="card-poses" id="pose-badges-lora-${lora.lora_id}"></div>
         <div class="pose-association-inline">
-          <label>🎭 关联姿势（可多选）</label>
-          <select id="pose-select-lora-${lora.lora_id}" class="pose-select-inline" multiple data-lora-id="${lora.lora_id}" data-resource-type="lora">
-            <option value="" disabled>加载中...</option>
-          </select>
-          <div class="pose-actions">
-            <button class="btn-save-pose" onclick="savePoseAssociationInline(${lora.lora_id}, 'lora')">保存关联</button>
-          </div>
+          <label>🎭 关联姿势</label>
+          <button class="btn-manage-poses" onclick="openPoseModal(${lora.lora_id}, 'lora')">管理关联</button>
         </div>
       </div>
     </div>
@@ -533,7 +578,17 @@ function renderPagination() {
     <button class="page-btn" ${prevDisabled ? 'disabled' : ''} onclick="changePage(${currentPage - 1})">上一页</button>
     <span class="page-info">第 ${currentPage} / ${totalPages} 页</span>
     <button class="page-btn" ${nextDisabled ? 'disabled' : ''} onclick="changePage(${currentPage + 1})">下一页</button>
+    <input type="number" id="jumpPage" min="1" max="${totalPages}" placeholder="跳转" style="width:60px;padding:8px;background:#16213e;border:1px solid #333;border-radius:6px;color:#e0e0e0;font-size:13px;text-align:center;margin-left:8px">
+    <button class="page-btn" onclick="jumpToPage()">跳转</button>
   `;
+}
+
+function jumpToPage() {
+  const input = document.getElementById('jumpPage');
+  const page = parseInt(input.value);
+  if (page >= 1 && page <= totalPages) {
+    changePage(page);
+  }
 }
 
 function changePage(page) {
@@ -541,6 +596,18 @@ function changePage(page) {
   currentPage = page;
   loadFavorites();
   window.scrollTo(0, 0);
+}
+
+function expandPoseBadges(containerId) {
+  const container = document.getElementById(containerId);
+  if (!container) return;
+
+  const poseNames = JSON.parse(container.dataset.poseNames || '[]');
+  const badges = poseNames.map(name =>
+    `<span class="pose-badge">${escapeHtml(name)}</span>`
+  ).join('');
+  container.innerHTML = badges;
+  container.classList.add('expanded');
 }
 
 function escapeHtml(str) {
@@ -557,6 +624,7 @@ function formatDate(dateStr) {
 }
 
 // Initialize
+loadAllPoses();
 loadStats();
 loadFavorites();
 
@@ -592,10 +660,9 @@ async function loadResourceEdit(resourceId, container) {
 
     container.innerHTML = `
       <div class="edit-field">
-        <label>搜索关键词</label>
-        <textarea id="edit-search-keywords" placeholder="输入搜索关键词...">${resource.search_keywords || ''}</textarea>
+        <label>资源信息</label>
+        <p>资源ID: ${resourceId}</p>
       </div>
-      <button class="btn-ai" onclick="generateResourceKeywords(${resourceId})">AI生成关键词</button>
     `;
   } catch (error) {
     container.innerHTML = `<div style="color:#f87171">加载失败: ${error.message}</div>`;
@@ -611,74 +678,15 @@ async function loadLoraEdit(loraId, container) {
 
     container.innerHTML = `
       <div class="edit-field">
-        <label>搜索关键词</label>
-        <textarea id="edit-search-keywords" placeholder="输入搜索关键词...">${lora.search_keywords || ''}</textarea>
-      </div>
-      <div class="edit-field">
         <label>触发提示词</label>
         <textarea id="edit-trigger-prompt" placeholder="输入触发提示词...">${lora.trigger_prompt || ''}</textarea>
       </div>
-      <button class="btn-ai" onclick="generateLoraKeywords(${loraId})">AI生成关键词和提示词</button>
     `;
   } catch (error) {
     container.innerHTML = `<div style="color:#f87171">加载失败: ${error.message}</div>`;
   }
 }
 
-async function generateResourceKeywords(resourceId) {
-  const btn = event.target;
-  btn.disabled = true;
-  btn.textContent = '生成中...';
-
-  try {
-    const response = await fetch(`/api/v1/resources/${resourceId}/suggest-keywords`, {
-      method: 'POST',
-      headers: { 'X-API-Key': API_KEY }
-    });
-
-    if (!response.ok) throw new Error('生成失败');
-    const data = await response.json();
-
-    if (data.search_keywords) {
-      document.getElementById('edit-search-keywords').value = data.search_keywords;
-      alert(`AI生成成功！\n关键词: ${data.search_keywords}\n\n理由: ${data.reasoning}`);
-    }
-  } catch (error) {
-    alert('生成失败: ' + error.message);
-  } finally {
-    btn.disabled = false;
-    btn.textContent = 'AI生成关键词';
-  }
-}
-
-async function generateLoraKeywords(loraId) {
-  const btn = event.target;
-  btn.disabled = true;
-  btn.textContent = '生成中...';
-
-  try {
-    const response = await fetch(`/api/v1/admin/loras/${loraId}/suggest-keywords`, {
-      method: 'POST',
-      headers: { 'X-API-Key': API_KEY }
-    });
-
-    if (!response.ok) throw new Error('生成失败');
-    const data = await response.json();
-
-    if (data.search_keywords) {
-      document.getElementById('edit-search-keywords').value = data.search_keywords;
-    }
-    if (data.trigger_prompt) {
-      document.getElementById('edit-trigger-prompt').value = data.trigger_prompt;
-    }
-    alert(`AI生成成功！\n搜索关键词: ${data.search_keywords}\n触发提示词: ${data.trigger_prompt}\n\n理由: ${data.reasoning}`);
-  } catch (error) {
-    alert('生成失败: ' + error.message);
-  } finally {
-    btn.disabled = false;
-    btn.textContent = 'AI生成关键词和提示词';
-  }
-}
 
 async function saveEdit() {
   if (!currentEditId || !currentEditType) return;
@@ -698,22 +706,11 @@ async function saveEdit() {
 }
 
 async function saveResourceEdit() {
-  const searchKeywords = document.getElementById('edit-search-keywords').value.trim();
-
-  const response = await fetch(`/api/v1/resources/${currentEditId}`, {
-    method: 'PATCH',
-    headers: {
-      'X-API-Key': API_KEY,
-      'Content-Type': 'application/json'
-    },
-    body: JSON.stringify({ search_keywords: searchKeywords })
-  });
-
-  if (!response.ok) throw new Error('保存失败');
+  // 资源编辑已简化，无需保存
+  return;
 }
 
 async function saveLoraEdit() {
-  const searchKeywords = document.getElementById('edit-search-keywords').value.trim();
   const triggerPrompt = document.getElementById('edit-trigger-prompt').value.trim();
 
   const response = await fetch(`/api/v1/admin/loras/${currentEditId}`, {
@@ -723,7 +720,6 @@ async function saveLoraEdit() {
       'Content-Type': 'application/json'
     },
     body: JSON.stringify({
-      search_keywords: searchKeywords,
       trigger_prompt: triggerPrompt
     })
   });
@@ -737,89 +733,202 @@ function closeEditModal() {
   currentEditType = null;
 }
 
-// Pose Association Modal
-let currentPoseResourceId = null;
-let currentPoseResourceType = null;
-let allPoses = [];
-let selectedPoses = new Set();
+async function openPoseModal(id, type) {
+  currentPoseResourceId = id;
+  currentPoseResourceType = type;
 
-// Initialize pose selects for inline dropdowns
-async function initializePoseSelects(favorites) {
-  // Load all poses if not already loaded
-  if (allPoses.length === 0) {
-    await loadAllPoses();
+  if (allPoses.length === 0) await loadAllPoses();
+
+  // Load thumbnails if not already loaded
+  if (allPoses.length > 0 && !allPoses[0].hasOwnProperty('thumbnail')) {
+    loadPoseThumbnails(); // Load in background
   }
 
-  // Initialize each card's pose select using data already in favorites list
-  for (const fav of favorites) {
-    const associatedKeys = new Set(fav.pose_keys || []);
+  // Get pose_keys from the card's data attribute
+  let poseKeys = [];
+  if (type === 'resource') {
+    const container = document.getElementById(`pose-badges-${id}`);
+    poseKeys = container ? JSON.parse(container.dataset.poseKeys || '[]') : [];
+  } else if (type === 'lora') {
+    const container = document.getElementById(`pose-badges-lora-${id}`);
+    poseKeys = container ? JSON.parse(container.dataset.poseKeys || '[]') : [];
+  }
 
-    if (fav.type === 'resource') {
-      const select = document.getElementById(`pose-select-${fav.resource_id}`);
-      if (select) {
-        select.innerHTML = allPoses.map(pose => {
-          const isSelected = associatedKeys.has(pose.pose_key);
-          return `<option value="${escapeHtml(pose.pose_key)}" ${isSelected ? 'selected' : ''}>${escapeHtml(pose.name_cn || pose.name_en)} (${escapeHtml(pose.pose_key)})</option>`;
-        }).join('');
+  selectedPoseKeys = new Set(poseKeys);
+  renderPoseGrid();
+  renderSelectedPoses();
+  document.getElementById('poseModal').classList.add('active');
+}
+
+async function openPoseModalByData(btn, type) {
+  currentPoseResourceId = btn.dataset.resourcePath;
+  currentPoseResourceType = type;
+
+  if (allPoses.length === 0) await loadAllPoses();
+
+  // Load thumbnails if not already loaded
+  if (allPoses.length > 0 && !allPoses[0].hasOwnProperty('thumbnail')) {
+    loadPoseThumbnails(); // Load in background
+  }
+
+  const safeId = currentPoseResourceId.replace(/[^a-zA-Z0-9]/g, '_');
+  const container = document.getElementById(`pose-badges-pose-${safeId}`);
+  const poseKeys = container ? JSON.parse(container.dataset.poseKeys || '[]') : [];
+
+  selectedPoseKeys = new Set(poseKeys);
+  renderPoseGrid();
+  renderSelectedPoses();
+  document.getElementById('poseModal').classList.add('active');
+}
+
+function renderPoseGrid() {
+  const grid = document.getElementById('poseGrid');
+  const search = document.getElementById('poseSearch').value.toLowerCase();
+
+  const filtered = allPoses.filter(p =>
+    !search || p.pose_key.toLowerCase().includes(search) ||
+    (p.name_cn && p.name_cn.toLowerCase().includes(search)) ||
+    (p.name_en && p.name_en.toLowerCase().includes(search))
+  );
+
+  grid.innerHTML = filtered.map(pose => {
+    const thumbHtml = pose.thumbnail
+      ? (pose.thumbnail.endsWith('.mp4') || pose.thumbnail.endsWith('.webm')
+        ? `<video src="${escapeHtml(pose.thumbnail)}" muted loop onmouseenter="this.play()" onmouseleave="this.pause()"></video>`
+        : `<img src="${escapeHtml(pose.thumbnail)}" alt="${escapeHtml(pose.name_cn || pose.name_en)}">`)
+      : `<div style="display:flex;align-items:center;justify-content:center;height:100%;color:#666;font-size:32px;">🎭</div>`;
+
+    return `
+      <div class="pose-item ${selectedPoseKeys.has(pose.pose_key) ? 'selected' : ''}" onclick="togglePose('${pose.pose_key}')">
+        <div class="pose-item-thumb">${thumbHtml}</div>
+        <div class="pose-item-name">${escapeHtml(pose.name_cn || pose.name_en)}</div>
+      </div>
+    `;
+  }).join('');
+}
+
+function renderSelectedPoses() {
+  const container = document.getElementById('selectedPoses');
+  const selected = allPoses.filter(p => selectedPoseKeys.has(p.pose_key));
+
+  container.innerHTML = selected.map(pose => `
+    <div class="selected-pose-tag">
+      ${escapeHtml(pose.name_cn || pose.name_en)}
+      <button onclick="togglePose('${pose.pose_key}')">&times;</button>
+    </div>
+  `).join('') || '<span style="color:#666;font-size:12px">未选择姿势</span>';
+}
+
+function togglePose(poseKey) {
+  if (selectedPoseKeys.has(poseKey)) {
+    selectedPoseKeys.delete(poseKey);
+  } else {
+    selectedPoseKeys.add(poseKey);
+  }
+  renderPoseGrid();
+  renderSelectedPoses();
+}
+
+function filterPoses() {
+  renderPoseGrid();
+}
+
+async function savePoseSelection() {
+  const poses = Array.from(selectedPoseKeys);
+
+  try {
+    let response;
+    if (currentPoseResourceType === 'resource') {
+      response = await fetch(`/api/v1/resources/${currentPoseResourceId}/poses`, {
+        method: 'PUT',
+        headers: {'X-API-Key': API_KEY, 'Content-Type': 'application/json'},
+        body: JSON.stringify({pose_keys: poses})
+      });
+    } else if (currentPoseResourceType === 'lora') {
+      response = await fetch(`/api/v1/admin/loras/${currentPoseResourceId}/poses`, {
+        method: 'PUT',
+        headers: {'X-API-Key': API_KEY, 'Content-Type': 'application/json'},
+        body: JSON.stringify({pose_keys: poses})
+      });
+    } else if (currentPoseResourceType === 'pose_image') {
+      response = await fetch(`/api/v1/pose-images/associations`, {
+        method: 'PUT',
+        headers: {'X-API-Key': API_KEY, 'Content-Type': 'application/json'},
+        body: JSON.stringify({resource_path: currentPoseResourceId, pose_keys: poses})
+      });
+    }
+
+    if (!response.ok) throw new Error('保存失败');
+
+    // Update local badge display
+    let containerId;
+    if (currentPoseResourceType === 'resource') {
+      containerId = `pose-badges-${currentPoseResourceId}`;
+    } else if (currentPoseResourceType === 'lora') {
+      containerId = `pose-badges-lora-${currentPoseResourceId}`;
+    } else if (currentPoseResourceType === 'pose_image') {
+      const safeId = currentPoseResourceId.replace(/[^a-zA-Z0-9]/g, '_');
+      containerId = `pose-badges-pose-${safeId}`;
+    }
+
+    const container = document.getElementById(containerId);
+    if (container) {
+      container.dataset.poseKeys = JSON.stringify(poses);
+      const poseNames = poses.map(key => {
+        const pose = allPoses.find(p => p.pose_key === key);
+        return pose ? (pose.name_cn || pose.name_en) : key;
+      });
+      if (poseNames.length > 0) {
+        const badges = poseNames.slice(0, 3).map(name =>
+          `<span class="pose-badge">${escapeHtml(name)}</span>`
+        ).join('');
+        const more = poseNames.length > 3 ? `<span class="pose-badge">+${poseNames.length - 3}</span>` : '';
+        container.innerHTML = badges + more;
+      } else {
+        container.innerHTML = '';
       }
-    } else if (fav.type === 'pose_image') {
-      const safeId = fav.resource_path.replace(/[^a-zA-Z0-9]/g, '_');
-      const select = document.getElementById(`pose-select-pose-${safeId}`);
-      if (select) {
-        select.innerHTML = allPoses.map(pose => {
-          const isSelected = associatedKeys.has(pose.pose_key);
-          return `<option value="${escapeHtml(pose.pose_key)}" ${isSelected ? 'selected' : ''}>${escapeHtml(pose.name_cn || pose.name_en)} (${escapeHtml(pose.pose_key)})</option>`;
-        }).join('');
+    }
+
+    closePoseModal();
+  } catch (error) {
+    alert('保存失败: ' + error.message);
+  }
+}
+
+function closePoseModal() {
+  document.getElementById('poseModal').classList.remove('active');
+  currentPoseResourceId = null;
+  currentPoseResourceType = null;
+  selectedPoseKeys.clear();
+}
+
+async function loadAllPoses() {
+  try {
+    const response = await fetch('/api/v1/poses', {headers: {'X-API-Key': API_KEY}});
+    const data = await response.json();
+    allPoses = data.poses || [];
+  } catch (error) {
+    console.error('Failed to load poses:', error);
+  }
+}
+
+async function loadPoseThumbnails() {
+  for (const pose of allPoses) {
+    try {
+      const res = await fetch(`/api/v1/poses/${pose.pose_key}/thumbnail`, {headers: {'X-API-Key': API_KEY}});
+      if (res.ok) {
+        const thumbData = await res.json();
+        pose.thumbnail = thumbData.url;
       }
-    } else if (fav.type === 'video_lora' || fav.type === 'image_lora') {
-      await initializeLoraPoseSelect(fav.lora_id);
+    } catch (e) {
+      // No thumbnail available
     }
   }
 }
 
-async function initializeResourcePoseSelect(resourceId) {
-  const select = document.getElementById(`pose-select-${resourceId}`);
-  if (!select) return;
-
-  // Load current associations
-  const associations = await loadResourceAssociations(resourceId);
-  const associatedKeys = new Set(associations.map(a => a.pose_key));
-
-  // Populate select
-  select.innerHTML = allPoses.map(pose => {
-    const isSelected = associatedKeys.has(pose.pose_key);
-    return `<option value="${escapeHtml(pose.pose_key)}" ${isSelected ? 'selected' : ''}>${escapeHtml(pose.name_cn || pose.name_en)} (${escapeHtml(pose.pose_key)})</option>`;
-  }).join('');
-}
-
-async function initializePoseImagePoseSelect(resourcePath, safeId) {
-  const select = document.getElementById(`pose-select-pose-${safeId}`);
-  if (!select) return;
-
-  // Load current associations
-  const associations = await loadPoseImageAssociations(resourcePath);
-  const associatedKeys = new Set(associations.map(a => a.pose_key || a.key));
-
-  // Populate select
-  select.innerHTML = allPoses.map(pose => {
-    const isSelected = associatedKeys.has(pose.pose_key);
-    return `<option value="${escapeHtml(pose.pose_key)}" ${isSelected ? 'selected' : ''}>${escapeHtml(pose.name_cn || pose.name_en)} (${escapeHtml(pose.pose_key)})</option>`;
-  }).join('');
-}
-
-async function initializeLoraPoseSelect(loraId) {
-  const select = document.getElementById(`pose-select-lora-${loraId}`);
-  if (!select) return;
-
-  // Load current associations
-  const associations = await loadLoraAssociations(loraId);
-  const associatedKeys = new Set(associations.map(a => a.pose_key));
-
-  // Populate select
-  select.innerHTML = allPoses.map(pose => {
-    const isSelected = associatedKeys.has(pose.pose_key);
-    return `<option value="${escapeHtml(pose.pose_key)}" ${isSelected ? 'selected' : ''}>${escapeHtml(pose.name_cn || pose.name_en)} (${escapeHtml(pose.pose_key)})</option>`;
-  }).join('');
+// Initialize pose selects for inline dropdowns
+async function initializePoseSelects(favorites) {
+  // No longer needed - poses are loaded on modal open
 }
 
 async function loadResourceAssociations(resourceId) {
@@ -864,63 +973,32 @@ async function loadLoraAssociations(loraId) {
   }
 }
 
-async function savePoseAssociationInline(id, type) {
-  const btn = event.target;
+async function savePoseAssociationInlineByData(btn, type) {
   btn.disabled = true;
   btn.textContent = '保存中...';
 
   try {
-    let select, poses;
-
-    if (type === 'resource') {
-      select = document.getElementById(`pose-select-${id}`);
-    } else if (type === 'pose_image') {
-      const safeId = id.replace(/[^a-zA-Z0-9]/g, '_');
-      select = document.getElementById(`pose-select-pose-${safeId}`);
-    } else if (type === 'lora') {
-      select = document.getElementById(`pose-select-lora-${id}`);
-    }
+    const resourcePath = btn.dataset.resourcePath;
+    const safeId = resourcePath.replace(/[^a-zA-Z0-9]/g, '_');
+    const select = document.getElementById(`pose-select-pose-${safeId}`);
 
     if (!select) throw new Error('Select not found');
 
-    // Get selected poses
-    poses = Array.from(select.selectedOptions).map(opt => opt.value);
+    const poses = Array.from(select.selectedOptions).map(opt => opt.value);
 
-    // Save via API
-    let response;
-    if (type === 'resource') {
-      response = await fetch(`/api/v1/resources/${id}/poses`, {
-        method: 'PUT',
-        headers: {
-          'X-API-Key': API_KEY,
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({ pose_keys: poses })
-      });
-    } else if (type === 'lora') {
-      response = await fetch(`/api/v1/admin/loras/${id}/poses`, {
-        method: 'PUT',
-        headers: {
-          'X-API-Key': API_KEY,
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({ pose_keys: poses })
-      });
-    } else if (type === 'pose_image') {
-      response = await fetch(`/api/v1/pose-images/associations`, {
-        method: 'PUT',
-        headers: {
-          'X-API-Key': API_KEY,
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          resource_path: id,
-          pose_keys: poses
-        })
-      });
-    }
+    const response = await fetch(`/api/v1/pose-images/associations`, {
+      method: 'PUT',
+      headers: {
+        'X-API-Key': API_KEY,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        resource_path: resourcePath,
+        pose_keys: poses
+      })
+    });
 
-    if (!response || !response.ok) throw new Error('保存失败');
+    if (!response.ok) throw new Error('保存失败');
 
     btn.textContent = '✓ 已保存';
     setTimeout(() => {
@@ -928,7 +1006,6 @@ async function savePoseAssociationInline(id, type) {
       btn.disabled = false;
     }, 2000);
 
-    // Reload pose badges
     await loadFavorites();
   } catch (error) {
     alert('保存失败: ' + error.message);
@@ -937,30 +1014,27 @@ async function savePoseAssociationInline(id, type) {
   }
 }
 
-async function openPoseModal(id, type) {
-  currentPoseResourceId = id;
-  currentPoseResourceType = type;
-
-  if (allPoses.length === 0) {
-    await loadAllPoses();
-  }
-
-  await loadCurrentAssociations();
-  renderPoseSelect();
-  updateAssociationSummary();
-
-  document.getElementById('poseModal').classList.add('active');
-}
-
 async function loadAllPoses() {
   try {
-    const response = await fetch('/api/v1/poses', {
-      headers: { 'X-API-Key': API_KEY }
-    });
+    const response = await fetch('/api/v1/poses', {headers: {'X-API-Key': API_KEY}});
     const data = await response.json();
     allPoses = data.poses || [];
   } catch (error) {
     console.error('Failed to load poses:', error);
+  }
+}
+
+async function loadPoseThumbnails() {
+  for (const pose of allPoses) {
+    try {
+      const res = await fetch(`/api/v1/poses/${pose.pose_key}/thumbnail`, {headers: {'X-API-Key': API_KEY}});
+      if (res.ok) {
+        const thumbData = await res.json();
+        pose.thumbnail = thumbData.url;
+      }
+    } catch (e) {
+      // No thumbnail available
+    }
   }
 }
 

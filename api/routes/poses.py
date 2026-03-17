@@ -1,25 +1,18 @@
 """
-姿势匹配API路由
+姿势API路由
 """
-from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel, Field
+from fastapi import APIRouter, HTTPException, Depends
+from pydantic import BaseModel
 from typing import List, Optional, Dict
-from api.services.pose_matcher import get_pose_matcher, PoseMatch, PoseConfig
+from api.services.pose_matcher import get_pose_matcher, PoseConfig
+from api.middleware.auth import verify_api_key
+import sqlite3
+from pathlib import Path
 
 router = APIRouter()
 
-
-class PoseMatchRequest(BaseModel):
-    """姿势匹配请求"""
-    query: str = Field(..., description="用户输入的查询文本")
-    top_k: int = Field(5, description="返回top K个结果", ge=1, le=20)
-    min_score: float = Field(0.3, description="最低匹配分数", ge=0.0, le=1.0)
-    preferences: Optional[Dict] = Field(None, description="偏好设置")
-
-
-class PoseMatchResponse(BaseModel):
-    """姿势匹配响应"""
-    matches: List[Dict]
+PROJECT_ROOT = Path(__file__).parent.parent.parent
+POSE_DB_PATH = PROJECT_ROOT / "data" / "wan22.db"
 
 
 class PoseConfigResponse(BaseModel):
@@ -34,63 +27,6 @@ class PoseConfigResponse(BaseModel):
 class PoseListResponse(BaseModel):
     """姿势列表响应"""
     poses: List[Dict]
-
-
-@router.post("/poses/match", response_model=PoseMatchResponse)
-async def match_poses(request: PoseMatchRequest):
-    """
-    姿势匹配接口
-
-    根据用户输入的自然语言查询，返回匹配的姿势列表
-
-    示例:
-    ```
-    POST /api/v1/poses/match
-    {
-        "query": "a girl sex with a man like cow girl",
-        "top_k": 3,
-        "preferences": {
-            "angle": "pov",
-            "style": "realistic"
-        }
-    }
-    ```
-    """
-    matcher = get_pose_matcher()
-    matches = matcher.match_poses(
-        query=request.query,
-        top_k=request.top_k,
-        min_score=request.min_score
-    )
-
-    # 转换为字典
-    result_matches = []
-    for match in matches:
-        match_dict = {
-            "pose_id": match.pose_id,
-            "pose_key": match.pose_key,
-            "name_en": match.name_en,
-            "name_cn": match.name_cn,
-            "description": match.description,
-            "difficulty": match.difficulty,
-            "category": match.category,
-            "match_score": match.match_score,
-            "matched_keywords": match.matched_keywords,
-            "confidence": match.confidence
-        }
-
-        # 如果提供了preferences，获取完整配置
-        if request.preferences:
-            config = matcher.get_pose_config(match.pose_id, request.preferences)
-            if config:
-                match_dict["reference_images"] = config.reference_images
-                match_dict["image_loras"] = config.image_loras
-                match_dict["video_loras"] = config.video_loras
-                match_dict["prompt_templates"] = config.prompt_templates
-
-        result_matches.append(match_dict)
-
-    return PoseMatchResponse(matches=result_matches)
 
 
 @router.get("/poses/{pose_id}/config", response_model=PoseConfigResponse)
@@ -155,3 +91,179 @@ async def list_poses(category: Optional[str] = None):
     poses = matcher.list_all_poses(category=category)
 
     return PoseListResponse(poses=poses)
+
+
+@router.post("/poses/batch-config")
+async def get_batch_pose_config(pose_ids: List[int]):
+    """批量获取姿势配置"""
+    matcher = get_pose_matcher()
+    results = {}
+    for pose_id in pose_ids:
+        config = matcher.get_pose_config(pose_id, {})
+        if config:
+            results[pose_id] = {
+                "pose": config.pose,
+                "reference_images": config.reference_images,
+                "image_loras": config.image_loras,
+                "video_loras": config.video_loras,
+                "prompt_templates": config.prompt_templates
+            }
+    return results
+
+
+@router.get("/poses/{pose_key}/thumbnail")
+async def get_pose_thumbnail(pose_key: str, _: str = Depends(verify_api_key)):
+    """获取姿势的缩略图URL（仅返回本地图片）"""
+    try:
+        conn = sqlite3.connect(str(POSE_DB_PATH))
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+
+        # 只查询本地图片（/pose-files/ 开头）
+        cursor.execute("""
+            SELECT pri.image_url
+            FROM pose_reference_images pri
+            JOIN poses p ON pri.pose_id = p.id
+            WHERE p.pose_key = ? AND pri.image_url LIKE '/pose-files/%'
+            ORDER BY pri.is_default DESC
+            LIMIT 1
+        """, (pose_key,))
+
+        row = cursor.fetchone()
+        cursor.close()
+        conn.close()
+
+        if row:
+            return {"url": row['image_url']}
+        else:
+            raise HTTPException(404, "No local thumbnail found")
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(500, str(e))
+
+
+class WorkflowRecommendRequest(BaseModel):
+    prompt: str
+    pose_keys: List[str]
+
+
+class LoraItem(BaseModel):
+    lora_id: int
+    lora_name: str
+    weight: float
+
+
+class WorkflowRecommendResponse(BaseModel):
+    optimized_prompt: str
+    reference_image: Optional[str]
+    image_loras: List[LoraItem]
+    image_prompt: str
+    video_loras: List[LoraItem]
+    video_prompt: str
+
+
+@router.post("/poses/recommend-workflow", response_model=WorkflowRecommendResponse)
+async def recommend_workflow(
+    request: WorkflowRecommendRequest,
+    _: str = Depends(verify_api_key)
+):
+    """
+    根据prompt和姿势推荐完整的工作流配置
+
+    合并多个姿势的配置，返回：
+    - 优化的prompt
+    - 推荐的参考图片
+    - 推荐的image/video LORAs
+    """
+    try:
+        matcher = get_pose_matcher()
+
+        # 获取所有姿势的配置
+        pose_configs = []
+        for pose_key in request.pose_keys:
+            poses = matcher.list_all_poses()
+            pose = next((p for p in poses if p['pose_key'] == pose_key), None)
+
+            if pose:
+                config = matcher.get_pose_config(pose['id'], {})
+                if config:
+                    pose_configs.append(config)
+
+        if not pose_configs:
+            raise HTTPException(404, "未找到匹配的姿势配置")
+
+        # 合并所有姿势的配置
+        all_reference_images = []
+        all_image_loras = []
+        all_video_loras = []
+        all_prompt_templates = []
+
+        for config in pose_configs:
+            all_reference_images.extend(config.reference_images)
+            all_image_loras.extend(config.image_loras)
+            all_video_loras.extend(config.video_loras)
+            all_prompt_templates.extend(config.prompt_templates)
+
+        # 选择首帧图片（优先选择默认图片）
+        reference_image = None
+        if all_reference_images:
+            default_img = next((img for img in all_reference_images if img.get('is_default')), None)
+            reference_image = (default_img or all_reference_images[0]).get('image_url')
+
+        # 去重并选择LORA
+        image_loras_dict = {}
+        for lora in all_image_loras:
+            lora_id = lora.get('lora_id')
+            if lora_id and lora_id not in image_loras_dict:
+                image_loras_dict[lora_id] = lora
+
+        video_loras_dict = {}
+        for lora in all_video_loras:
+            lora_id = lora.get('lora_id')
+            if lora_id and lora_id not in video_loras_dict:
+                video_loras_dict[lora_id] = lora
+
+        # 构建LORA列表
+        image_loras = [
+            LoraItem(
+                lora_id=lora['lora_id'],
+                lora_name=lora.get('lora_name', ''),
+                weight=lora.get('recommended_weight', 1.0)
+            )
+            for lora in image_loras_dict.values()
+        ][:5]
+
+        video_loras = [
+            LoraItem(
+                lora_id=lora['lora_id'],
+                lora_name=lora.get('lora_name', ''),
+                weight=lora.get('recommended_weight', 1.0)
+            )
+            for lora in video_loras_dict.values()
+        ][:5]
+
+        # 优化prompt
+        optimized_prompt = request.prompt
+        if all_prompt_templates:
+            template = all_prompt_templates[0].get('template', '')
+            if template:
+                optimized_prompt = f"{request.prompt}, {template}"
+
+        image_prompt = optimized_prompt
+        video_prompt = optimized_prompt
+
+        return WorkflowRecommendResponse(
+            optimized_prompt=optimized_prompt,
+            reference_image=reference_image,
+            image_loras=image_loras,
+            image_prompt=image_prompt,
+            video_loras=video_loras,
+            video_prompt=video_prompt
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(500, f"推荐失败: {str(e)}")
+

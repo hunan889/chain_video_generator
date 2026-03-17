@@ -372,12 +372,6 @@ function createLoraCard(lora) {
     ${isImageLora && lora.filepath ? `<div class="info-text">路径: ${lora.filepath}</div>` : ''}
 
     <div class="edit-field">
-      <label>搜索关键词 (Search Keywords)</label>
-      <textarea id="search-keywords-${lora.id}" placeholder="支持关键词列表或自然语言描述，例如：&#10;doggy, from behind, rear entry&#10;或：A woman having sex in doggy style position" rows="3" onchange="autoSave(${isImageLora ? `'${lora.id}'` : lora.id})">${lora.search_keywords || ''}</textarea>
-      <small style="font-size:10px;color:#888;margin-top:2px">用于搜索匹配，支持关键词列表或自然语言描述</small>
-    </div>
-
-    <div class="edit-field">
       <label>触发提示词 (Trigger Prompt)</label>
       <textarea id="trigger-prompt-${lora.id}" placeholder="用于生成视频的完整自然语言描述..." rows="3" onchange="autoSave(${isImageLora ? `'${lora.id}'` : lora.id})">${currentTriggerPrompt}</textarea>
       <small style="font-size:10px;color:#888;margin-top:2px">用于生成视频，完整的自然语言描述</small>
@@ -441,13 +435,11 @@ async function autoSave(loraId) {
 
   const quality = document.getElementById(`quality-${loraId}`).value;
   const triggerPrompt = document.getElementById(`trigger-prompt-${loraId}`).value.trim();
-  const searchKeywords = document.getElementById(`search-keywords-${loraId}`).value.trim();
 
   const body = {};
   if (category !== undefined) body.category = category;
   if (quality) body.quality_score = parseInt(quality);
   if (triggerPrompt) body.trigger_prompt = triggerPrompt;
-  if (searchKeywords) body.search_keywords = searchKeywords;
 
   if (Object.keys(body).length === 0) return;
 
@@ -479,7 +471,6 @@ async function autoSave(loraId) {
       if (category !== undefined) lora.category = category;
       if (quality) lora.quality_score = parseInt(quality);
       if (triggerPrompt) lora.trigger_prompt = triggerPrompt;
-      if (searchKeywords) lora.search_keywords = searchKeywords;
     }
 
     // If custom category was saved, re-render the page to update all dropdowns
@@ -548,7 +539,6 @@ function resetLora(loraId) {
   document.getElementById(`category-${loraId}`).value = original.category || '';
   document.getElementById(`quality-${loraId}`).value = original.quality_score || '';
   document.getElementById(`trigger-prompt-${loraId}`).value = original.trigger_prompt || '';
-  document.getElementById(`search-keywords-${loraId}`).value = original.search_keywords || '';
 
   // Save
   autoSave(loraId);

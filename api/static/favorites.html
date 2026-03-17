@@ -386,7 +386,7 @@
           : `<img src="${fav.url}" loading="lazy">`;
 
         const title = isPose ? fav.filename : (fav.prompt ? fav.prompt.substring(0, 50) : '无标题');
-        const prompt = isPose ? `姿势: ${fav.pose}` : (fav.search_keywords || '');
+        const prompt = isPose ? `姿势: ${fav.pose}` : (fav.prompt || '');
 
         return `
           <div class="card">

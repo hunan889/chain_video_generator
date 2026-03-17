@@ -466,29 +466,11 @@ async def auto_associate_resources(pose_id: int, request: AutoAssociateRequest):
     cursor = conn.cursor()
 
     try:
-        # 获取姿势信息和关键词
-        cursor.execute("""
-        SELECT p.pose_key, p.name_en, p.name_cn, GROUP_CONCAT(pk.keyword, ',') as keywords
-        FROM poses p
-        LEFT JOIN pose_keywords pk ON p.id = pk.pose_id
-        WHERE p.id = ?
-        GROUP BY p.id
-        """, (pose_id,))
-
+        # 获取姿势信息
+        cursor.execute("SELECT pose_key, name_en, name_cn FROM poses WHERE id = ?", (pose_id,))
         pose = cursor.fetchone()
         if not pose:
             raise HTTPException(status_code=404, detail="Pose not found")
-
-        pose_dict = dict(pose)
-        keywords = pose_dict['keywords'].split(',') if pose_dict['keywords'] else []
-
-        if not keywords:
-            return {
-                "success": True,
-                "message": "No keywords found for this pose",
-                "associated_resources": 0,
-                "associated_loras": 0
-            }
 
         # 连接MySQL
         mysql_conn = pymysql.connect(**MYSQL_CONFIG)
@@ -497,8 +479,7 @@ async def auto_associate_resources(pose_id: int, request: AutoAssociateRequest):
         associated_resources = 0
         associated_loras = 0
 
-        # 查找收藏的资源（通过favorites表）
-        # 降低阈值，只要匹配到任何一个关键词就关联
+        # 查找收藏的资源
         mysql_cursor.execute("""
         SELECT r.id, r.prompt, r.url, r.resource_type
         FROM resources r
@@ -508,32 +489,22 @@ async def auto_associate_resources(pose_id: int, request: AutoAssociateRequest):
         resources = mysql_cursor.fetchall()
 
         for resource in resources:
-            # 检查prompt是否包含关键词
-            prompt_lower = (resource['prompt'] or '').lower()
-            match_score = 0
+            # 检查是否已关联
+            cursor.execute("""
+            SELECT id FROM pose_reference_images
+            WHERE pose_id = ? AND image_url = ?
+            """, (pose_id, resource['url']))
 
-            for keyword in keywords:
-                if keyword.lower() in prompt_lower:
-                    match_score += 1
-
-            # 只要匹配到至少一个关键词就关联
-            if match_score > 0:
-                # 检查是否已关联
+            if not cursor.fetchone():
+                # 添加关联
                 cursor.execute("""
-                SELECT id FROM pose_reference_images
-                WHERE pose_id = ? AND image_url = ?
-                """, (pose_id, resource['url']))
+                INSERT INTO pose_reference_images
+                (pose_id, image_url, prompt)
+                VALUES (?, ?, ?)
+                """, (pose_id, resource['url'], resource['prompt']))
+                associated_resources += 1
 
-                if not cursor.fetchone():
-                    # 添加关联
-                    cursor.execute("""
-                    INSERT INTO pose_reference_images
-                    (pose_id, image_url, prompt, quality_score)
-                    VALUES (?, ?, ?, ?)
-                    """, (pose_id, resource['url'], resource['prompt'], match_score / len(keywords)))
-                    associated_resources += 1
-
-        # 查找启用的LORA（enabled=1）
+        # 查找启用的LORA
         mysql_cursor.execute("""
         SELECT id, name, trigger_words, mode, noise_stage
         FROM lora_metadata
@@ -543,46 +514,36 @@ async def auto_associate_resources(pose_id: int, request: AutoAssociateRequest):
         loras = mysql_cursor.fetchall()
 
         for lora in loras:
-            # 检查trigger_words或name是否包含关键词
-            # trigger_words是JSON格式，需要转换
-            trigger_words_str = ''
-            if lora['trigger_words']:
-                import json
-                try:
-                    tw_list = json.loads(lora['trigger_words']) if isinstance(lora['trigger_words'], str) else lora['trigger_words']
-                    if isinstance(tw_list, list):
-                        trigger_words_str = ' '.join(tw_list)
-                except:
-                    pass
+            # 确定LORA类型
+            lora_type = 'video'
+            if lora['mode'] == 'I2V':
+                lora_type = 'image'
 
-            text_to_check = f"{lora['name']} {trigger_words_str}".lower()
-            match_score = 0
+            # 检查是否已关联
+            cursor.execute("""
+            SELECT id FROM pose_loras
+            WHERE pose_id = ? AND lora_id = ? AND lora_type = ?
+            """, (pose_id, lora['id'], lora_type))
 
-            for keyword in keywords:
-                if keyword.lower() in text_to_check:
-                    match_score += 1
+            if not cursor.fetchone():
+                # 提取trigger_words
+                trigger_words_str = ''
+                if lora['trigger_words']:
+                    import json
+                    try:
+                        tw_list = json.loads(lora['trigger_words']) if isinstance(lora['trigger_words'], str) else lora['trigger_words']
+                        if isinstance(tw_list, list):
+                            trigger_words_str = ' '.join(tw_list)
+                    except:
+                        pass
 
-            # 只要匹配到至少一个关键词就关联
-            if match_score > 0:
-                # 确定LORA类型
-                lora_type = 'video'  # 默认视频LORA
-                if lora['mode'] == 'I2V':
-                    lora_type = 'image'
-
-                # 检查是否已关联
+                # 添加关联
                 cursor.execute("""
-                SELECT id FROM pose_loras
-                WHERE pose_id = ? AND lora_id = ? AND lora_type = ?
-                """, (pose_id, lora['id'], lora_type))
-
-                if not cursor.fetchone():
-                    # 添加关联
-                    cursor.execute("""
-                    INSERT INTO pose_loras
-                    (pose_id, lora_id, lora_type, trigger_words, noise_stage, recommended_weight)
-                    VALUES (?, ?, ?, ?, ?, 1.0)
-                    """, (pose_id, lora['id'], lora_type, trigger_words_str, lora['noise_stage']))
-                    associated_loras += 1
+                INSERT INTO pose_loras
+                (pose_id, lora_id, lora_type, trigger_words, noise_stage, recommended_weight)
+                VALUES (?, ?, ?, ?, ?, 1.0)
+                """, (pose_id, lora['id'], lora_type, trigger_words_str, lora['noise_stage']))
+                associated_loras += 1
 
         mysql_cursor.close()
         mysql_conn.close()

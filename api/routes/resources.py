@@ -43,7 +43,6 @@ class Resource(BaseModel):
     resource_type: str
     url: str
     prompt: Optional[str]
-    search_keywords: Optional[str] = None
     trigger_prompt: Optional[str] = None
     tags: List[Tag]
     is_favorited: Optional[bool] = False
@@ -107,7 +106,7 @@ async def list_resources(
             params.append(f"%{prompt}%")
 
         if search:
-            where_clauses.append("r.search_keywords LIKE %s")
+            where_clauses.append("r.prompt LIKE %s")
             params.append(f"%{search}%")
 
         where_sql = " AND ".join(where_clauses) if where_clauses else "1=1"
@@ -180,7 +179,6 @@ async def list_resources(
                 'resource_type': r['resource_type'],
                 'url': r['url'],
                 'prompt': r['prompt'],
-                'search_keywords': r.get('search_keywords'),
                 'trigger_prompt': r.get('trigger_prompt'),
                 'tags': tags_by_resource.get(r['id'], []),
                 'is_favorited': r['id'] in favorited_ids
@@ -315,7 +313,6 @@ async def search_resources(
                 'resource_type': r['resource_type'],
                 'url': r['url'],
                 'prompt': r['prompt'],
-                'search_keywords': r.get('search_keywords'),
                 'trigger_prompt': r.get('trigger_prompt'),
                 'tags': tags_by_resource.get(r['id'], []),
                 'is_favorited': r['id'] in favorited_ids
@@ -599,8 +596,7 @@ async def list_all_favorites(
                 f.created_at,
                 r.resource_type,
                 r.url,
-                r.prompt,
-                r.search_keywords
+                r.prompt
             FROM favorites f
             LEFT JOIN resources r ON f.resource_id = r.id
             """ + query_where + """
@@ -651,7 +647,6 @@ async def list_all_favorites(
                     'resource_type': fav['resource_type'],
                     'url': fav['url'],
                     'prompt': fav['prompt'],
-                    'search_keywords': fav['search_keywords'],
                     'note': fav['note'],
                     'created_at': fav['created_at'].isoformat() if fav['created_at'] else None,
                     'pose_keys': pose_keys_map.get(fav['url'], [])
@@ -837,7 +832,7 @@ async def list_favorites(
                 params.extend(types)
 
         if search:
-            where_clauses.append("r.search_keywords LIKE %s")
+            where_clauses.append("r.prompt LIKE %s")
             params.append(f"%{search}%")
 
         where_sql = " AND ".join(where_clauses)
@@ -908,7 +903,6 @@ async def list_favorites(
                 'resource_type': r['resource_type'],
                 'url': r['url'],
                 'prompt': r['prompt'],
-                'search_keywords': r.get('search_keywords'),
                 'trigger_prompt': r.get('trigger_prompt'),
                 'tags': tags_by_resource.get(r['id'], []),
                 'is_favorited': True
@@ -942,98 +936,6 @@ async def check_favorite(
         conn.close()
 
 
-@router.post("/resources/{resource_id}/suggest-keywords")
-async def suggest_resource_keywords(
-    resource_id: int,
-    _: str = Depends(verify_api_key)
-):
-    """为图片/视频资源生成search_keywords建议"""
-    conn = get_db()
-    cursor = conn.cursor(pymysql.cursors.DictCursor)
-
-    try:
-        # 获取资源信息
-        cursor.execute("""
-            SELECT r.id, r.prompt, r.resource_type
-            FROM resources r
-            WHERE r.id = %s
-        """, (resource_id,))
-        resource = cursor.fetchone()
-
-        if not resource:
-            raise HTTPException(404, "资源不存在")
-
-        # 获取标签
-        cursor.execute("""
-            SELECT t.name, t.category
-            FROM resource_tags rt
-            JOIN tags t ON rt.tag_id = t.id
-            WHERE rt.resource_id = %s
-        """, (resource_id,))
-        tags = cursor.fetchall()
-        resource['tags'] = tags
-
-        cursor.close()
-        conn.close()
-
-        # 使用AI生成建议
-        suggester = get_content_suggester()
-        result = await suggester.suggest_for_resource(resource)
-
-        return {
-            "search_keywords": result.get("search_keywords", ""),
-            "reasoning": result.get("reasoning", "")
-        }
-
-    except HTTPException:
-        raise
-    except Exception as e:
-        cursor.close()
-        conn.close()
-        raise HTTPException(500, f"生成建议失败: {str(e)}")
-
-
-class ResourceUpdateRequest(BaseModel):
-    search_keywords: Optional[str] = None
-
-
-@router.patch("/resources/{resource_id}")
-async def update_resource_metadata(
-    resource_id: int,
-    req: ResourceUpdateRequest,
-    _: str = Depends(verify_api_key)
-):
-    """更新资源元数据"""
-    conn = get_db()
-    cursor = conn.cursor()
-
-    try:
-        if req.search_keywords is not None:
-            cursor.execute(
-                "UPDATE resources SET search_keywords = %s WHERE id = %s",
-                (req.search_keywords, resource_id)
-            )
-
-            if cursor.rowcount == 0:
-                cursor.close()
-                conn.close()
-                raise HTTPException(404, f"资源 #{resource_id} 不存在")
-
-            conn.commit()
-            cursor.close()
-            conn.close()
-            return {"success": True, "resource_id": resource_id}
-        else:
-            cursor.close()
-            conn.close()
-            raise HTTPException(400, "没有要更新的字段")
-
-    except HTTPException:
-        raise
-    except Exception as e:
-        cursor.close()
-        conn.close()
-        raise HTTPException(500, f"更新失败: {str(e)}")
 
 
 # ========== Pose Association API ==========

@@ -91,7 +91,14 @@ async def serve_pose_file(pose: str, filename: str):
 
     ext = file_path.suffix.lower()
     media_type = MEDIA_TYPES.get(ext, "application/octet-stream")
-    return FileResponse(file_path, media_type=media_type)
+    return FileResponse(
+        file_path,
+        media_type=media_type,
+        headers={
+            "Cache-Control": "public, max-age=86400",  # 缓存1天
+            "ETag": f'"{file_path.stat().st_mtime}"'
+        }
+    )
 
 
 # ========== Pose Association API ==========

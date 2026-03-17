@@ -88,20 +88,6 @@
       line-height: 1.5;
       margin-bottom: 12px;
     }
-    .pose-keywords {
-      font-size: 12px;
-      color: #9ca3af;
-      line-height: 1.6;
-      margin-bottom: 12px;
-      padding: 8px;
-      background: #16162a;
-      border-radius: 4px;
-      border-left: 2px solid #7c83ff;
-    }
-    .pose-keywords strong {
-      color: #7c83ff;
-      margin-right: 4px;
-    }
     .pose-preview-section {
       background: #16162a;
       border: 1px solid #2a2a3a;
@@ -853,8 +839,7 @@
           const matchSearch =
             pose.name_cn.includes(currentFilters.search) ||
             pose.name_en.toLowerCase().includes(currentFilters.search.toLowerCase()) ||
-            pose.pose_key.toLowerCase().includes(currentFilters.search.toLowerCase()) ||
-            (pose.keywords && pose.keywords.some(k => k.toLowerCase().includes(currentFilters.search.toLowerCase())));
+            pose.pose_key.toLowerCase().includes(currentFilters.search.toLowerCase());
           return matchSearch;
         });
       }
@@ -892,11 +877,6 @@
             </div>
           </div>
           <div class="pose-description">${pose.description || '暂无描述'}</div>
-          ${pose.keywords && pose.keywords.length > 0 ? `
-          <div class="pose-keywords">
-            <strong>关键词:</strong> ${pose.keywords.join(', ')}
-          </div>
-          ` : ''}
           <div id="pose-details-${pose.id}" style="color:#888;font-size:12px;padding:8px 0;">加载详情中...</div>
           <div class="pose-actions">
             <button class="btn btn-primary" onclick="viewConfig(${pose.id})">查看全部</button>
@@ -907,25 +887,104 @@
         </div>
       `).join('');
 
-      // 异步加载每个姿势的详细配置
-      filtered.forEach(pose => loadPoseDetails(pose.id));
+      // 批量加载所有姿势的详细配置
+      loadBatchPoseDetails(filtered.map(p => p.id));
     }
 
-    // Helper function to merge HIGH/LOW LORA variants
+    async function loadBatchPoseDetails(poseIds) {
+      if (poseIds.length === 0) return;
+      try {
+        const response = await fetch('/api/v1/poses/batch-config', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify(poseIds)
+        });
+        const allData = await response.json();
+
+        for (const [poseId, data] of Object.entries(allData)) {
+          if (data.video_loras) data.video_loras = mergeLORAVariants(data.video_loras);
+          if (data.image_loras) data.image_loras = mergeLORAVariants(data.image_loras);
+          renderPoseDetails(poseId, data);
+        }
+      } catch (error) {
+        console.error('批量加载姿势详情失败:', error);
+      }
+    }
+
+    function renderPoseDetails(poseId, data) {
+      const detailsContainer = document.getElementById(`pose-details-${poseId}`);
+      if (!detailsContainer) return;
+
+      const html = document.getElementById(`pose-details-${poseId}-template-${poseId}`)?.innerHTML ||
+        generatePoseDetailsHTML(poseId, data);
+      detailsContainer.innerHTML = html;
+    }
+
+    function generatePoseDetailsHTML(poseId, data) {
+      let html = '';
+      html += `<div class="pose-preview-section"><div class="pose-preview-title">📷 参考图 (${data.reference_images?.length || 0})</div>`;
+      if (data.reference_images && data.reference_images.length > 0) {
+        const displayImages = data.reference_images.slice(0, 4);
+        const remaining = data.reference_images.length - 4;
+        html += `<div class="pose-preview-grid">${displayImages.map((img) => {
+          const isVideo = img.image_url && (img.image_url.endsWith('.mp4') || img.image_url.endsWith('.webm'));
+          return isVideo ? `<div class="pose-preview-item" ondblclick="openImageZoom('${img.image_url}', true)" onmouseenter="playPreviewVideo(this)" onmouseleave="pausePreviewVideo(this)"><video src="${img.image_url}" muted loop playsinline></video><span class="pose-preview-badge">视频</span><span class="pose-preview-delete" onclick="event.stopPropagation(); deleteReferenceImage(${poseId}, ${img.id})">×</span></div>` : `<div class="pose-preview-item" ondblclick="openImageZoom('${img.image_url}', false)"><img src="${img.image_url}" loading="lazy"><span class="pose-preview-delete" onclick="event.stopPropagation(); deleteReferenceImage(${poseId}, ${img.id})">×</span></div>`;
+        }).join('')}${remaining > 0 ? `<div class="pose-preview-item" onclick="viewConfig(${poseId})"><div class="pose-preview-more">+${remaining}</div></div>` : ''}</div>`;
+      } else {
+        html += `<div class="pose-preview-empty">暂无参考图<br><button class="btn btn-secondary" onclick="openResourceSelector(${poseId})" style="padding:4px 12px;font-size:11px;">添加参考图</button></div>`;
+      }
+      html += `</div>`;
+
+      html += `<div class="pose-preview-section"><div class="pose-preview-title">🎬 视频LORA (${data.video_loras?.length || 0})</div>`;
+      if (data.video_loras && data.video_loras.length > 0) {
+        const expanded = document.getElementById(`video-loras-${poseId}`)?.classList.contains('expanded');
+        const displayLoras = expanded ? data.video_loras : data.video_loras.slice(0, 3);
+        const remaining = data.video_loras.length - 3;
+        html += `<div class="pose-lora-list" id="video-loras-${poseId}" ${expanded ? 'class="expanded"' : ''}>${displayLoras.map(lora => {
+          const isVideo = lora.preview_url && (lora.preview_url.endsWith('.mp4') || lora.preview_url.endsWith('.webm'));
+          const previewHtml = lora.preview_url ? (isVideo ? `<video src="${lora.preview_url}" class="pose-lora-preview" muted loop playsinline onmouseenter="this.play()" onmouseleave="this.pause()" onclick="openImageZoom('${lora.preview_url}', true)" style="cursor:pointer"></video>` : `<img src="${lora.preview_url}" class="pose-lora-preview" onclick="openImageZoom('${lora.preview_url}', false)" style="cursor:pointer">`) : '<div class="pose-lora-preview"></div>';
+          const civitaiLink = lora.civitai_id ? `https://civitai.com/models/${lora.civitai_id}` : null;
+          const displayName = lora.is_merged ? `${lora.baseName || `LORA ${lora.lora_id}`} <span style="color:#7c83ff;font-size:9px;">[HIGH/LOW]</span>` : (lora.lora_name || `LORA ${lora.lora_id}`);
+          const nameHtml = civitaiLink ? `<div class="pose-lora-name" onclick="window.open('${civitaiLink}', '_blank')" title="点击访问 Civitai">${displayName} 🔗</div>` : `<div class="pose-lora-name" onclick="viewLoraDetail(${lora.lora_id})" title="点击查看详情">${displayName}</div>`;
+          const deleteHandler = lora.is_merged ? `deleteMultiplePoseLoras(${poseId}, [${lora.variant_ids.join(',')}])` : `deletePoseLora(${poseId}, ${lora.id})`;
+          return `<div class="pose-lora-item">${previewHtml}<div class="pose-lora-info">${nameHtml}<div class="pose-lora-type">权重: ${lora.recommended_weight || 1.0}</div></div><div class="pose-lora-delete" onclick="${deleteHandler}">删除</div></div>`;
+        }).join('')}${!expanded && remaining > 0 ? `<div style="text-align:center;padding:8px;color:#7c83ff;font-size:11px;cursor:pointer;border:1px solid #444;border-radius:4px;margin-top:4px;" onclick="expandLoras(${poseId}, 'video')">还有 ${remaining} 个... 点击展开</div>` : ''}</div>`;
+      } else {
+        html += `<div class="pose-preview-empty">暂无视频LORA<br><button class="btn btn-secondary" onclick="openLoraSelector(${poseId}, 'video')" style="padding:4px 12px;font-size:11px;">添加视频LORA</button></div>`;
+      }
+      html += `</div>`;
+
+      html += `<div class="pose-preview-section"><div class="pose-preview-title">🖼️ 图片LORA (${data.image_loras?.length || 0})</div>`;
+      if (data.image_loras && data.image_loras.length > 0) {
+        const expanded = document.getElementById(`image-loras-${poseId}`)?.classList.contains('expanded');
+        const displayLoras = expanded ? data.image_loras : data.image_loras.slice(0, 3);
+        const remaining = data.image_loras.length - 3;
+        html += `<div class="pose-lora-list" id="image-loras-${poseId}" ${expanded ? 'class="expanded"' : ''}>${displayLoras.map(lora => {
+          const isVideo = lora.preview_url && (lora.preview_url.endsWith('.mp4') || lora.preview_url.endsWith('.webm'));
+          const previewHtml = lora.preview_url ? (isVideo ? `<video src="${lora.preview_url}" class="pose-lora-preview" muted loop playsinline onmouseenter="this.play()" onmouseleave="this.pause()" onclick="openImageZoom('${lora.preview_url}', true)" style="cursor:pointer"></video>` : `<img src="${lora.preview_url}" class="pose-lora-preview" onclick="openImageZoom('${lora.preview_url}', false)" style="cursor:pointer">`) : '<div class="pose-lora-preview"></div>';
+          const civitaiLink = lora.civitai_id ? `https://civitai.com/models/${lora.civitai_id}` : null;
+          const displayName = lora.is_merged ? `${lora.baseName || `LORA ${lora.lora_id}`} <span style="color:#7c83ff;font-size:9px;">[HIGH/LOW]</span>` : (lora.lora_name || `LORA ${lora.lora_id}`);
+          const nameHtml = civitaiLink ? `<div class="pose-lora-name" onclick="window.open('${civitaiLink}', '_blank')" title="点击访问 Civitai">${displayName} 🔗</div>` : `<div class="pose-lora-name" onclick="viewLoraDetail(${lora.lora_id})" title="点击查看详情">${displayName}</div>`;
+          const deleteHandler = lora.is_merged ? `deleteMultiplePoseLoras(${poseId}, [${lora.variant_ids.join(',')}])` : `deletePoseLora(${poseId}, ${lora.id})`;
+          return `<div class="pose-lora-item">${previewHtml}<div class="pose-lora-info">${nameHtml}<div class="pose-lora-type">权重: ${lora.recommended_weight || 1.0}</div></div><div class="pose-lora-delete" onclick="${deleteHandler}">删除</div></div>`;
+        }).join('')}${!expanded && remaining > 0 ? `<div style="text-align:center;padding:8px;color:#7c83ff;font-size:11px;cursor:pointer;border:1px solid #444;border-radius:4px;margin-top:4px;" onclick="expandLoras(${poseId}, 'image')">还有 ${remaining} 个... 点击展开</div>` : ''}</div>`;
+      } else {
+        html += `<div class="pose-preview-empty">暂无图片LORA<br><button class="btn btn-secondary" onclick="openLoraSelector(${poseId}, 'image')" style="padding:4px 12px;font-size:11px;">添加图片LORA</button></div>`;
+      }
+      html += `</div>`;
+      return html;
+    }
+
     function mergeLORAVariants(loras) {
       const loraMap = new Map();
-
       for (const lora of loras) {
         let baseName = lora.lora_name || '';
         const highLowMatch = baseName.match(/^(.+?)_(HIGH|LOW|high|low|highnoise|lownoise)(_.*)?$/i);
-
-        if (highLowMatch) {
+        if (highLowMatch && highLowMatch[1]) {
           baseName = highLowMatch[1] + (highLowMatch[3] || '');
         }
-
         if (loraMap.has(baseName)) {
           const existing = loraMap.get(baseName);
-          // Prefer preview_url from whichever variant has it
           if (!existing.preview_url && lora.preview_url) {
             existing.preview_url = lora.preview_url;
           }
@@ -935,18 +994,15 @@
           if (!existing.lora_id && lora.lora_id) {
             existing.lora_id = lora.lora_id;
           }
-          // Store all variant IDs for deletion
           if (!existing.variant_ids) {
             existing.variant_ids = [existing.id];
           }
           existing.variant_ids.push(lora.id);
-          // Mark as merged
           existing.is_merged = true;
         } else {
           loraMap.set(baseName, { ...lora, baseName });
         }
       }
-
       return Array.from(loraMap.values());
     }
 
@@ -1027,11 +1083,12 @@
         `;
 
         if (data.video_loras && data.video_loras.length > 0) {
-          const displayLoras = data.video_loras.slice(0, 3);
+          const expanded = document.getElementById(`video-loras-${poseId}`)?.classList.contains('expanded');
+          const displayLoras = expanded ? data.video_loras : data.video_loras.slice(0, 3);
           const remaining = data.video_loras.length - 3;
 
           html += `
-            <div class="pose-lora-list">
+            <div class="pose-lora-list" id="video-loras-${poseId}" ${expanded ? 'class="expanded"' : ''}>
               ${displayLoras.map(lora => {
                 const isVideo = lora.preview_url && (lora.preview_url.endsWith('.mp4') || lora.preview_url.endsWith('.webm'));
                 const previewHtml = lora.preview_url
@@ -1067,7 +1124,7 @@
                   </div>
                 `;
               }).join('')}
-              ${remaining > 0 ? `<div style="text-align:center;padding:4px;color:#7c83ff;font-size:11px;">还有 ${remaining} 个...</div>` : ''}
+              ${!expanded && remaining > 0 ? `<div style="text-align:center;padding:8px;color:#7c83ff;font-size:11px;cursor:pointer;border:1px solid #444;border-radius:4px;margin-top:4px;" onclick="expandLoras(${poseId}, 'video')">还有 ${remaining} 个... 点击展开</div>` : ''}
             </div>
           `;
         } else {
@@ -1088,11 +1145,12 @@
         `;
 
         if (data.image_loras && data.image_loras.length > 0) {
-          const displayLoras = data.image_loras.slice(0, 3);
+          const expanded = document.getElementById(`image-loras-${poseId}`)?.classList.contains('expanded');
+          const displayLoras = expanded ? data.image_loras : data.image_loras.slice(0, 3);
           const remaining = data.image_loras.length - 3;
 
           html += `
-            <div class="pose-lora-list">
+            <div class="pose-lora-list" id="image-loras-${poseId}" ${expanded ? 'class="expanded"' : ''}>
               ${displayLoras.map(lora => {
                 const isVideo = lora.preview_url && (lora.preview_url.endsWith('.mp4') || lora.preview_url.endsWith('.webm'));
                 const previewHtml = lora.preview_url
@@ -1128,7 +1186,7 @@
                   </div>
                 `;
               }).join('')}
-              ${remaining > 0 ? `<div style="text-align:center;padding:4px;color:#7c83ff;font-size:11px;">还有 ${remaining} 个...</div>` : ''}
+              ${!expanded && remaining > 0 ? `<div style="text-align:center;padding:8px;color:#7c83ff;font-size:11px;cursor:pointer;border:1px solid #444;border-radius:4px;margin-top:4px;" onclick="expandLoras(${poseId}, 'image')">还有 ${remaining} 个... 点击展开</div>` : ''}
             </div>
           `;
         } else {
@@ -1988,6 +2046,15 @@
         closeLoraSelector();
       }
     });
+  function expandLoras(poseId, type) {
+    const elementId = type === 'video' ? `video-loras-${poseId}` : `image-loras-${poseId}`;
+    const element = document.getElementById(elementId);
+    if (element) {
+      element.classList.add('expanded');
+      loadPoseDetails(poseId);
+    }
+  }
+
   </script>
 
   <!-- 资源选择器模态框 -->

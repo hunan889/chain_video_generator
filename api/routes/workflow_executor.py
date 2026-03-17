@@ -556,11 +556,11 @@ async def _update_stage(task_manager, workflow_id: str, stage_name: str, status:
 
 
 async def _analyze_prompt(req, task_manager) -> Optional[dict]:
-    """Call /workflow/analyze or /recommend/workflow endpoint internally"""
+    """Call /workflow/analyze or /poses/recommend-workflow endpoint internally"""
     try:
         # If pose_keys provided, use pose-based recommendation
         if req.pose_keys:
-            from api.routes.workflow_recommend import recommend_workflow, WorkflowRecommendRequest
+            from api.routes.poses import recommend_workflow, WorkflowRecommendRequest
 
             recommend_req = WorkflowRecommendRequest(
                 prompt=req.user_prompt,

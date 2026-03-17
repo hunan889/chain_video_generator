@@ -1,6 +1,5 @@
 """
-姿势匹配服务
-从用户输入中匹配姿势，返回完整配置
+姿势配置服务
 """
 import sqlite3
 import pymysql
@@ -26,21 +25,6 @@ MYSQL_CONFIG = {
 
 
 @dataclass
-class PoseMatch:
-    """姿势匹配结果"""
-    pose_id: int
-    pose_key: str
-    name_en: str
-    name_cn: str
-    description: str
-    difficulty: str
-    category: str
-    match_score: float
-    matched_keywords: List[str]
-    confidence: str  # high/medium/low
-
-
-@dataclass
 class PoseConfig:
     """姿势完整配置"""
     pose: Dict
@@ -51,7 +35,7 @@ class PoseConfig:
 
 
 class PoseMatcher:
-    """姿势匹配器"""
+    """姿势配置管理器"""
 
     def __init__(self, db_path: str = None):
         self.db_path = db_path or str(DB_PATH)
@@ -65,124 +49,6 @@ class PoseMatcher:
     def _get_mysql_connection(self):
         """获取MySQL数据库连接（用于LORA数据）"""
         return pymysql.connect(**MYSQL_CONFIG)
-
-    def _tokenize(self, text: str) -> List[str]:
-        """分词和标准化"""
-        # 简单分词：按空格分割，转小写
-        tokens = text.lower().split()
-
-        # 生成n-gram (1-4词组合)
-        ngrams = []
-        for n in range(1, 5):
-            for i in range(len(tokens) - n + 1):
-                ngram = ' '.join(tokens[i:i+n])
-                ngrams.append(ngram)
-
-        return ngrams
-
-    def match_poses(
-        self,
-        query: str,
-        top_k: int = 5,
-        min_score: float = 0.3
-    ) -> List[PoseMatch]:
-        """
-        从用户输入中匹配姿势
-
-        Args:
-            query: 用户输入
-            top_k: 返回top K个结果
-            min_score: 最低匹配分数
-
-        Returns:
-            匹配的姿势列表
-        """
-        tokens = self._tokenize(query)
-
-        if not tokens:
-            return []
-
-        conn = self._get_connection()
-        cursor = conn.cursor()
-
-        # 查询匹配的关键词
-        placeholders = ','.join('?' * len(tokens))
-        cursor.execute(f"""
-        SELECT
-            p.id, p.pose_key, p.name_en, p.name_cn, p.description,
-            p.difficulty, p.category,
-            pk.keyword, pk.keyword_type, pk.weight
-        FROM poses p
-        JOIN pose_keywords pk ON p.id = pk.pose_id
-        WHERE pk.keyword IN ({placeholders})
-        AND p.enabled = 1
-        """, tokens)
-
-        rows = cursor.fetchall()
-        conn.close()
-
-        if not rows:
-            logger.info(f"未找到匹配的姿势: {query}")
-            return []
-
-        # 计算每个姿势的匹配分数
-        pose_scores = {}
-        for row in rows:
-            pose_id = row['id']
-
-            if pose_id not in pose_scores:
-                pose_scores[pose_id] = {
-                    'pose_id': pose_id,
-                    'pose_key': row['pose_key'],
-                    'name_en': row['name_en'],
-                    'name_cn': row['name_cn'],
-                    'description': row['description'],
-                    'difficulty': row['difficulty'],
-                    'category': row['category'],
-                    'score': 0.0,
-                    'matched_keywords': []
-                }
-
-            # 累加权重
-            pose_scores[pose_id]['score'] += row['weight']
-            pose_scores[pose_id]['matched_keywords'].append(row['keyword'])
-
-        # 转换为PoseMatch对象
-        matches = []
-        for data in pose_scores.values():
-            # 归一化分数（除以匹配的关键词数量）
-            normalized_score = data['score'] / len(data['matched_keywords'])
-
-            # 判断置信度
-            if normalized_score >= 0.8:
-                confidence = 'high'
-            elif normalized_score >= 0.5:
-                confidence = 'medium'
-            else:
-                confidence = 'low'
-
-            if normalized_score >= min_score:
-                matches.append(PoseMatch(
-                    pose_id=data['pose_id'],
-                    pose_key=data['pose_key'],
-                    name_en=data['name_en'],
-                    name_cn=data['name_cn'],
-                    description=data['description'],
-                    difficulty=data['difficulty'],
-                    category=data['category'],
-                    match_score=normalized_score,
-                    matched_keywords=data['matched_keywords'],
-                    confidence=confidence
-                ))
-
-        # 排序
-        matches.sort(key=lambda x: x.match_score, reverse=True)
-
-        logger.info(f"查询: {query}, 匹配到 {len(matches)} 个姿势")
-        for match in matches[:3]:
-            logger.info(f"  - {match.pose_key}: {match.match_score:.3f} ({match.confidence})")
-
-        return matches[:top_k]
 
     def get_pose_config(
         self,
@@ -276,7 +142,7 @@ class PoseMatcher:
 
                 placeholders = ','.join(['%s'] * len(lora_ids))
                 mysql_cursor.execute(f"""
-                SELECT id, name, preview_url, civitai_id
+                SELECT id, name, file, preview_url, civitai_id
                 FROM lora_metadata
                 WHERE id IN ({placeholders})
                 """, lora_ids)
@@ -290,7 +156,11 @@ class PoseMatcher:
                     lora_id = lora.get('lora_id')
                     if lora_id and lora_id in lora_data:
                         # 从MySQL获取完整数据
-                        lora['lora_name'] = lora_data[lora_id]['name']
+                        name = lora_data[lora_id]['name']
+                        if not name and lora_data[lora_id].get('file'):
+                            # 如果name为空，使用file字段
+                            name = lora_data[lora_id]['file']
+                        lora['lora_name'] = name
                         lora['preview_url'] = lora_data[lora_id]['preview_url']
                         lora['civitai_id'] = lora_data[lora_id]['civitai_id']
                     elif not lora_id and lora.get('lora_name'):
@@ -336,14 +206,13 @@ class PoseMatcher:
             category: 分类筛选
 
         Returns:
-            姿势列表（包含统计信息和关键词）
+            姿势列表
         """
         conn = self._get_connection()
         cursor = conn.cursor()
 
         query = """
         SELECT p.*,
-               (SELECT COUNT(*) FROM pose_keywords WHERE pose_id = p.id) as keyword_count,
                (SELECT COUNT(*) FROM pose_reference_images WHERE pose_id = p.id) as reference_image_count,
                (SELECT COUNT(*) FROM pose_loras WHERE pose_id = p.id) as lora_count
         FROM poses p
@@ -359,17 +228,6 @@ class PoseMatcher:
 
         cursor.execute(query, params)
         poses = [dict(row) for row in cursor.fetchall()]
-
-        # 为每个姿势添加关键词列表
-        for pose in poses:
-            cursor.execute("""
-            SELECT keyword FROM pose_keywords
-            WHERE pose_id = ?
-            ORDER BY keyword
-            """, (pose['id'],))
-            keywords = [row[0] for row in cursor.fetchall()]
-            pose['keywords'] = keywords
-
         conn.close()
 
         return poses

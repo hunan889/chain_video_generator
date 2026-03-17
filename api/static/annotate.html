@@ -241,15 +241,13 @@ h1{text-align:center;color:#7c83ff;margin-bottom:24px;font-size:1.6em}
 <div class="tab" data-mode="favorited" onclick="switchMode('favorited')">已收藏</div>
 </div>
 
-<!-- 二级TAB: 图片/视频/图片LORA/视频LORA/姿势图片/搜索调试/关键词编辑 -->
+<!-- 二级TAB: 图片/视频/图片LORA/视频LORA/姿势图片 -->
 <div class="sub-tabs">
 <div class="sub-tab active" data-type="image" onclick="switchType('image')">图片</div>
 <div class="sub-tab" data-type="video" onclick="switchType('video')">视频</div>
 <div class="sub-tab" data-type="image_lora" onclick="switchType('image_lora')">图片LORA</div>
 <div class="sub-tab" data-type="video_lora" onclick="switchType('video_lora')">视频LORA</div>
 <div class="sub-tab" data-type="pose_images" onclick="switchType('pose_images')">姿势图片</div>
-<div class="sub-tab" data-type="search_debug" onclick="switchType('search_debug')">搜索调试</div>
-<div class="sub-tab" data-type="keywords_editor" onclick="switchType('keywords_editor')">关键词编辑</div>
 </div>
 
 <!-- 筛选区域 -->
@@ -281,126 +279,6 @@ h1{text-align:center;color:#7c83ff;margin-bottom:24px;font-size:1.6em}
 <div id="contentGrid" class="grid"></div>
 <div id="pagination" class="pagination"></div>
 
-<!-- 搜索调试区域 -->
-<div id="searchDebugSection" style="display:none">
-<div class="search-panel">
-<div class="search-row">
-<div class="search-field" style="flex:2">
-<label>搜索Prompt</label>
-<textarea id="searchPrompt" placeholder="输入要搜索的prompt，例如：a woman in sexy pose"></textarea>
-</div>
-<div class="search-field">
-<label>搜索类型</label>
-<select id="searchType">
-<option value="recommend">搜索 (综合)</option>
-</select>
-</div>
-<div class="search-field">
-<label>模式筛选</label>
-<select id="searchMode">
-<option value="">全部</option>
-<option value="I2V">I2V</option>
-<option value="T2V">T2V</option>
-</select>
-</div>
-<div class="search-field">
-<label>返回数量</label>
-<input type="number" id="topK" value="10" min="1" max="50">
-</div>
-<div class="search-field">
-<label>相似度阈值</label>
-<input type="number" id="minSimilarity" value="0.6" min="0" max="1" step="0.1">
-</div>
-<div class="search-field">
-<label>名称权重 (LORA)</label>
-<input type="number" id="nameWeight" value="0.2" min="0" max="1" step="0.1">
-</div>
-<div class="search-field">
-<label>关键词加权 <span style="color:#4ade80;font-size:11px">NEW</span></label>
-<input type="number" id="keywordBoost" value="0.35" min="0" max="1" step="0.05">
-</div>
-</div>
-<div style="display:flex;gap:10px;align-items:center;margin-top:10px">
-<label style="display:flex;align-items:center;gap:6px;color:#e0e0e0;font-size:13px">
-<input type="checkbox" id="onlyEnabled" checked style="width:18px;height:18px;accent-color:#7c83ff">
-仅搜索已启用的LORA
-</label>
-</div>
-<div style="display:flex;gap:10px;margin-top:10px">
-<button class="btn btn-primary" onclick="executeSearch()">🔍 执行搜索</button>
-<button class="btn btn-secondary" onclick="clearDebug()">清空</button>
-<button class="btn btn-secondary" onclick="checkIndexStats()">📊 索引统计</button>
-<button class="btn btn-danger" onclick="clearAllEmbeddings()">🗑️ 清空索引</button>
-<button class="btn btn-secondary" onclick="rebuildIndex()">🔄 重建索引</button>
-<button class="btn btn-secondary" onclick="checkRebuildProgress()">📈 查看进度</button>
-</div>
-</div>
-
-<div id="errorBox" class="error" style="display:none"></div>
-
-<div class="tabs" style="margin-top:20px">
-<div class="tab active" data-tab="process" onclick="switchDebugTab('process')">搜索过程</div>
-<div class="tab" data-tab="results" onclick="switchDebugTab('results')">搜索结果</div>
-<div class="tab" data-tab="raw" onclick="switchDebugTab('raw')">原始数据</div>
-</div>
-
-<div id="tab-process" class="debug-section">
-<h2>🔄 搜索过程追踪</h2>
-<div id="processTimeline" class="timeline">
-<div class="empty">点击"执行搜索"开始</div>
-</div>
-</div>
-
-<div id="tab-results" class="debug-section" style="display:none">
-<h2>📋 搜索结果 <span class="badge" id="resultCount">0</span></h2>
-<div id="resultsStats" class="stats-bar" style="display:none"></div>
-<div id="resultsGrid" class="results-grid">
-<div class="empty">暂无结果</div>
-</div>
-</div>
-
-<div id="tab-raw" class="debug-section" style="display:none">
-<h2>📄 原始JSON数据</h2>
-<div id="rawData" class="code-block">暂无数据</div>
-</div>
-</div>
-
-<!-- 关键词编辑器区域 -->
-<div id="keywordsEditorSection" style="display:none">
-<div id="kwSuccessMsg" class="success-msg" style="display:none"></div>
-<div id="kwErrorMsg" class="error-msg" style="display:none"></div>
-
-<div class="stats-bar">
-<div class="stat">
-<div class="stat-label">总关键词数</div>
-<div class="stat-value" id="kwTotalCount">0</div>
-</div>
-<div class="stat">
-<div class="stat-label">已修改</div>
-<div class="stat-value" id="kwModifiedCount">0</div>
-</div>
-<div class="stat">
-<div class="stat-label">新增</div>
-<div class="stat-value" id="kwNewCount">0</div>
-</div>
-</div>
-
-<div class="search-panel">
-<div class="search-row">
-<div class="search-field" style="flex:1">
-<input type="text" id="kwSearchInput" placeholder="搜索关键词...">
-</div>
-<button class="btn btn-primary" onclick="addNewKeyword()">➕ 新增关键词</button>
-<button class="btn btn-success" onclick="saveAllKeywords()">💾 保存全部</button>
-<button class="btn btn-secondary" onclick="loadKeywordsEditor()">🔄 重新加载</button>
-<button class="btn btn-secondary" onclick="exportKeywordsJSON()">📥 导出JSON</button>
-</div>
-</div>
-
-<div id="kwEditorGrid" class="results-grid">
-<div class="loading">加载中...</div>
-</div>
-</div>
 
 <!-- 姿势图片区域 -->
 <div id="poseImagesSection" style="display:none">
@@ -515,22 +393,7 @@ function switchType(type) {
   });
 
   // Show/hide sections based on type
-  if (type === 'search_debug') {
-    document.querySelector('.filters').style.display = 'none';
-    document.getElementById('contentGrid').style.display = 'none';
-    document.getElementById('pagination').style.display = 'none';
-    document.getElementById('searchDebugSection').style.display = 'block';
-    document.getElementById('keywordsEditorSection').style.display = 'none';
-    document.getElementById('poseImagesSection').style.display = 'none';
-  } else if (type === 'keywords_editor') {
-    document.querySelector('.filters').style.display = 'none';
-    document.getElementById('contentGrid').style.display = 'none';
-    document.getElementById('pagination').style.display = 'none';
-    document.getElementById('searchDebugSection').style.display = 'none';
-    document.getElementById('keywordsEditorSection').style.display = 'block';
-    document.getElementById('poseImagesSection').style.display = 'none';
-    loadKeywordsEditor();
-  } else if (type === 'pose_images') {
+  if (type === 'pose_images') {
     if (currentMode === 'favorited') {
       // 已收藏模式：使用统一的 contentGrid
       document.querySelector('.filters').style.display = 'none';
@@ -783,7 +646,7 @@ async function loadLoras() {
       l.name.toLowerCase().includes(searchQuery) ||
       (l.description && l.description.toLowerCase().includes(searchQuery)) ||
       (l.trigger_prompt && l.trigger_prompt.toLowerCase().includes(searchQuery)) ||
-      (l.search_keywords && l.search_keywords.toLowerCase().includes(searchQuery))
+      (false)
     );
   }
 
@@ -1805,231 +1668,6 @@ let kwKeywords = {};
 let kwModifiedKeys = new Set();
 let kwNewKeys = new Set();
 
-async function loadKeywordsEditor() {
-  try {
-    const response = await fetch('/api/v1/admin/keywords', {
-      headers: { 'X-API-Key': API_KEY }
-    });
-
-    if (!response.ok) {
-      throw new Error('加载失败');
-    }
-
-    kwKeywords = await response.json();
-    kwModifiedKeys.clear();
-    kwNewKeys.clear();
-    renderKeywords();
-    updateKwStats();
-  } catch (error) {
-    showKwError('加载关键词失败: ' + error.message);
-    document.getElementById('kwEditorGrid').innerHTML = '<div class="empty">加载失败</div>';
-  }
-}
-
-function renderKeywords(filter = '') {
-  const grid = document.getElementById('kwEditorGrid');
-  grid.innerHTML = '';
-
-  const entries = Object.entries(kwKeywords).filter(([key]) =>
-    key.toLowerCase().includes(filter.toLowerCase())
-  );
-
-  if (entries.length === 0) {
-    grid.innerHTML = '<div class="empty">无匹配的关键词</div>';
-    return;
-  }
-
-  entries.forEach(([key, data]) => {
-    const card = createKwCard(key, data);
-    grid.appendChild(card);
-  });
-}
-
-function createKwCard(key, data) {
-  const card = document.createElement('div');
-  card.className = 'keyword-card';
-  if (kwNewKeys.has(key)) card.classList.add('new');
-
-  const synonyms = data.synonyms || [];
-  const relatedWords = data.related_words || [];
-
-  card.innerHTML = `
-    <div class="kw-header">
-      <div class="kw-title">${key}</div>
-      <div class="kw-actions">
-        <button class="btn-icon delete" onclick="deleteKwKeyword('${key}')" title="删除">🗑️</button>
-      </div>
-    </div>
-    <div class="kw-field">
-      <label>中文翻译</label>
-      <input type="text" id="kw-translation-${key}" value="${data.translation || ''}"
-             onchange="markKwModified('${key}')" placeholder="输入中文翻译">
-    </div>
-    <div class="kw-field">
-      <label>描述</label>
-      <textarea id="kw-description-${key}" onchange="markKwModified('${key}')"
-                placeholder="输入描述">${data.description || ''}</textarea>
-    </div>
-    <div class="kw-field">
-      <label>同义词</label>
-      <div class="kw-tag-list" id="kw-synonyms-${key}">
-        ${synonyms.map(s => `<span class="kw-tag">${s}<span class="remove" onclick="removeKwTag('${key}', 'synonyms', '${s}')">×</span></span>`).join('')}
-      </div>
-      <div class="kw-add-tag">
-        <input type="text" id="kw-new-synonym-${key}" placeholder="添加同义词">
-        <button onclick="addKwTag('${key}', 'synonyms')">添加</button>
-      </div>
-    </div>
-    <div class="kw-field">
-      <label>相关词</label>
-      <div class="kw-tag-list" id="kw-related-${key}">
-        ${relatedWords.map(r => `<span class="kw-tag">${r}<span class="remove" onclick="removeKwTag('${key}', 'related_words', '${r}')">×</span></span>`).join('')}
-      </div>
-      <div class="kw-add-tag">
-        <input type="text" id="kw-new-related-${key}" placeholder="添加相关词">
-        <button onclick="addKwTag('${key}', 'related_words')">添加</button>
-      </div>
-    </div>
-  `;
-
-  return card;
-}
-
-function markKwModified(key) {
-  kwModifiedKeys.add(key);
-  updateKwStats();
-}
-
-function addKwTag(key, type) {
-  const inputId = type === 'synonyms' ? `kw-new-synonym-${key}` : `kw-new-related-${key}`;
-  const input = document.getElementById(inputId);
-  const value = input.value.trim();
-
-  if (!value) return;
-
-  if (!kwKeywords[key][type]) {
-    kwKeywords[key][type] = [];
-  }
-
-  if (!kwKeywords[key][type].includes(value)) {
-    kwKeywords[key][type].push(value);
-    markKwModified(key);
-    renderKeywords(document.getElementById('kwSearchInput').value);
-  }
-
-  input.value = '';
-}
-
-function removeKwTag(key, type, value) {
-  if (kwKeywords[key][type]) {
-    kwKeywords[key][type] = kwKeywords[key][type].filter(v => v !== value);
-    markKwModified(key);
-    renderKeywords(document.getElementById('kwSearchInput').value);
-  }
-}
-
-function deleteKwKeyword(key) {
-  if (!confirm(`确定删除关键词 "${key}" 吗？`)) return;
-
-  delete kwKeywords[key];
-  kwModifiedKeys.delete(key);
-  kwNewKeys.delete(key);
-  renderKeywords(document.getElementById('kwSearchInput').value);
-  updateKwStats();
-}
-
-function addNewKeyword() {
-  const key = prompt('输入新关键词（英文）:');
-  if (!key || !key.trim()) return;
-
-  const normalizedKey = key.trim().toLowerCase();
-  if (kwKeywords[normalizedKey]) {
-    alert('该关键词已存在');
-    return;
-  }
-
-  kwKeywords[normalizedKey] = {
-    translation: '',
-    description: '',
-    synonyms: [],
-    related_words: []
-  };
-
-  kwNewKeys.add(normalizedKey);
-  kwModifiedKeys.add(normalizedKey);
-  renderKeywords(document.getElementById('kwSearchInput').value);
-  updateKwStats();
-}
-
-async function saveAllKeywords() {
-  // Collect all data
-  Object.keys(kwKeywords).forEach(key => {
-    const translationEl = document.getElementById(`kw-translation-${key}`);
-    const descriptionEl = document.getElementById(`kw-description-${key}`);
-
-    if (translationEl) kwKeywords[key].translation = translationEl.value.trim();
-    if (descriptionEl) kwKeywords[key].description = descriptionEl.value.trim();
-  });
-
-  try {
-    const response = await fetch('/api/v1/admin/keywords', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-API-Key': API_KEY
-      },
-      body: JSON.stringify(kwKeywords)
-    });
-
-    if (!response.ok) {
-      throw new Error('保存失败');
-    }
-
-    showKwSuccess('保存成功！');
-    kwModifiedKeys.clear();
-    kwNewKeys.clear();
-    updateKwStats();
-    renderKeywords(document.getElementById('kwSearchInput').value);
-  } catch (error) {
-    showKwError('保存失败: ' + error.message);
-  }
-}
-
-function exportKeywordsJSON() {
-  const dataStr = JSON.stringify(kwKeywords, null, 2);
-  const blob = new Blob([dataStr], { type: 'application/json' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = 'keywords.json';
-  a.click();
-  URL.revokeObjectURL(url);
-}
-
-function updateKwStats() {
-  document.getElementById('kwTotalCount').textContent = Object.keys(kwKeywords).length;
-  document.getElementById('kwModifiedCount').textContent = kwModifiedKeys.size;
-  document.getElementById('kwNewCount').textContent = kwNewKeys.size;
-}
-
-function showKwSuccess(message) {
-  const el = document.getElementById('kwSuccessMsg');
-  el.textContent = message;
-  el.style.display = 'block';
-  setTimeout(() => { el.style.display = 'none'; }, 3000);
-}
-
-function showKwError(message) {
-  const el = document.getElementById('kwErrorMsg');
-  el.textContent = message;
-  el.style.display = 'block';
-  setTimeout(() => { el.style.display = 'none'; }, 5000);
-}
-
-// Keywords search
-document.getElementById('kwSearchInput').addEventListener('input', (e) => {
-  renderKeywords(e.target.value);
-});
 
 // ========== Pose Images Functions ==========
 
