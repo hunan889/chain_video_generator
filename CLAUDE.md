@@ -37,16 +37,27 @@ Wan2.2 Video Generation Service — FastAPI wrapper around ComfyUI for Wan2.2 T2
    - Write/modify code locally
    - Test locally if possible
    - Commit changes with clear messages
-   - Push to git repository
+   - Push to git repository (for version control)
 
-2. **Deployment Phase (Remote)**
-   - SSH to remote server: `ssh root@148.153.121.44`
-   - Navigate to project: `cd /home/gime/soft/wan22-service`
-   - Pull latest changes: `git pull`
-   - Restart services: `bash scripts/stop_all.sh && bash scripts/start_all.sh`
-   - Verify deployment
+2. **Fast Deployment (Recommended)**
+   - Use `rsync` to sync files directly (faster than Git):
+   ```bash
+   # Sync specific file
+   rsync -avz api/static/my_favorites.html wan22-server:/home/gime/soft/wan22-service/api/static/
 
-3. **Verification Phase (Remote)**
+   # Sync entire directory
+   rsync -avz --exclude='.git' --exclude='*.log' --exclude='__pycache__' \
+     api/ wan22-server:/home/gime/soft/wan22-service/api/
+   ```
+   - **When to restart**: Only restart if Python code changed (not needed for static files)
+   - **Restart command**: `ssh wan22-server "pkill -f 'uvicorn api.main:app'; cd /home/gime/soft/wan22-service && nohup /home/gime/soft/miniconda3/bin/python -m uvicorn api.main:app --host 0.0.0.0 --port 8000 >> api.log 2>&1 &"`
+
+3. **Git Deployment (Alternative)**
+   - SSH to remote: `ssh wan22-server`
+   - Pull changes: `cd /home/gime/soft/wan22-service && git pull`
+   - Restart if needed
+
+4. **Verification Phase (Remote)**
    - Check service status: `ps aux | grep -E 'uvicorn|comfyui|redis'`
    - Check logs: `tail -f api.log` or `tail -f logs/*.log`
    - Test API endpoints
