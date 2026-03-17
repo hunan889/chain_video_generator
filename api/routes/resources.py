@@ -6,6 +6,7 @@ from typing import List, Optional
 from pydantic import BaseModel
 import pymysql
 from api.middleware.auth import verify_api_key
+from api.services.content_suggester import get_content_suggester
 
 router = APIRouter(prefix="/api/v1", tags=["resources"])
 
@@ -37,6 +38,8 @@ class Resource(BaseModel):
     resource_type: str
     url: str
     prompt: Optional[str]
+    search_keywords: Optional[str] = None
+    trigger_prompt: Optional[str] = None
     tags: List[Tag]
     is_favorited: Optional[bool] = False
 
@@ -61,6 +64,7 @@ async def list_resources(
     resource_type: Optional[str] = None,
     tag: Optional[str] = None,
     prompt: Optional[str] = None,
+    search: Optional[str] = None,
     _: str = Depends(verify_api_key)
 ):
     """获取资源列表"""
@@ -96,6 +100,10 @@ async def list_resources(
         if prompt:
             where_clauses.append("r.prompt LIKE %s")
             params.append(f"%{prompt}%")
+
+        if search:
+            where_clauses.append("r.search_keywords LIKE %s")
+            params.append(f"%{search}%")
 
         where_sql = " AND ".join(where_clauses) if where_clauses else "1=1"
 
@@ -167,6 +175,8 @@ async def list_resources(
                 'resource_type': r['resource_type'],
                 'url': r['url'],
                 'prompt': r['prompt'],
+                'search_keywords': r.get('search_keywords'),
+                'trigger_prompt': r.get('trigger_prompt'),
                 'tags': tags_by_resource.get(r['id'], []),
                 'is_favorited': r['id'] in favorited_ids
             })
@@ -300,6 +310,8 @@ async def search_resources(
                 'resource_type': r['resource_type'],
                 'url': r['url'],
                 'prompt': r['prompt'],
+                'search_keywords': r.get('search_keywords'),
+                'trigger_prompt': r.get('trigger_prompt'),
                 'tags': tags_by_resource.get(r['id'], []),
                 'is_favorited': r['id'] in favorited_ids
             })
@@ -405,6 +417,301 @@ async def list_tags(
 
 # ========== Favorites API ==========
 
+# Pose Image Favorites (must be before /{resource_id} routes)
+class AddPoseFavoriteRequest(BaseModel):
+    """添加姿势图片收藏请求"""
+    resource_path: str
+    note: Optional[str] = None
+
+
+@router.post("/favorites/pose-image")
+async def add_pose_favorite(
+    request: AddPoseFavoriteRequest,
+    _: str = Depends(verify_api_key)
+):
+    """添加姿势图片收藏（基于路径）"""
+    conn = get_db()
+    cursor = conn.cursor()
+
+    try:
+        cursor.execute("""
+            INSERT INTO favorites (resource_path, note)
+            VALUES (%s, %s)
+            ON DUPLICATE KEY UPDATE note = VALUES(note)
+        """, (request.resource_path, request.note))
+        conn.commit()
+        return {"success": True, "favorite_id": cursor.lastrowid}
+    finally:
+        conn.close()
+
+
+@router.delete("/favorites/pose-image")
+async def remove_pose_favorite(
+    resource_path: str,
+    _: str = Depends(verify_api_key)
+):
+    """取消姿势图片收藏（基于路径）"""
+    conn = get_db()
+    cursor = conn.cursor()
+
+    try:
+        cursor.execute("DELETE FROM favorites WHERE resource_path = %s", (resource_path,))
+        conn.commit()
+        return {"success": True}
+    finally:
+        conn.close()
+
+
+@router.get("/favorites/pose-image/check")
+async def check_pose_favorite(
+    resource_path: str,
+    _: str = Depends(verify_api_key)
+):
+    """检查姿势图片是否已收藏（基于路径）"""
+    conn = get_db()
+    cursor = conn.cursor()
+
+    try:
+        cursor.execute("SELECT id FROM favorites WHERE resource_path = %s", (resource_path,))
+        result = cursor.fetchone()
+        return {"is_favorited": result is not None}
+    finally:
+        conn.close()
+
+
+# LORA Favorites (must be before /{resource_id} routes)
+class AddLoraFavoriteRequest(BaseModel):
+    """添加LORA收藏请求"""
+    lora_id: int
+    lora_type: str  # 'image' or 'video'
+    note: Optional[str] = None
+
+
+@router.post("/favorites/lora")
+async def add_lora_favorite(
+    request: AddLoraFavoriteRequest,
+    _: str = Depends(verify_api_key)
+):
+    """添加LORA收藏"""
+    conn = get_db()
+    cursor = conn.cursor()
+
+    try:
+        cursor.execute("""
+            INSERT INTO favorites (lora_id, lora_type, note)
+            VALUES (%s, %s, %s)
+            ON DUPLICATE KEY UPDATE note = VALUES(note)
+        """, (request.lora_id, request.lora_type, request.note))
+        conn.commit()
+        return {"success": True, "favorite_id": cursor.lastrowid}
+    finally:
+        conn.close()
+
+
+@router.delete("/favorites/lora")
+async def remove_lora_favorite(
+    lora_id: int,
+    lora_type: str,
+    _: str = Depends(verify_api_key)
+):
+    """取消LORA收藏"""
+    conn = get_db()
+    cursor = conn.cursor()
+
+    try:
+        cursor.execute("DELETE FROM favorites WHERE lora_id = %s AND lora_type = %s", (lora_id, lora_type))
+        conn.commit()
+        return {"success": True}
+    finally:
+        conn.close()
+
+
+@router.get("/favorites/lora/check")
+async def check_lora_favorite(
+    lora_id: int,
+    lora_type: str,
+    _: str = Depends(verify_api_key)
+):
+    """检查LORA是否已收藏"""
+    conn = get_db()
+    cursor = conn.cursor()
+
+    try:
+        cursor.execute("SELECT id FROM favorites WHERE lora_id = %s AND lora_type = %s", (lora_id, lora_type))
+        result = cursor.fetchone()
+        return {"is_favorited": result is not None}
+    finally:
+        conn.close()
+
+
+@router.get("/favorites/all")
+async def list_all_favorites(
+    page: int = Query(1, ge=1),
+    page_size: int = Query(50, ge=1, le=200),
+    favorite_type: Optional[str] = Query(None, description="Filter by type: image, video, pose_image, image_lora, video_lora"),
+    _: str = Depends(verify_api_key)
+):
+    """获取所有收藏（包括普通资源、姿势图片和LORA）"""
+
+    # 如果是 LORA 类型，直接从 lora_metadata 查询
+    if favorite_type in ['image_lora', 'video_lora']:
+        return await list_lora_favorites(favorite_type, page, page_size)
+
+    conn = get_db()
+    cursor = conn.cursor(pymysql.cursors.DictCursor)
+
+    try:
+        offset = (page - 1) * page_size
+
+        # 构建WHERE条件
+        where_clauses = []
+        count_where = ""
+        query_where = ""
+
+        if favorite_type == 'image':
+            where_clauses.append("(f.resource_id IS NOT NULL AND r.resource_type = 'image')")
+        elif favorite_type == 'video':
+            where_clauses.append("(f.resource_id IS NOT NULL AND r.resource_type IN ('video', 'generated_video'))")
+        elif favorite_type == 'pose_image':
+            where_clauses.append("(f.resource_path IS NOT NULL AND f.resource_path LIKE '/pose-files/%%')")
+
+        if where_clauses:
+            count_where = "WHERE " + " OR ".join(where_clauses)
+            query_where = count_where
+
+        # 获取总数
+        count_sql = "SELECT COUNT(*) as total FROM favorites f LEFT JOIN resources r ON f.resource_id = r.id " + count_where
+        cursor.execute(count_sql)
+        total = cursor.fetchone()['total']
+
+        # 获取所有收藏
+        query_sql = """
+            SELECT
+                f.id,
+                f.resource_id,
+                f.resource_path,
+                f.note,
+                f.created_at,
+                r.resource_type,
+                r.url,
+                r.prompt,
+                r.search_keywords
+            FROM favorites f
+            LEFT JOIN resources r ON f.resource_id = r.id
+            """ + query_where + """
+            ORDER BY f.created_at DESC
+            LIMIT %s OFFSET %s
+        """
+        cursor.execute(query_sql, (page_size, offset))
+
+        favorites = cursor.fetchall()
+
+        # 处理结果
+        result_list = []
+        for fav in favorites:
+            if fav['resource_id']:
+                # 普通资源（来自 MySQL resources 表）
+                result_list.append({
+                    'id': fav['id'],
+                    'type': 'resource',
+                    'resource_id': fav['resource_id'],
+                    'resource_type': fav['resource_type'],
+                    'url': fav['url'],
+                    'prompt': fav['prompt'],
+                    'search_keywords': fav['search_keywords'],
+                    'note': fav['note'],
+                    'created_at': fav['created_at'].isoformat() if fav['created_at'] else None
+                })
+            elif fav['resource_path']:
+                # 姿势图片（本地文件）
+                path_parts = fav['resource_path'].split('/')
+                pose_name = path_parts[2] if len(path_parts) > 2 else ''
+                filename = path_parts[3] if len(path_parts) > 3 else ''
+                resource_type = 'video' if filename.endswith(('.mp4', '.webm')) else 'image'
+
+                result_list.append({
+                    'id': fav['id'],
+                    'type': 'pose_image',
+                    'resource_path': fav['resource_path'],
+                    'resource_type': resource_type,
+                    'url': fav['resource_path'],
+                    'pose': pose_name,
+                    'filename': filename,
+                    'note': fav['note'],
+                    'created_at': fav['created_at'].isoformat() if fav['created_at'] else None
+                })
+
+        return {
+            'favorites': result_list,
+            'total': total,
+            'page': page,
+            'page_size': page_size,
+            'total_pages': (total + page_size - 1) // page_size
+        }
+
+    finally:
+        conn.close()
+
+
+async def list_lora_favorites(lora_type: str, page: int, page_size: int):
+    """获取已启用的 LORA（enabled=1）"""
+    conn = get_db()
+    cursor = conn.cursor(pymysql.cursors.DictCursor)
+
+    try:
+        offset = (page - 1) * page_size
+
+        # 确定 LORA 类型
+        if lora_type == 'video_lora':
+            # 视频 LORA 从 lora_metadata 表查询
+            cursor.execute("SELECT COUNT(*) as total FROM lora_metadata WHERE enabled = 1")
+            total = cursor.fetchone()['total']
+
+            cursor.execute("""
+                SELECT id, name, file, preview_url, description, trigger_prompt, category, 'video' as lora_type
+                FROM lora_metadata
+                WHERE enabled = 1
+                ORDER BY id
+                LIMIT %s OFFSET %s
+            """, (page_size, offset))
+
+            loras = cursor.fetchall()
+            result_list = []
+
+            for lora in loras:
+                result_list.append({
+                    'id': lora['id'],
+                    'type': 'video_lora',
+                    'lora_id': lora['id'],
+                    'lora_type': 'video',
+                    'name': lora['name'],
+                    'file': lora['file'],
+                    'preview_url': lora['preview_url'],
+                    'description': lora['description'],
+                    'trigger_prompt': lora['trigger_prompt'],
+                    'category': lora['category'],
+                    'created_at': None
+                })
+
+        else:
+            # 图片 LORA（暂时返回空，需要实现图片 LORA 的存储）
+            total = 0
+            result_list = []
+
+        return {
+            'favorites': result_list,
+            'total': total,
+            'page': page,
+            'page_size': page_size,
+            'total_pages': (total + page_size - 1) // page_size
+        }
+
+    finally:
+        conn.close()
+
+
+# Resource Favorites (with {resource_id} parameter)
+
 @router.post("/favorites/{resource_id}")
 async def add_favorite(
     resource_id: int,
@@ -447,6 +754,7 @@ async def list_favorites(
     page: int = Query(1, ge=1),
     page_size: int = Query(12, ge=1, le=100),
     resource_type: Optional[str] = None,
+    search: Optional[str] = None,
     _: str = Depends(verify_api_key)
 ):
     """获取收藏列表"""
@@ -466,6 +774,10 @@ async def list_favorites(
                 placeholders = ','.join(['%s'] * len(types))
                 where_clauses.append(f"r.resource_type IN ({placeholders})")
                 params.extend(types)
+
+        if search:
+            where_clauses.append("r.search_keywords LIKE %s")
+            params.append(f"%{search}%")
 
         where_sql = " AND ".join(where_clauses)
 
@@ -535,6 +847,8 @@ async def list_favorites(
                 'resource_type': r['resource_type'],
                 'url': r['url'],
                 'prompt': r['prompt'],
+                'search_keywords': r.get('search_keywords'),
+                'trigger_prompt': r.get('trigger_prompt'),
                 'tags': tags_by_resource.get(r['id'], []),
                 'is_favorited': True
             })
@@ -565,3 +879,99 @@ async def check_favorite(
         return {"is_favorited": result is not None}
     finally:
         conn.close()
+
+
+@router.post("/resources/{resource_id}/suggest-keywords")
+async def suggest_resource_keywords(
+    resource_id: int,
+    _: str = Depends(verify_api_key)
+):
+    """为图片/视频资源生成search_keywords建议"""
+    conn = get_db()
+    cursor = conn.cursor(pymysql.cursors.DictCursor)
+
+    try:
+        # 获取资源信息
+        cursor.execute("""
+            SELECT r.id, r.prompt, r.resource_type
+            FROM resources r
+            WHERE r.id = %s
+        """, (resource_id,))
+        resource = cursor.fetchone()
+
+        if not resource:
+            raise HTTPException(404, "资源不存在")
+
+        # 获取标签
+        cursor.execute("""
+            SELECT t.name, t.category
+            FROM resource_tags rt
+            JOIN tags t ON rt.tag_id = t.id
+            WHERE rt.resource_id = %s
+        """, (resource_id,))
+        tags = cursor.fetchall()
+        resource['tags'] = tags
+
+        cursor.close()
+        conn.close()
+
+        # 使用AI生成建议
+        suggester = get_content_suggester()
+        result = await suggester.suggest_for_resource(resource)
+
+        return {
+            "search_keywords": result.get("search_keywords", ""),
+            "reasoning": result.get("reasoning", "")
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        cursor.close()
+        conn.close()
+        raise HTTPException(500, f"生成建议失败: {str(e)}")
+
+
+class ResourceUpdateRequest(BaseModel):
+    search_keywords: Optional[str] = None
+
+
+@router.patch("/resources/{resource_id}")
+async def update_resource_metadata(
+    resource_id: int,
+    req: ResourceUpdateRequest,
+    _: str = Depends(verify_api_key)
+):
+    """更新资源元数据"""
+    conn = get_db()
+    cursor = conn.cursor()
+
+    try:
+        if req.search_keywords is not None:
+            cursor.execute(
+                "UPDATE resources SET search_keywords = %s WHERE id = %s",
+                (req.search_keywords, resource_id)
+            )
+
+            if cursor.rowcount == 0:
+                cursor.close()
+                conn.close()
+                raise HTTPException(404, f"资源 #{resource_id} 不存在")
+
+            conn.commit()
+            cursor.close()
+            conn.close()
+            return {"success": True, "resource_id": resource_id}
+        else:
+            cursor.close()
+            conn.close()
+            raise HTTPException(400, "没有要更新的字段")
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        cursor.close()
+        conn.close()
+        raise HTTPException(500, f"更新失败: {str(e)}")
+
+

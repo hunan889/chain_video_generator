@@ -1,0 +1,891 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>我的收藏 - AI Studio</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:#1a1a2e;color:#e0e0e0;min-height:100vh}
+.container{max-width:1400px;margin:0 auto;padding:20px}
+h1{text-align:center;color:#7c83ff;margin-bottom:24px;font-size:1.6em}
+
+/* Navigation */
+.nav{display:flex;gap:12px;margin-bottom:20px;justify-content:center}
+.nav-btn{padding:10px 24px;background:#16213e;border:1px solid #333;border-radius:8px;color:#aaa;cursor:pointer;font-size:14px;transition:all 0.2s}
+.nav-btn:hover{border-color:#7c83ff;color:#7c83ff}
+.nav-btn.active{background:#0f3460;border-color:#7c83ff;color:#fff}
+
+/* Tabs */
+.tabs{display:flex;gap:8px;margin-bottom:20px;flex-wrap:wrap;justify-content:center}
+.tab{padding:10px 24px;background:#16213e;border:1px solid #333;border-radius:8px;cursor:pointer;color:#aaa;font-size:14px;transition:all 0.2s}
+.tab:hover{border-color:#7c83ff;color:#7c83ff}
+.tab.active{background:#0f3460;border-color:#7c83ff;color:#fff}
+
+/* Stats */
+.stats{display:flex;gap:16px;margin-bottom:20px;flex-wrap:wrap;justify-content:center}
+.stat-card{background:#16213e;border:1px solid #333;border-radius:8px;padding:16px 24px;text-align:center}
+.stat-number{font-size:28px;font-weight:600;color:#7c83ff;margin-bottom:4px}
+.stat-label{font-size:12px;color:#aaa;text-transform:uppercase}
+
+/* Grid */
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:16px;margin-top:20px}
+
+/* Card */
+.resource-card{position:relative;background:#16213e;border:2px solid #333;border-radius:12px;overflow:hidden;transition:all 0.3s ease}
+.resource-card:hover{border-color:#7c83ff;transform:translateY(-2px);box-shadow:0 8px 20px rgba(124,131,255,0.3)}
+
+.btn-favorite{position:absolute;top:8px;left:8px;z-index:10;width:32px;height:32px;border-radius:50%;background:rgba(0,0,0,0.6);border:none;cursor:pointer;transition:all 0.2s;display:flex;align-items:center;justify-content:center}
+.btn-favorite:hover{transform:scale(1.1)}
+.btn-favorite[data-favorited="true"]{background:#ff9e4a}
+.btn-favorite[data-favorited="true"] .heart-icon{fill:white}
+.btn-favorite[data-favorited="false"] .heart-icon{fill:none;stroke:white;stroke-width:2}
+.heart-icon{width:18px;height:18px}
+
+.card-badges{position:absolute;top:8px;right:8px;z-index:10;display:flex;gap:4px;flex-direction:column;align-items:flex-end}
+.badge{padding:4px 8px;border-radius:6px;font-size:11px;font-weight:600;text-transform:uppercase}
+.badge-image{background:#4ade80;color:#000}
+.badge-video{background:#f87171;color:#fff}
+.badge-lora{background:#fbbf24;color:#000}
+.badge-pose{background:#a78bfa;color:#fff}
+
+.card-media{position:relative;width:100%;height:280px;background:#0a0a23;overflow:hidden}
+.card-media img,.card-media video{width:100%;height:100%;object-fit:cover}
+
+.card-body{padding:12px}
+.card-title{font-size:13px;font-weight:600;color:#e0e0e0;margin-bottom:6px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.card-prompt{font-size:11px;color:#aaa;line-height:1.4;max-height:2.8em;overflow:hidden;margin-bottom:8px}
+.card-meta{font-size:10px;color:#666;margin-top:8px}
+
+/* Edit Modal */
+.modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,0.85);z-index:1000;display:none;align-items:center;justify-content:center;padding:20px}
+.modal-overlay.active{display:flex}
+.edit-modal{background:#1a1a2e;border:1px solid #333;border-radius:12px;width:90%;max-width:600px;max-height:85vh;display:flex;flex-direction:column}
+.modal-header{padding:20px;border-bottom:1px solid #333;display:flex;justify-content:space-between;align-items:center}
+.modal-header h3{color:#7c83ff;font-size:1.2em;margin:0}
+.modal-close{background:transparent;border:none;color:#aaa;font-size:28px;cursor:pointer;padding:0;width:32px;height:32px;display:flex;align-items:center;justify-content:center;transition:color 0.2s}
+.modal-close:hover{color:#fff}
+.modal-body{padding:20px;overflow-y:auto;flex:1}
+.edit-field{margin-bottom:16px}
+.edit-field label{display:block;font-size:13px;color:#aaa;margin-bottom:6px}
+.edit-field input,.edit-field textarea{width:100%;padding:10px;background:#0a0a23;border:1px solid #444;border-radius:6px;color:#e0e0e0;font-size:13px;font-family:inherit}
+.edit-field textarea{min-height:80px;resize:vertical}
+.edit-field input:focus,.edit-field textarea:focus{outline:none;border-color:#7c83ff}
+.modal-footer{padding:16px 20px;border-top:1px solid #333;display:flex;justify-content:flex-end;gap:12px}
+.btn-secondary{padding:10px 24px;background:#16213e;border:1px solid #444;border-radius:8px;color:#aaa;font-size:14px;cursor:pointer;transition:all 0.2s}
+.btn-secondary:hover{border-color:#7c83ff;color:#7c83ff}
+.btn-primary{padding:10px 24px;background:#7c83ff;border:none;border-radius:8px;color:#fff;font-size:14px;font-weight:600;cursor:pointer;transition:background 0.2s}
+.btn-primary:hover{background:#6b72e0}
+.btn-ai{padding:8px 16px;background:#4ade80;border:none;border-radius:6px;color:#000;font-size:13px;font-weight:600;cursor:pointer;transition:background 0.2s;margin-top:8px}
+.btn-ai:hover{background:#3bc970}
+
+/* Pose Association Modal */
+.pose-association-modal{background:#1a1a2e;border:1px solid #333;border-radius:12px;width:90%;max-width:900px;max-height:85vh;display:flex;flex-direction:column}
+.pose-search{width:100%;padding:10px 14px;background:#0a0a23;border:1px solid #444;border-radius:8px;color:#e0e0e0;font-size:14px;margin-bottom:16px}
+.pose-search:focus{outline:none;border-color:#7c83ff}
+.pose-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:12px}
+.pose-card{position:relative;padding:16px;background:#16213e;border:2px solid #333;border-radius:8px;text-align:center;cursor:pointer;transition:all 0.2s}
+.pose-card:hover{border-color:#7c83ff;transform:translateY(-2px)}
+.pose-card.associated{border-color:#4ade80;background:#1a4a2e}
+.pose-card-name{font-size:13px;font-weight:600;color:#e0e0e0;margin-bottom:4px}
+.pose-card-key{font-size:11px;color:#aaa}
+.check-mark{position:absolute;top:4px;right:4px;width:24px;height:24px;background:#4ade80;border-radius:50%;display:flex;align-items:center;justify-content:center;color:#fff;font-size:14px;font-weight:bold}
+.association-summary{font-size:13px;color:#aaa}
+.card-poses{display:flex;gap:4px;flex-wrap:wrap;margin-top:8px}
+.pose-badge{padding:3px 8px;background:#0a0a23;border:1px solid #444;border-radius:4px;font-size:10px;color:#7c83ff}
+
+/* Card Actions */
+.card-actions{display:flex;gap:8px;margin-top:12px;padding-top:12px;border-top:1px solid #333}
+.btn-action{flex:1;padding:8px 12px;background:#16213e;border:1px solid #444;border-radius:6px;color:#e0e0e0;font-size:12px;cursor:pointer;transition:all 0.2s;display:flex;align-items:center;justify-content:center;gap:6px}
+.btn-action:hover{border-color:#7c83ff;color:#7c83ff;background:#1a2540}
+
+/* Pagination */
+.pagination{display:flex;justify-content:center;align-items:center;gap:8px;margin-top:24px}
+.page-btn{padding:8px 16px;background:#16213e;border:1px solid #333;border-radius:6px;color:#aaa;cursor:pointer;font-size:13px;transition:all 0.2s}
+.page-btn:hover:not(:disabled){border-color:#7c83ff;color:#7c83ff}
+.page-btn:disabled{opacity:0.5;cursor:not-allowed}
+.page-btn.active{background:#0f3460;border-color:#7c83ff;color:#fff}
+.page-info{color:#aaa;font-size:13px}
+
+.empty{text-align:center;padding:60px 20px;color:#666;font-size:16px}
+.loading{text-align:center;padding:60px 20px;color:#7c83ff;font-size:16px}
+</style>
+</head>
+<body>
+<div class="container">
+<h1>我的收藏</h1>
+
+<!-- Navigation -->
+<div class="nav">
+<button class="nav-btn" onclick="location.href='/annotate.html'">← 返回资源管理</button>
+<button class="nav-btn active">我的收藏</button>
+</div>
+
+<!-- Stats -->
+<div class="stats" id="stats"></div>
+
+<!-- Tabs -->
+<div class="tabs">
+<div class="tab active" data-type="all" onclick="switchType('all')">全部</div>
+<div class="tab" data-type="image" onclick="switchType('image')">图片</div>
+<div class="tab" data-type="video" onclick="switchType('video')">视频</div>
+<div class="tab" data-type="pose_image" onclick="switchType('pose_image')">姿势图片</div>
+<div class="tab" data-type="video_lora" onclick="switchType('video_lora')">视频LORA</div>
+<div class="tab" data-type="image_lora" onclick="switchType('image_lora')">图片LORA</div>
+</div>
+
+<!-- Grid -->
+<div class="grid" id="grid"></div>
+
+<!-- Pagination -->
+<div class="pagination" id="pagination"></div>
+
+</div>
+
+<!-- Edit Modal -->
+<div class="modal-overlay" id="editModal">
+  <div class="edit-modal">
+    <div class="modal-header">
+      <h3 id="editModalTitle">编辑</h3>
+      <button class="modal-close" onclick="closeEditModal()">&times;</button>
+    </div>
+    <div class="modal-body" id="editModalBody"></div>
+    <div class="modal-footer">
+      <button class="btn-secondary" onclick="closeEditModal()">取消</button>
+      <button class="btn-primary" onclick="saveEdit()">保存</button>
+    </div>
+  </div>
+</div>
+
+<!-- Pose Association Modal -->
+<div class="modal-overlay" id="poseModal">
+  <div class="edit-modal">
+    <div class="modal-header">
+      <h3>关联姿势</h3>
+      <button class="modal-close" onclick="closePoseModal()">&times;</button>
+    </div>
+    <div class="modal-body">
+      <div class="edit-field">
+        <label>选择姿势（可多选）</label>
+        <select id="poseSelect" multiple style="min-height:300px;width:100%;padding:8px;background:#0a0a23;border:1px solid #444;border-radius:6px;color:#e0e0e0;font-size:13px;">
+        </select>
+      </div>
+      <div style="margin-top:12px;font-size:12px;color:#aaa;">
+        提示：按住 Ctrl (Windows) 或 Cmd (Mac) 可多选
+      </div>
+    </div>
+    <div class="modal-footer">
+      <span class="association-summary" id="associationSummary">已选择 0 个姿势</span>
+      <button class="btn-primary" onclick="savePoseAssociations()">保存</button>
+    </div>
+  </div>
+</div>
+
+<script>
+const API_KEY = 'wan22-default-key-change-me';
+let currentType = 'all';
+let currentPage = 1;
+const pageSize = 24;
+let totalPages = 1;
+let stats = {};
+
+async function loadStats() {
+  try {
+    // Load stats for each type
+    const types = ['image', 'video', 'pose_image', 'video_lora', 'image_lora'];
+    const promises = types.map(type =>
+      fetch(`/api/v1/favorites/all?favorite_type=${type}&page=1&page_size=1`, {
+        headers: { 'X-API-Key': API_KEY }
+      }).then(r => r.json())
+    );
+
+    const results = await Promise.all(promises);
+    stats = {
+      image: results[0].total,
+      video: results[1].total,
+      pose_image: results[2].total,
+      video_lora: results[3].total,
+      image_lora: results[4].total
+    };
+    stats.total = Object.values(stats).reduce((a, b) => a + b, 0);
+
+    renderStats();
+  } catch (error) {
+    console.error('Failed to load stats:', error);
+  }
+}
+
+function renderStats() {
+  const statsEl = document.getElementById('stats');
+  statsEl.innerHTML = `
+    <div class="stat-card">
+      <div class="stat-number">${stats.total || 0}</div>
+      <div class="stat-label">总收藏</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-number">${stats.image || 0}</div>
+      <div class="stat-label">图片</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-number">${stats.video || 0}</div>
+      <div class="stat-label">视频</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-number">${stats.pose_image || 0}</div>
+      <div class="stat-label">姿势图片</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-number">${stats.video_lora || 0}</div>
+      <div class="stat-label">视频LORA</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-number">${stats.image_lora || 0}</div>
+      <div class="stat-label">图片LORA</div>
+    </div>
+  `;
+}
+
+function switchType(type) {
+  currentType = type;
+  currentPage = 1;
+
+  document.querySelectorAll('.tab').forEach(t => {
+    if (t.dataset.type === type) {
+      t.classList.add('active');
+    } else {
+      t.classList.remove('active');
+    }
+  });
+
+  loadFavorites();
+}
+
+async function loadFavorites() {
+  const grid = document.getElementById('grid');
+  grid.innerHTML = '<div class="loading">加载中...</div>';
+
+  try {
+    const params = new URLSearchParams({
+      page: currentPage,
+      page_size: pageSize
+    });
+
+    if (currentType !== 'all') {
+      params.append('favorite_type', currentType);
+    }
+
+    const response = await fetch(`/api/v1/favorites/all?${params}`, {
+      headers: { 'X-API-Key': API_KEY }
+    });
+
+    const data = await response.json();
+    totalPages = data.total_pages;
+
+    renderFavorites(data.favorites);
+    renderPagination();
+  } catch (error) {
+    grid.innerHTML = `<div class="empty">加载失败: ${error.message}</div>`;
+  }
+}
+
+function renderFavorites(favorites) {
+  const grid = document.getElementById('grid');
+
+  if (favorites.length === 0) {
+    grid.innerHTML = '<div class="empty">暂无收藏</div>';
+    return;
+  }
+
+  grid.innerHTML = favorites.map(fav => createCard(fav)).join('');
+
+  // Pose badges will be loaded on demand when needed
+  // Removed to improve initial page load performance
+}
+
+async function loadResourcePoseBadges(resourceId) {
+  try {
+    const response = await fetch(`/api/v1/resources/${resourceId}/poses`, {
+      headers: { 'X-API-Key': API_KEY }
+    });
+    const data = await response.json();
+    const associations = data.associations || [];
+
+    const container = document.getElementById(`pose-badges-${resourceId}`);
+    if (container && associations.length > 0) {
+      const badges = associations.slice(0, 3).map(a =>
+        `<span class="pose-badge">${escapeHtml(a.pose_name)}</span>`
+      ).join('');
+      const more = associations.length > 3 ? `<span class="pose-badge">+${associations.length - 3}</span>` : '';
+      container.innerHTML = badges + more;
+    }
+  } catch (error) {
+    console.error('Failed to load resource pose badges:', error);
+  }
+}
+
+async function loadLoraPoseBadges(loraId) {
+  try {
+    const response = await fetch(`/api/v1/admin/loras/${loraId}/poses`, {
+      headers: { 'X-API-Key': API_KEY }
+    });
+    const data = await response.json();
+    const associations = data.associations || [];
+
+    const container = document.getElementById(`pose-badges-lora-${loraId}`);
+    if (container && associations.length > 0) {
+      const badges = associations.slice(0, 3).map(a =>
+        `<span class="pose-badge">${escapeHtml(a.pose_name)}</span>`
+      ).join('');
+      const more = associations.length > 3 ? `<span class="pose-badge">+${associations.length - 3}</span>` : '';
+      container.innerHTML = badges + more;
+    }
+  } catch (error) {
+    console.error('Failed to load lora pose badges:', error);
+  }
+}
+
+async function loadPoseImagePoseBadges(resourcePath) {
+  try {
+    const response = await fetch(`/api/v1/pose-images/associations?resource_path=${encodeURIComponent(resourcePath)}`, {
+      headers: { 'X-API-Key': API_KEY }
+    });
+    const data = await response.json();
+    const associations = data.associations || [];
+
+    const safeId = resourcePath.replace(/[^a-zA-Z0-9]/g, '_');
+    const container = document.getElementById(`pose-badges-pose-${safeId}`);
+    if (container && associations.length > 0) {
+      const badges = associations.slice(0, 3).map(a =>
+        `<span class="pose-badge">${escapeHtml(a.pose_name)}</span>`
+      ).join('');
+      const more = associations.length > 3 ? `<span class="pose-badge">+${associations.length - 3}</span>` : '';
+      container.innerHTML = badges + more;
+    }
+  } catch (error) {
+    console.error('Failed to load pose image pose badges:', error);
+  }
+}
+
+function createCard(fav) {
+  if (fav.type === 'resource') {
+    return createResourceCard(fav);
+  } else if (fav.type === 'pose_image') {
+    return createPoseImageCard(fav);
+  } else if (fav.type === 'video_lora' || fav.type === 'image_lora') {
+    return createLoraCard(fav);
+  }
+  return '';
+}
+
+function createResourceCard(resource) {
+  const isVideo = resource.resource_type === 'video' || resource.resource_type === 'generated_video';
+  const mediaHtml = isVideo
+    ? `<video src="${escapeHtml(resource.url)}" muted loop onmouseenter="this.play()" onmouseleave="this.pause()"></video>`
+    : `<img src="${escapeHtml(resource.url)}" alt="Resource">`;
+
+  return `
+    <div class="resource-card">
+      <button class="btn-favorite" data-resource-id="${resource.resource_id}" data-favorited="true" onclick="toggleResourceFavorite(${resource.resource_id}, event)">
+        <svg class="heart-icon" viewBox="0 0 24 24"><path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/></svg>
+      </button>
+      <div class="card-badges">
+        <span class="badge ${isVideo ? 'badge-video' : 'badge-image'}">${isVideo ? 'VIDEO' : 'IMAGE'}</span>
+      </div>
+      <div class="card-media">${mediaHtml}</div>
+      <div class="card-body">
+        <div class="card-title">Resource #${resource.resource_id}</div>
+        <div class="card-prompt">${escapeHtml(resource.prompt || '')}</div>
+        <div class="card-poses" id="pose-badges-${resource.resource_id}"></div>
+        <div class="card-meta">收藏于 ${formatDate(resource.created_at)}</div>
+        <div class="card-actions">
+          <button class="btn-action" onclick="openEditModal(${resource.resource_id}, 'resource')">
+            <span>✏️</span>
+            <span>编辑标签</span>
+          </button>
+          <button class="btn-action" onclick="openPoseModal(${resource.resource_id}, 'resource')">
+            <span>🎭</span>
+            <span>关联姿势</span>
+          </button>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+function createPoseImageCard(poseImage) {
+  const isVideo = poseImage.resource_type === 'video';
+  const mediaHtml = isVideo
+    ? `<video src="${escapeHtml(poseImage.url)}" muted loop onmouseenter="this.play()" onmouseleave="this.pause()"></video>`
+    : `<img src="${escapeHtml(poseImage.url)}" alt="Pose">`;
+
+  const safeResourcePath = poseImage.resource_path.replace(/'/g, "\\'");
+
+  return `
+    <div class="resource-card">
+      <button class="btn-favorite" data-resource-path="${escapeHtml(poseImage.resource_path)}" data-favorited="true" onclick="togglePoseFavorite('${safeResourcePath}', event)">
+        <svg class="heart-icon" viewBox="0 0 24 24"><path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/></svg>
+      </button>
+      <div class="card-badges">
+        <span class="badge badge-pose">POSE</span>
+        <span class="badge ${isVideo ? 'badge-video' : 'badge-image'}">${isVideo ? 'VIDEO' : 'IMAGE'}</span>
+      </div>
+      <div class="card-media">${mediaHtml}</div>
+      <div class="card-body">
+        <div class="card-title">${escapeHtml(poseImage.pose)}</div>
+        <div class="card-prompt">${escapeHtml(poseImage.filename)}</div>
+        <div class="card-poses" id="pose-badges-pose-${escapeHtml(poseImage.resource_path).replace(/[^a-zA-Z0-9]/g, '_')}"></div>
+        <div class="card-meta">收藏于 ${formatDate(poseImage.created_at)}</div>
+        <div class="card-actions">
+          <button class="btn-action" onclick="openPoseModal('${safeResourcePath}', 'pose_image')">
+            <span>🎭</span>
+            <span>关联姿势</span>
+          </button>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+function createLoraCard(lora) {
+  const isVideo = lora.lora_type === 'video';
+  const previewHtml = lora.preview_url
+    ? (lora.preview_url.endsWith('.mp4')
+      ? `<video src="${escapeHtml(lora.preview_url)}" muted loop onmouseenter="this.play()" onmouseleave="this.pause()"></video>`
+      : `<img src="${escapeHtml(lora.preview_url)}" alt="LORA Preview">`)
+    : `<div style="display:flex;align-items:center;justify-content:center;height:100%;color:#666;">No Preview</div>`;
+
+  return `
+    <div class="resource-card">
+      <div class="card-badges">
+        <span class="badge badge-lora">LORA</span>
+        <span class="badge ${isVideo ? 'badge-video' : 'badge-image'}">${isVideo ? 'VIDEO' : 'IMAGE'}</span>
+      </div>
+      <div class="card-media">${previewHtml}</div>
+      <div class="card-body">
+        <div class="card-title">${escapeHtml(lora.name || `LORA #${lora.lora_id}`)}</div>
+        <div class="card-prompt">${escapeHtml(lora.description || lora.trigger_prompt || '')}</div>
+        <div class="card-poses" id="pose-badges-lora-${lora.lora_id}"></div>
+        <div class="card-meta">已启用</div>
+        <div class="card-actions">
+          <button class="btn-action" onclick="openEditModal(${lora.lora_id}, '${lora.lora_type}_lora')">
+            <span>✏️</span>
+            <span>编辑标签</span>
+          </button>
+          <button class="btn-action" onclick="openPoseModal(${lora.lora_id}, 'lora')">
+            <span>🎭</span>
+            <span>关联姿势</span>
+          </button>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+async function toggleResourceFavorite(resourceId, event) {
+  event.stopPropagation();
+  const btn = event.currentTarget;
+
+  if (!confirm('确定要取消收藏吗？')) return;
+
+  try {
+    await fetch(`/api/v1/favorites/${resourceId}`, {
+      method: 'DELETE',
+      headers: { 'X-API-Key': API_KEY }
+    });
+
+    await loadFavorites();
+    await loadStats();
+  } catch (error) {
+    alert('操作失败，请重试');
+  }
+}
+
+async function togglePoseFavorite(resourcePath, event) {
+  event.stopPropagation();
+
+  if (!confirm('确定要取消收藏吗？')) return;
+
+  try {
+    await fetch(`/api/v1/favorites/pose-image?resource_path=${encodeURIComponent(resourcePath)}`, {
+      method: 'DELETE',
+      headers: { 'X-API-Key': API_KEY }
+    });
+
+    await loadFavorites();
+    await loadStats();
+  } catch (error) {
+    alert('操作失败，请重试');
+  }
+}
+
+function renderPagination() {
+  const paginationEl = document.getElementById('pagination');
+
+  if (totalPages <= 1) {
+    paginationEl.innerHTML = '';
+    return;
+  }
+
+  const prevDisabled = currentPage === 1;
+  const nextDisabled = currentPage === totalPages;
+
+  paginationEl.innerHTML = `
+    <button class="page-btn" ${prevDisabled ? 'disabled' : ''} onclick="changePage(${currentPage - 1})">上一页</button>
+    <span class="page-info">第 ${currentPage} / ${totalPages} 页</span>
+    <button class="page-btn" ${nextDisabled ? 'disabled' : ''} onclick="changePage(${currentPage + 1})">下一页</button>
+  `;
+}
+
+function changePage(page) {
+  if (page < 1 || page > totalPages) return;
+  currentPage = page;
+  loadFavorites();
+  window.scrollTo(0, 0);
+}
+
+function escapeHtml(str) {
+  if (!str) return '';
+  const div = document.createElement('div');
+  div.textContent = str;
+  return div.innerHTML;
+}
+
+function formatDate(dateStr) {
+  if (!dateStr) return '';
+  const date = new Date(dateStr);
+  return date.toLocaleDateString('zh-CN', { year: 'numeric', month: '2-digit', day: '2-digit' });
+}
+
+// Initialize
+loadStats();
+loadFavorites();
+
+// Edit Modal
+let currentEditId = null;
+let currentEditType = null;
+
+function openEditModal(id, type) {
+  currentEditId = id;
+  currentEditType = type;
+
+  const modal = document.getElementById('editModal');
+  const title = document.getElementById('editModalTitle');
+  const body = document.getElementById('editModalBody');
+
+  if (type === 'resource') {
+    title.textContent = '编辑资源';
+    loadResourceEdit(id, body);
+  } else if (type === 'video_lora' || type === 'image_lora') {
+    title.textContent = '编辑 LORA';
+    loadLoraEdit(id, body);
+  }
+
+  modal.classList.add('active');
+}
+
+async function loadResourceEdit(resourceId, container) {
+  try {
+    const response = await fetch(`/api/v1/resources/${resourceId}`, {
+      headers: { 'X-API-Key': API_KEY }
+    });
+    const resource = await response.json();
+
+    container.innerHTML = `
+      <div class="edit-field">
+        <label>搜索关键词</label>
+        <textarea id="edit-search-keywords" placeholder="输入搜索关键词...">${resource.search_keywords || ''}</textarea>
+      </div>
+      <button class="btn-ai" onclick="generateResourceKeywords(${resourceId})">AI生成关键词</button>
+    `;
+  } catch (error) {
+    container.innerHTML = `<div style="color:#f87171">加载失败: ${error.message}</div>`;
+  }
+}
+
+async function loadLoraEdit(loraId, container) {
+  try {
+    const response = await fetch(`/api/v1/admin/loras/${loraId}`, {
+      headers: { 'X-API-Key': API_KEY }
+    });
+    const lora = await response.json();
+
+    container.innerHTML = `
+      <div class="edit-field">
+        <label>搜索关键词</label>
+        <textarea id="edit-search-keywords" placeholder="输入搜索关键词...">${lora.search_keywords || ''}</textarea>
+      </div>
+      <div class="edit-field">
+        <label>触发提示词</label>
+        <textarea id="edit-trigger-prompt" placeholder="输入触发提示词...">${lora.trigger_prompt || ''}</textarea>
+      </div>
+      <button class="btn-ai" onclick="generateLoraKeywords(${loraId})">AI生成关键词和提示词</button>
+    `;
+  } catch (error) {
+    container.innerHTML = `<div style="color:#f87171">加载失败: ${error.message}</div>`;
+  }
+}
+
+async function generateResourceKeywords(resourceId) {
+  const btn = event.target;
+  btn.disabled = true;
+  btn.textContent = '生成中...';
+
+  try {
+    const response = await fetch(`/api/v1/resources/${resourceId}/suggest-keywords`, {
+      method: 'POST',
+      headers: { 'X-API-Key': API_KEY }
+    });
+
+    if (!response.ok) throw new Error('生成失败');
+    const data = await response.json();
+
+    if (data.search_keywords) {
+      document.getElementById('edit-search-keywords').value = data.search_keywords;
+      alert(`AI生成成功！\n关键词: ${data.search_keywords}\n\n理由: ${data.reasoning}`);
+    }
+  } catch (error) {
+    alert('生成失败: ' + error.message);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'AI生成关键词';
+  }
+}
+
+async function generateLoraKeywords(loraId) {
+  const btn = event.target;
+  btn.disabled = true;
+  btn.textContent = '生成中...';
+
+  try {
+    const response = await fetch(`/api/v1/admin/loras/${loraId}/suggest-keywords`, {
+      method: 'POST',
+      headers: { 'X-API-Key': API_KEY }
+    });
+
+    if (!response.ok) throw new Error('生成失败');
+    const data = await response.json();
+
+    if (data.search_keywords) {
+      document.getElementById('edit-search-keywords').value = data.search_keywords;
+    }
+    if (data.trigger_prompt) {
+      document.getElementById('edit-trigger-prompt').value = data.trigger_prompt;
+    }
+    alert(`AI生成成功！\n搜索关键词: ${data.search_keywords}\n触发提示词: ${data.trigger_prompt}\n\n理由: ${data.reasoning}`);
+  } catch (error) {
+    alert('生成失败: ' + error.message);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'AI生成关键词和提示词';
+  }
+}
+
+async function saveEdit() {
+  if (!currentEditId || !currentEditType) return;
+
+  try {
+    if (currentEditType === 'resource') {
+      await saveResourceEdit();
+    } else if (currentEditType === 'video_lora' || currentEditType === 'image_lora') {
+      await saveLoraEdit();
+    }
+
+    closeEditModal();
+    await loadFavorites();
+  } catch (error) {
+    alert('保存失败: ' + error.message);
+  }
+}
+
+async function saveResourceEdit() {
+  const searchKeywords = document.getElementById('edit-search-keywords').value.trim();
+
+  const response = await fetch(`/api/v1/resources/${currentEditId}`, {
+    method: 'PATCH',
+    headers: {
+      'X-API-Key': API_KEY,
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({ search_keywords: searchKeywords })
+  });
+
+  if (!response.ok) throw new Error('保存失败');
+}
+
+async function saveLoraEdit() {
+  const searchKeywords = document.getElementById('edit-search-keywords').value.trim();
+  const triggerPrompt = document.getElementById('edit-trigger-prompt').value.trim();
+
+  const response = await fetch(`/api/v1/admin/loras/${currentEditId}`, {
+    method: 'PATCH',
+    headers: {
+      'X-API-Key': API_KEY,
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({
+      search_keywords: searchKeywords,
+      trigger_prompt: triggerPrompt
+    })
+  });
+
+  if (!response.ok) throw new Error('保存失败');
+}
+
+function closeEditModal() {
+  document.getElementById('editModal').classList.remove('active');
+  currentEditId = null;
+  currentEditType = null;
+}
+
+// Pose Association Modal
+let currentPoseResourceId = null;
+let currentPoseResourceType = null;
+let allPoses = [];
+let selectedPoses = new Set();
+
+async function openPoseModal(id, type) {
+  currentPoseResourceId = id;
+  currentPoseResourceType = type;
+
+  if (allPoses.length === 0) {
+    await loadAllPoses();
+  }
+
+  await loadCurrentAssociations();
+  renderPoseSelect();
+  updateAssociationSummary();
+
+  document.getElementById('poseModal').classList.add('active');
+}
+
+async function loadAllPoses() {
+  try {
+    const response = await fetch('/api/v1/poses', {
+      headers: { 'X-API-Key': API_KEY }
+    });
+    const data = await response.json();
+    allPoses = data.poses || [];
+  } catch (error) {
+    console.error('Failed to load poses:', error);
+  }
+}
+
+async function loadCurrentAssociations() {
+  selectedPoses.clear();
+
+  try {
+    let response;
+    if (currentPoseResourceType === 'resource') {
+      response = await fetch(`/api/v1/resources/${currentPoseResourceId}/poses`, {
+        headers: { 'X-API-Key': API_KEY }
+      });
+    } else if (currentPoseResourceType === 'lora') {
+      response = await fetch(`/api/v1/admin/loras/${currentPoseResourceId}/poses`, {
+        headers: { 'X-API-Key': API_KEY }
+      });
+    } else if (currentPoseResourceType === 'pose_image') {
+      response = await fetch(`/api/v1/pose-images/associations?resource_path=${encodeURIComponent(currentPoseResourceId)}`, {
+        headers: { 'X-API-Key': API_KEY }
+      });
+    }
+
+    if (response && response.ok) {
+      const data = await response.json();
+      const associations = data.associations || [];
+      associations.forEach(a => {
+        const poseKey = a.pose_key || a.key;
+        if (poseKey) selectedPoses.add(poseKey);
+      });
+    }
+  } catch (error) {
+    console.error('Failed to load associations:', error);
+  }
+}
+
+function renderPoseSelect() {
+  const select = document.getElementById('poseSelect');
+
+  select.innerHTML = allPoses.map(pose => {
+    const isSelected = selectedPoses.has(pose.key);
+    return `<option value="${escapeHtml(pose.key)}" ${isSelected ? 'selected' : ''}>${escapeHtml(pose.name)} (${escapeHtml(pose.key)})</option>`;
+  }).join('');
+
+  // Add change event listener
+  select.onchange = function() {
+    selectedPoses.clear();
+    const options = select.options;
+    for (let i = 0; i < options.length; i++) {
+      if (options[i].selected) {
+        selectedPoses.add(options[i].value);
+      }
+    }
+    updateAssociationSummary();
+  };
+}
+
+function updateAssociationSummary() {
+  document.getElementById('associationSummary').textContent = `已选择 ${selectedPoses.size} 个姿势`;
+}
+
+async function savePoseAssociations() {
+  try {
+    let response;
+    const poses = Array.from(selectedPoses);
+
+    if (currentPoseResourceType === 'resource') {
+      response = await fetch(`/api/v1/resources/${currentPoseResourceId}/poses`, {
+        method: 'PUT',
+        headers: {
+          'X-API-Key': API_KEY,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ pose_keys: poses })
+      });
+    } else if (currentPoseResourceType === 'lora') {
+      response = await fetch(`/api/v1/admin/loras/${currentPoseResourceId}/poses`, {
+        method: 'PUT',
+        headers: {
+          'X-API-Key': API_KEY,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ pose_keys: poses })
+      });
+    } else if (currentPoseResourceType === 'pose_image') {
+      response = await fetch(`/api/v1/pose-images/associations`, {
+        method: 'PUT',
+        headers: {
+          'X-API-Key': API_KEY,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          resource_path: currentPoseResourceId,
+          pose_keys: poses
+        })
+      });
+    }
+
+    if (!response || !response.ok) throw new Error('保存失败');
+
+    closePoseModal();
+    await loadFavorites();
+    await loadPoseBadges();
+  } catch (error) {
+    alert('保存失败: ' + error.message);
+  }
+}
+
+function closePoseModal() {
+  document.getElementById('poseModal').classList.remove('active');
+  currentPoseResourceId = null;
+  currentPoseResourceType = null;
+}
+
+async function loadPoseBadges() {
+  // Load pose badges for all visible items
+  const favorites = document.querySelectorAll('.resource-card');
+  // This will be called after render to populate pose badges
+}
+
+</script>
+</body>
+</html>
