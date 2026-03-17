@@ -99,6 +99,16 @@ h1{text-align:center;color:#7c83ff;margin-bottom:24px;font-size:1.6em}
 .btn-action{flex:1;padding:8px 12px;background:#16213e;border:1px solid #444;border-radius:6px;color:#e0e0e0;font-size:12px;cursor:pointer;transition:all 0.2s;display:flex;align-items:center;justify-content:center;gap:6px}
 .btn-action:hover{border-color:#7c83ff;color:#7c83ff;background:#1a2540}
 
+/* Pose Association Inline */
+.pose-association-inline{margin-top:12px;padding-top:12px;border-top:1px solid #333}
+.pose-association-inline label{display:block;font-size:11px;color:#aaa;margin-bottom:6px}
+.pose-select-inline{width:100%;padding:6px 8px;background:#0a0a23;border:1px solid #444;border-radius:6px;color:#e0e0e0;font-size:11px;max-height:80px}
+.pose-select-inline:focus{outline:none;border-color:#7c83ff}
+.pose-actions{display:flex;gap:6px;margin-top:8px}
+.btn-save-pose{flex:1;padding:6px 12px;background:#4ade80;border:none;border-radius:6px;color:#000;font-size:11px;font-weight:600;cursor:pointer;transition:background 0.2s}
+.btn-save-pose:hover{background:#3bc970}
+.btn-save-pose:disabled{opacity:0.5;cursor:not-allowed}
+
 /* Pagination */
 .pagination{display:flex;justify-content:center;align-items:center;gap:8px;margin-top:24px}
 .page-btn{padding:8px 16px;background:#16213e;border:1px solid #333;border-radius:6px;color:#aaa;cursor:pointer;font-size:13px;transition:all 0.2s}
@@ -153,30 +163,6 @@ h1{text-align:center;color:#7c83ff;margin-bottom:24px;font-size:1.6em}
     <div class="modal-footer">
       <button class="btn-secondary" onclick="closeEditModal()">取消</button>
       <button class="btn-primary" onclick="saveEdit()">保存</button>
-    </div>
-  </div>
-</div>
-
-<!-- Pose Association Modal -->
-<div class="modal-overlay" id="poseModal">
-  <div class="edit-modal">
-    <div class="modal-header">
-      <h3>关联姿势</h3>
-      <button class="modal-close" onclick="closePoseModal()">&times;</button>
-    </div>
-    <div class="modal-body">
-      <div class="edit-field">
-        <label>选择姿势（可多选）</label>
-        <select id="poseSelect" multiple style="min-height:300px;width:100%;padding:8px;background:#0a0a23;border:1px solid #444;border-radius:6px;color:#e0e0e0;font-size:13px;">
-        </select>
-      </div>
-      <div style="margin-top:12px;font-size:12px;color:#aaa;">
-        提示：按住 Ctrl (Windows) 或 Cmd (Mac) 可多选
-      </div>
-    </div>
-    <div class="modal-footer">
-      <span class="association-summary" id="associationSummary">已选择 0 个姿势</span>
-      <button class="btn-primary" onclick="savePoseAssociations()">保存</button>
     </div>
   </div>
 </div>
@@ -298,8 +284,8 @@ function renderFavorites(favorites) {
 
   grid.innerHTML = favorites.map(fav => createCard(fav)).join('');
 
-  // Pose badges will be loaded on demand when needed
-  // Removed to improve initial page load performance
+  // Initialize pose selects for all cards
+  initializePoseSelects(favorites);
 }
 
 async function loadResourcePoseBadges(resourceId) {
@@ -402,10 +388,15 @@ function createResourceCard(resource) {
             <span>✏️</span>
             <span>编辑标签</span>
           </button>
-          <button class="btn-action" onclick="openPoseModal(${resource.resource_id}, 'resource')">
-            <span>🎭</span>
-            <span>关联姿势</span>
-          </button>
+        </div>
+        <div class="pose-association-inline">
+          <label>🎭 关联姿势（可多选）</label>
+          <select id="pose-select-${resource.resource_id}" class="pose-select-inline" multiple data-resource-id="${resource.resource_id}" data-resource-type="resource">
+            <option value="" disabled>加载中...</option>
+          </select>
+          <div class="pose-actions">
+            <button class="btn-save-pose" onclick="savePoseAssociationInline(${resource.resource_id}, 'resource')">保存关联</button>
+          </div>
         </div>
       </div>
     </div>
@@ -419,6 +410,7 @@ function createPoseImageCard(poseImage) {
     : `<img src="${escapeHtml(poseImage.url)}" alt="Pose">`;
 
   const safeResourcePath = poseImage.resource_path.replace(/'/g, "\\'");
+  const safeId = poseImage.resource_path.replace(/[^a-zA-Z0-9]/g, '_');
 
   return `
     <div class="resource-card">
@@ -433,13 +425,16 @@ function createPoseImageCard(poseImage) {
       <div class="card-body">
         <div class="card-title">${escapeHtml(poseImage.pose)}</div>
         <div class="card-prompt">${escapeHtml(poseImage.filename)}</div>
-        <div class="card-poses" id="pose-badges-pose-${escapeHtml(poseImage.resource_path).replace(/[^a-zA-Z0-9]/g, '_')}"></div>
+        <div class="card-poses" id="pose-badges-pose-${safeId}"></div>
         <div class="card-meta">收藏于 ${formatDate(poseImage.created_at)}</div>
-        <div class="card-actions">
-          <button class="btn-action" onclick="openPoseModal('${safeResourcePath}', 'pose_image')">
-            <span>🎭</span>
-            <span>关联姿势</span>
-          </button>
+        <div class="pose-association-inline">
+          <label>🎭 关联姿势（可多选）</label>
+          <select id="pose-select-pose-${safeId}" class="pose-select-inline" multiple data-resource-path="${escapeHtml(poseImage.resource_path)}" data-resource-type="pose_image">
+            <option value="" disabled>加载中...</option>
+          </select>
+          <div class="pose-actions">
+            <button class="btn-save-pose" onclick="savePoseAssociationInline('${safeResourcePath}', 'pose_image')">保存关联</button>
+          </div>
         </div>
       </div>
     </div>
@@ -471,10 +466,15 @@ function createLoraCard(lora) {
             <span>✏️</span>
             <span>编辑标签</span>
           </button>
-          <button class="btn-action" onclick="openPoseModal(${lora.lora_id}, 'lora')">
-            <span>🎭</span>
-            <span>关联姿势</span>
-          </button>
+        </div>
+        <div class="pose-association-inline">
+          <label>🎭 关联姿势（可多选）</label>
+          <select id="pose-select-lora-${lora.lora_id}" class="pose-select-inline" multiple data-lora-id="${lora.lora_id}" data-resource-type="lora">
+            <option value="" disabled>加载中...</option>
+          </select>
+          <div class="pose-actions">
+            <button class="btn-save-pose" onclick="savePoseAssociationInline(${lora.lora_id}, 'lora')">保存关联</button>
+          </div>
         </div>
       </div>
     </div>
@@ -743,6 +743,186 @@ let currentPoseResourceType = null;
 let allPoses = [];
 let selectedPoses = new Set();
 
+// Initialize pose selects for inline dropdowns
+async function initializePoseSelects(favorites) {
+  // Load all poses if not already loaded
+  if (allPoses.length === 0) {
+    await loadAllPoses();
+  }
+
+  // Initialize each card's pose select
+  for (const fav of favorites) {
+    if (fav.type === 'resource') {
+      await initializeResourcePoseSelect(fav.resource_id);
+    } else if (fav.type === 'pose_image') {
+      const safeId = fav.resource_path.replace(/[^a-zA-Z0-9]/g, '_');
+      await initializePoseImagePoseSelect(fav.resource_path, safeId);
+    } else if (fav.type === 'video_lora' || fav.type === 'image_lora') {
+      await initializeLoraPoseSelect(fav.lora_id);
+    }
+  }
+}
+
+async function initializeResourcePoseSelect(resourceId) {
+  const select = document.getElementById(`pose-select-${resourceId}`);
+  if (!select) return;
+
+  // Load current associations
+  const associations = await loadResourceAssociations(resourceId);
+  const associatedKeys = new Set(associations.map(a => a.pose_key));
+
+  // Populate select
+  select.innerHTML = allPoses.map(pose => {
+    const isSelected = associatedKeys.has(pose.key);
+    return `<option value="${escapeHtml(pose.key)}" ${isSelected ? 'selected' : ''}>${escapeHtml(pose.name)} (${escapeHtml(pose.key)})</option>`;
+  }).join('');
+}
+
+async function initializePoseImagePoseSelect(resourcePath, safeId) {
+  const select = document.getElementById(`pose-select-pose-${safeId}`);
+  if (!select) return;
+
+  // Load current associations
+  const associations = await loadPoseImageAssociations(resourcePath);
+  const associatedKeys = new Set(associations.map(a => a.pose_key || a.key));
+
+  // Populate select
+  select.innerHTML = allPoses.map(pose => {
+    const isSelected = associatedKeys.has(pose.key);
+    return `<option value="${escapeHtml(pose.key)}" ${isSelected ? 'selected' : ''}>${escapeHtml(pose.name)} (${escapeHtml(pose.key)})</option>`;
+  }).join('');
+}
+
+async function initializeLoraPoseSelect(loraId) {
+  const select = document.getElementById(`pose-select-lora-${loraId}`);
+  if (!select) return;
+
+  // Load current associations
+  const associations = await loadLoraAssociations(loraId);
+  const associatedKeys = new Set(associations.map(a => a.pose_key));
+
+  // Populate select
+  select.innerHTML = allPoses.map(pose => {
+    const isSelected = associatedKeys.has(pose.key);
+    return `<option value="${escapeHtml(pose.key)}" ${isSelected ? 'selected' : ''}>${escapeHtml(pose.name)} (${escapeHtml(pose.key)})</option>`;
+  }).join('');
+}
+
+async function loadResourceAssociations(resourceId) {
+  try {
+    const response = await fetch(`/api/v1/resources/${resourceId}/poses`, {
+      headers: { 'X-API-Key': API_KEY }
+    });
+    if (!response.ok) return [];
+    const data = await response.json();
+    return data.associations || [];
+  } catch (error) {
+    console.error('Failed to load resource associations:', error);
+    return [];
+  }
+}
+
+async function loadPoseImageAssociations(resourcePath) {
+  try {
+    const response = await fetch(`/api/v1/pose-images/associations?resource_path=${encodeURIComponent(resourcePath)}`, {
+      headers: { 'X-API-Key': API_KEY }
+    });
+    if (!response.ok) return [];
+    const data = await response.json();
+    return data.associations || [];
+  } catch (error) {
+    console.error('Failed to load pose image associations:', error);
+    return [];
+  }
+}
+
+async function loadLoraAssociations(loraId) {
+  try {
+    const response = await fetch(`/api/v1/admin/loras/${loraId}/poses`, {
+      headers: { 'X-API-Key': API_KEY }
+    });
+    if (!response.ok) return [];
+    const data = await response.json();
+    return data.associations || [];
+  } catch (error) {
+    console.error('Failed to load lora associations:', error);
+    return [];
+  }
+}
+
+async function savePoseAssociationInline(id, type) {
+  const btn = event.target;
+  btn.disabled = true;
+  btn.textContent = '保存中...';
+
+  try {
+    let select, poses;
+
+    if (type === 'resource') {
+      select = document.getElementById(`pose-select-${id}`);
+    } else if (type === 'pose_image') {
+      const safeId = id.replace(/[^a-zA-Z0-9]/g, '_');
+      select = document.getElementById(`pose-select-pose-${safeId}`);
+    } else if (type === 'lora') {
+      select = document.getElementById(`pose-select-lora-${id}`);
+    }
+
+    if (!select) throw new Error('Select not found');
+
+    // Get selected poses
+    poses = Array.from(select.selectedOptions).map(opt => opt.value);
+
+    // Save via API
+    let response;
+    if (type === 'resource') {
+      response = await fetch(`/api/v1/resources/${id}/poses`, {
+        method: 'PUT',
+        headers: {
+          'X-API-Key': API_KEY,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ pose_keys: poses })
+      });
+    } else if (type === 'lora') {
+      response = await fetch(`/api/v1/admin/loras/${id}/poses`, {
+        method: 'PUT',
+        headers: {
+          'X-API-Key': API_KEY,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ pose_keys: poses })
+      });
+    } else if (type === 'pose_image') {
+      response = await fetch(`/api/v1/pose-images/associations`, {
+        method: 'PUT',
+        headers: {
+          'X-API-Key': API_KEY,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          resource_path: id,
+          pose_keys: poses
+        })
+      });
+    }
+
+    if (!response || !response.ok) throw new Error('保存失败');
+
+    btn.textContent = '✓ 已保存';
+    setTimeout(() => {
+      btn.textContent = '保存关联';
+      btn.disabled = false;
+    }, 2000);
+
+    // Reload pose badges
+    await loadFavorites();
+  } catch (error) {
+    alert('保存失败: ' + error.message);
+    btn.textContent = '保存关联';
+    btn.disabled = false;
+  }
+}
+
 async function openPoseModal(id, type) {
   currentPoseResourceId = id;
   currentPoseResourceType = type;
@@ -768,116 +948,6 @@ async function loadAllPoses() {
   } catch (error) {
     console.error('Failed to load poses:', error);
   }
-}
-
-async function loadCurrentAssociations() {
-  selectedPoses.clear();
-
-  try {
-    let response;
-    if (currentPoseResourceType === 'resource') {
-      response = await fetch(`/api/v1/resources/${currentPoseResourceId}/poses`, {
-        headers: { 'X-API-Key': API_KEY }
-      });
-    } else if (currentPoseResourceType === 'lora') {
-      response = await fetch(`/api/v1/admin/loras/${currentPoseResourceId}/poses`, {
-        headers: { 'X-API-Key': API_KEY }
-      });
-    } else if (currentPoseResourceType === 'pose_image') {
-      response = await fetch(`/api/v1/pose-images/associations?resource_path=${encodeURIComponent(currentPoseResourceId)}`, {
-        headers: { 'X-API-Key': API_KEY }
-      });
-    }
-
-    if (response && response.ok) {
-      const data = await response.json();
-      const associations = data.associations || [];
-      associations.forEach(a => {
-        const poseKey = a.pose_key || a.key;
-        if (poseKey) selectedPoses.add(poseKey);
-      });
-    }
-  } catch (error) {
-    console.error('Failed to load associations:', error);
-  }
-}
-
-function renderPoseSelect() {
-  const select = document.getElementById('poseSelect');
-
-  select.innerHTML = allPoses.map(pose => {
-    const isSelected = selectedPoses.has(pose.key);
-    return `<option value="${escapeHtml(pose.key)}" ${isSelected ? 'selected' : ''}>${escapeHtml(pose.name)} (${escapeHtml(pose.key)})</option>`;
-  }).join('');
-
-  // Add change event listener
-  select.onchange = function() {
-    selectedPoses.clear();
-    const options = select.options;
-    for (let i = 0; i < options.length; i++) {
-      if (options[i].selected) {
-        selectedPoses.add(options[i].value);
-      }
-    }
-    updateAssociationSummary();
-  };
-}
-
-function updateAssociationSummary() {
-  document.getElementById('associationSummary').textContent = `已选择 ${selectedPoses.size} 个姿势`;
-}
-
-async function savePoseAssociations() {
-  try {
-    let response;
-    const poses = Array.from(selectedPoses);
-
-    if (currentPoseResourceType === 'resource') {
-      response = await fetch(`/api/v1/resources/${currentPoseResourceId}/poses`, {
-        method: 'PUT',
-        headers: {
-          'X-API-Key': API_KEY,
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({ pose_keys: poses })
-      });
-    } else if (currentPoseResourceType === 'lora') {
-      response = await fetch(`/api/v1/admin/loras/${currentPoseResourceId}/poses`, {
-        method: 'PUT',
-        headers: {
-          'X-API-Key': API_KEY,
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({ pose_keys: poses })
-      });
-    } else if (currentPoseResourceType === 'pose_image') {
-      response = await fetch(`/api/v1/pose-images/associations`, {
-        method: 'PUT',
-        headers: {
-          'X-API-Key': API_KEY,
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          resource_path: currentPoseResourceId,
-          pose_keys: poses
-        })
-      });
-    }
-
-    if (!response || !response.ok) throw new Error('保存失败');
-
-    closePoseModal();
-    await loadFavorites();
-    await loadPoseBadges();
-  } catch (error) {
-    alert('保存失败: ' + error.message);
-  }
-}
-
-function closePoseModal() {
-  document.getElementById('poseModal').classList.remove('active');
-  currentPoseResourceId = null;
-  currentPoseResourceType = null;
 }
 
 async function loadPoseBadges() {
