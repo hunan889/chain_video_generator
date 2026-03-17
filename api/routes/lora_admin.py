@@ -531,3 +531,74 @@ async def save_keywords(keywords: dict, _=Depends(verify_api_key)):
     except Exception as e:
         logger.error(f"Failed to save keywords: {e}")
         raise HTTPException(500, f"保存关键词失败: {str(e)}")
+
+
+# ========== Pose Association API ==========
+
+import sqlite3
+from pathlib import Path
+from pydantic import BaseModel as _BaseModel
+from typing import List as _List
+
+_POSE_DB_PATH = Path(__file__).parent.parent.parent / "data" / "wan22.db"
+
+
+class _PoseKeysRequest(_BaseModel):
+    pose_keys: _List[str]
+
+
+@router.get("/admin/loras/{lora_id}/poses")
+async def get_lora_poses(lora_id: int, _=Depends(verify_api_key)):
+    """获取LORA关联的姿势列表"""
+    try:
+        sqlite_conn = sqlite3.connect(str(_POSE_DB_PATH))
+        sqlite_conn.row_factory = sqlite3.Row
+        sqlite_cursor = sqlite_conn.cursor()
+
+        sqlite_cursor.execute("""
+            SELECT p.id, p.pose_key, p.name_cn as pose_name, p.name_en
+            FROM pose_loras pl
+            JOIN poses p ON pl.pose_id = p.id
+            WHERE pl.lora_id = ?
+        """, (lora_id,))
+
+        associations = [dict(row) for row in sqlite_cursor.fetchall()]
+        sqlite_cursor.close()
+        sqlite_conn.close()
+
+        return {"associations": associations}
+
+    except Exception as e:
+        raise HTTPException(500, f"查询失败: {str(e)}")
+
+
+@router.put("/admin/loras/{lora_id}/poses")
+async def update_lora_poses(lora_id: int, request: _PoseKeysRequest, _=Depends(verify_api_key)):
+    """更新LORA关联的姿势（替换所有关联）"""
+    try:
+        sqlite_conn = sqlite3.connect(str(_POSE_DB_PATH))
+        sqlite_cursor = sqlite_conn.cursor()
+
+        # 删除现有关联
+        sqlite_cursor.execute("DELETE FROM pose_loras WHERE lora_id = ?", (lora_id,))
+
+        # 添加新关联
+        for pose_key in request.pose_keys:
+            sqlite_cursor.execute("SELECT id FROM poses WHERE pose_key = ?", (pose_key,))
+            pose_row = sqlite_cursor.fetchone()
+
+            if pose_row:
+                pose_id = pose_row[0]
+                sqlite_cursor.execute("""
+                    INSERT INTO pose_loras (pose_id, lora_id, lora_type, noise_stage, is_default)
+                    VALUES (?, ?, 'video', 'high', 0)
+                """, (pose_id, lora_id))
+
+        sqlite_conn.commit()
+        sqlite_cursor.close()
+        sqlite_conn.close()
+
+        return {"success": True, "lora_id": lora_id, "pose_count": len(request.pose_keys)}
+
+    except Exception as e:
+        raise HTTPException(500, f"更新失败: {str(e)}")

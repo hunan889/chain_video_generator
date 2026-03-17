@@ -1,15 +1,20 @@
 """
 姿势图片API路由 - 展示所有图片+元数据(prompt/model)
 """
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Depends
 from fastapi.responses import FileResponse
 from pathlib import Path
 from typing import List, Dict
+from pydantic import BaseModel
 import json
+import sqlite3
+from api.middleware.auth import verify_api_key
 
 router = APIRouter()
 
 POSE_DIR = Path(__file__).parent.parent.parent / "data" / "pose_references"
+PROJECT_ROOT = Path(__file__).parent.parent.parent
+POSE_DB_PATH = PROJECT_ROOT / "data" / "wan22.db"
 
 IMAGE_EXTENSIONS = {'.jpg', '.jpeg', '.png', '.webp'}
 VIDEO_EXTENSIONS = {'.mp4', '.webm', '.mov', '.avi'}
@@ -87,3 +92,77 @@ async def serve_pose_file(pose: str, filename: str):
     ext = file_path.suffix.lower()
     media_type = MEDIA_TYPES.get(ext, "application/octet-stream")
     return FileResponse(file_path, media_type=media_type)
+
+
+# ========== Pose Association API ==========
+
+class PoseImageAssociationRequest(BaseModel):
+    """姿势图片关联请求"""
+    resource_path: str
+    pose_keys: List[str]
+
+
+@router.get("/api/v1/pose-images/associations")
+async def get_pose_image_associations(
+    resource_path: str,
+    _: str = Depends(verify_api_key)
+):
+    """获取姿势图片关联的姿势列表"""
+    try:
+        sqlite_conn = sqlite3.connect(str(POSE_DB_PATH))
+        sqlite_conn.row_factory = sqlite3.Row
+        sqlite_cursor = sqlite_conn.cursor()
+
+        sqlite_cursor.execute("""
+            SELECT p.id, p.pose_key, p.name_cn as pose_name, p.name_en
+            FROM pose_reference_images pri
+            JOIN poses p ON pri.pose_id = p.id
+            WHERE pri.image_url = ?
+        """, (resource_path,))
+
+        associations = [dict(row) for row in sqlite_cursor.fetchall()]
+
+        sqlite_cursor.close()
+        sqlite_conn.close()
+
+        return {"associations": associations}
+
+    except Exception as e:
+        raise HTTPException(500, f"查询失败: {str(e)}")
+
+
+@router.put("/api/v1/pose-images/associations")
+async def update_pose_image_associations(
+    request: PoseImageAssociationRequest,
+    _: str = Depends(verify_api_key)
+):
+    """更新姿势图片关联的姿势（替换所有关联）"""
+    try:
+        sqlite_conn = sqlite3.connect(str(POSE_DB_PATH))
+        sqlite_cursor = sqlite_conn.cursor()
+
+        # 删除现有关联
+        sqlite_cursor.execute("DELETE FROM pose_reference_images WHERE image_url = ?", (request.resource_path,))
+
+        # 添加新关联
+        for pose_key in request.pose_keys:
+            # 获取pose_id
+            sqlite_cursor.execute("SELECT id FROM poses WHERE pose_key = ?", (pose_key,))
+            pose_row = sqlite_cursor.fetchone()
+
+            if pose_row:
+                pose_id = pose_row[0]
+                sqlite_cursor.execute("""
+                    INSERT INTO pose_reference_images (pose_id, image_url, angle, style, is_default)
+                    VALUES (?, ?, NULL, NULL, 0)
+                """, (pose_id, request.resource_path))
+
+        sqlite_conn.commit()
+        sqlite_cursor.close()
+        sqlite_conn.close()
+
+        return {"success": True, "resource_path": request.resource_path, "pose_count": len(request.pose_keys)}
+
+    except Exception as e:
+        raise HTTPException(500, f"更新失败: {str(e)}")
+
