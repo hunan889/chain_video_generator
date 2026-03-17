@@ -611,6 +611,34 @@ async def list_all_favorites(
 
         favorites = cursor.fetchall()
 
+        # 批量查询姿势关联（SQLite）
+        resource_urls = [fav['url'] for fav in favorites if fav['resource_id'] and fav['url']]
+        pose_paths = [fav['resource_path'] for fav in favorites if fav['resource_path']]
+        all_urls = resource_urls + pose_paths
+
+        pose_keys_map = {}  # url -> [pose_key, ...]
+        if all_urls:
+            try:
+                sqlite_conn = sqlite3.connect(str(POSE_DB_PATH))
+                sqlite_conn.row_factory = sqlite3.Row
+                sqlite_cursor = sqlite_conn.cursor()
+                placeholders = ','.join(['?'] * len(all_urls))
+                sqlite_cursor.execute(f"""
+                    SELECT pri.image_url, p.pose_key
+                    FROM pose_reference_images pri
+                    JOIN poses p ON pri.pose_id = p.id
+                    WHERE pri.image_url IN ({placeholders})
+                """, all_urls)
+                for row in sqlite_cursor.fetchall():
+                    url = row['image_url']
+                    if url not in pose_keys_map:
+                        pose_keys_map[url] = []
+                    pose_keys_map[url].append(row['pose_key'])
+                sqlite_cursor.close()
+                sqlite_conn.close()
+            except Exception:
+                pass
+
         # 处理结果
         result_list = []
         for fav in favorites:
@@ -625,7 +653,8 @@ async def list_all_favorites(
                     'prompt': fav['prompt'],
                     'search_keywords': fav['search_keywords'],
                     'note': fav['note'],
-                    'created_at': fav['created_at'].isoformat() if fav['created_at'] else None
+                    'created_at': fav['created_at'].isoformat() if fav['created_at'] else None,
+                    'pose_keys': pose_keys_map.get(fav['url'], [])
                 })
             elif fav['resource_path']:
                 # 姿势图片（本地文件）
@@ -643,7 +672,8 @@ async def list_all_favorites(
                     'pose': pose_name,
                     'filename': filename,
                     'note': fav['note'],
-                    'created_at': fav['created_at'].isoformat() if fav['created_at'] else None
+                    'created_at': fav['created_at'].isoformat() if fav['created_at'] else None,
+                    'pose_keys': pose_keys_map.get(fav['resource_path'], [])
                 })
 
         return {
@@ -683,6 +713,31 @@ async def list_lora_favorites(lora_type: str, page: int, page_size: int):
             loras = cursor.fetchall()
             result_list = []
 
+            # 批量查询LORA的姿势关联（SQLite）
+            lora_ids = [l['id'] for l in loras]
+            lora_pose_map = {}
+            if lora_ids:
+                try:
+                    sqlite_conn = sqlite3.connect(str(POSE_DB_PATH))
+                    sqlite_conn.row_factory = sqlite3.Row
+                    sqlite_cursor = sqlite_conn.cursor()
+                    placeholders = ','.join(['?'] * len(lora_ids))
+                    sqlite_cursor.execute(f"""
+                        SELECT pl.lora_id, p.pose_key
+                        FROM pose_loras pl
+                        JOIN poses p ON pl.pose_id = p.id
+                        WHERE pl.lora_id IN ({placeholders})
+                    """, lora_ids)
+                    for row in sqlite_cursor.fetchall():
+                        lid = row['lora_id']
+                        if lid not in lora_pose_map:
+                            lora_pose_map[lid] = []
+                        lora_pose_map[lid].append(row['pose_key'])
+                    sqlite_cursor.close()
+                    sqlite_conn.close()
+                except Exception:
+                    pass
+
             for lora in loras:
                 result_list.append({
                     'id': lora['id'],
@@ -695,7 +750,8 @@ async def list_lora_favorites(lora_type: str, page: int, page_size: int):
                     'description': lora['description'],
                     'trigger_prompt': lora['trigger_prompt'],
                     'category': lora['category'],
-                    'created_at': None
+                    'created_at': None,
+                    'pose_keys': lora_pose_map.get(lora['id'], [])
                 })
 
         else:

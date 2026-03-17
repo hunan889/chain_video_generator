@@ -750,13 +750,27 @@ async function initializePoseSelects(favorites) {
     await loadAllPoses();
   }
 
-  // Initialize each card's pose select
+  // Initialize each card's pose select using data already in favorites list
   for (const fav of favorites) {
+    const associatedKeys = new Set(fav.pose_keys || []);
+
     if (fav.type === 'resource') {
-      await initializeResourcePoseSelect(fav.resource_id);
+      const select = document.getElementById(`pose-select-${fav.resource_id}`);
+      if (select) {
+        select.innerHTML = allPoses.map(pose => {
+          const isSelected = associatedKeys.has(pose.key);
+          return `<option value="${escapeHtml(pose.key)}" ${isSelected ? 'selected' : ''}>${escapeHtml(pose.name)} (${escapeHtml(pose.key)})</option>`;
+        }).join('');
+      }
     } else if (fav.type === 'pose_image') {
       const safeId = fav.resource_path.replace(/[^a-zA-Z0-9]/g, '_');
-      await initializePoseImagePoseSelect(fav.resource_path, safeId);
+      const select = document.getElementById(`pose-select-pose-${safeId}`);
+      if (select) {
+        select.innerHTML = allPoses.map(pose => {
+          const isSelected = associatedKeys.has(pose.key);
+          return `<option value="${escapeHtml(pose.key)}" ${isSelected ? 'selected' : ''}>${escapeHtml(pose.name)} (${escapeHtml(pose.key)})</option>`;
+        }).join('');
+      }
     } else if (fav.type === 'video_lora' || fav.type === 'image_lora') {
       await initializeLoraPoseSelect(fav.lora_id);
     }
