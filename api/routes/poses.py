@@ -243,15 +243,38 @@ async def recommend_workflow(
             for lora in video_loras_dict.values()
         ][:5]
 
-        # 优化prompt
-        optimized_prompt = request.prompt
+        # 优化prompt：融合trigger_words
+        # 收集image和video的trigger_words
+        image_trigger_words = []
+        for lora in image_loras_dict.values():
+            trigger = lora.get('trigger_words', '')
+            if trigger:
+                image_trigger_words.append(trigger)
+
+        video_trigger_words = []
+        for lora in video_loras_dict.values():
+            trigger = lora.get('trigger_words', '')
+            if trigger:
+                video_trigger_words.append(trigger)
+
+        # 生成image_prompt
+        image_prompt = request.prompt
+        if image_trigger_words:
+            image_prompt = f"{request.prompt}, {', '.join(image_trigger_words)}"
+
+        # 生成video_prompt
+        video_prompt = request.prompt
+        if video_trigger_words:
+            video_prompt = f"{request.prompt}, {', '.join(video_trigger_words)}"
+
+        # 添加prompt模板（如果有）
         if all_prompt_templates:
             template = all_prompt_templates[0].get('template', '')
             if template:
-                optimized_prompt = f"{request.prompt}, {template}"
+                image_prompt = f"{image_prompt}, {template}"
+                video_prompt = f"{video_prompt}, {template}"
 
-        image_prompt = optimized_prompt
-        video_prompt = optimized_prompt
+        optimized_prompt = video_prompt
 
         return WorkflowRecommendResponse(
             optimized_prompt=optimized_prompt,
