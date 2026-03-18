@@ -106,26 +106,44 @@ class PoseMatcher:
         cursor.execute(query, params)
         reference_images = [dict(row) for row in cursor.fetchall()]
 
-        # 3. 获取图片LORA（从SQLite获取基本信息）
+        # 3. 获取图片LORA（从SQLite获取基本信息，按sort_order排序）
         cursor.execute("""
         SELECT pl.*
         FROM pose_loras pl
         WHERE pl.pose_id = ? AND pl.lora_type = 'image'
-        ORDER BY pl.is_default DESC, pl.recommended_weight DESC
+        ORDER BY
+            COALESCE(pl.sort_order, pl.id),
+            pl.is_default DESC,
+            pl.recommended_weight DESC
         """, (pose_id,))
-        image_loras = [dict(row) for row in cursor.fetchall()]
+        image_loras_raw = [dict(row) for row in cursor.fetchall()]
 
-        # 4. 获取视频LORA（从SQLite获取基本信息）
+        # 标记前5个为enabled，其余为disabled
+        image_loras = []
+        for idx, lora in enumerate(image_loras_raw):
+            lora['enabled'] = idx < 5
+            lora['sort_index'] = idx
+            image_loras.append(lora)
+
+        # 4. 获取视频LORA（从SQLite获取基本信息，按sort_order排序）
         cursor.execute("""
         SELECT pl.*
         FROM pose_loras pl
         WHERE pl.pose_id = ? AND pl.lora_type = 'video'
         ORDER BY
             CASE WHEN pl.noise_stage = ? THEN 0 ELSE 1 END,
+            COALESCE(pl.sort_order, pl.id),
             pl.is_default DESC,
             pl.noise_stage
         """, (pose_id, noise_stage))
-        video_loras = [dict(row) for row in cursor.fetchall()]
+        video_loras_raw = [dict(row) for row in cursor.fetchall()]
+
+        # 标记前5个为enabled，其余为disabled
+        video_loras = []
+        for idx, lora in enumerate(video_loras_raw):
+            lora['enabled'] = idx < 5
+            lora['sort_index'] = idx
+            video_loras.append(lora)
 
         conn.close()
 

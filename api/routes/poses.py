@@ -212,20 +212,22 @@ async def recommend_workflow(
             default_img = next((img for img in all_reference_images if img.get('is_default')), None)
             reference_image = (default_img or all_reference_images[0]).get('image_url')
 
-        # 去重并选择LORA
+        # 去重并选择LORA（只选择enabled的，即前5个）
         image_loras_dict = {}
         for lora in all_image_loras:
             lora_id = lora.get('lora_id')
-            if lora_id and lora_id not in image_loras_dict:
+            # 只添加enabled的LORA
+            if lora_id and lora_id not in image_loras_dict and lora.get('enabled', True):
                 image_loras_dict[lora_id] = lora
 
         video_loras_dict = {}
         for lora in all_video_loras:
             lora_id = lora.get('lora_id')
-            if lora_id and lora_id not in video_loras_dict:
+            # 只添加enabled的LORA
+            if lora_id and lora_id not in video_loras_dict and lora.get('enabled', True):
                 video_loras_dict[lora_id] = lora
 
-        # 构建LORA列表
+        # 构建LORA列表（不再限制为5个，因为已经在上面过滤了enabled的）
         image_loras = [
             LoraItem(
                 lora_id=lora['lora_id'],
@@ -233,7 +235,7 @@ async def recommend_workflow(
                 weight=lora.get('recommended_weight', 1.0)
             )
             for lora in image_loras_dict.values()
-        ][:5]
+        ]
 
         video_loras = [
             LoraItem(
@@ -242,7 +244,7 @@ async def recommend_workflow(
                 weight=lora.get('recommended_weight', 1.0)
             )
             for lora in video_loras_dict.values()
-        ][:5]
+        ]
 
         # 优化prompt：融合trigger_words
         # 收集image和video的trigger_words
@@ -263,17 +265,21 @@ async def recommend_workflow(
         if image_trigger_words:
             image_prompt = f"{request.prompt}, {', '.join(image_trigger_words)}"
 
-        # 生成video_prompt
-        video_prompt = request.prompt
+        # 生成video_prompt - 时间轴格式
+        # 格式: "at 0 seconds: base_prompt, trigger_words"
+        video_prompt_parts = [request.prompt]
         if video_trigger_words:
-            video_prompt = f"{request.prompt}, {', '.join(video_trigger_words)}"
+            video_prompt_parts.extend(video_trigger_words)
+
+        video_prompt = f"at 0 seconds: {', '.join(video_prompt_parts)}"
 
         # 添加prompt模板（如果有）
         if all_prompt_templates:
             template = all_prompt_templates[0].get('template', '')
             if template:
                 image_prompt = f"{image_prompt}, {template}"
-                video_prompt = f"{video_prompt}, {template}"
+                # 时间轴格式的video prompt，模板也加在0秒处
+                video_prompt = f"at 0 seconds: {', '.join(video_prompt_parts)}, {template}"
 
         optimized_prompt = video_prompt
 
@@ -354,4 +360,44 @@ async def recommend_poses_by_prompt(
         )
     except Exception as e:
         raise HTTPException(500, f"推荐失败: {str(e)}")
+
+
+class UpdateLoraSortOrderRequest(BaseModel):
+    """更新LORA排序请求"""
+    lora_ids: List[int]  # 按新顺序排列的LORA ID列表
+
+
+@router.post("/poses/{pose_id}/loras/reorder")
+async def update_lora_sort_order(
+    pose_id: int,
+    request: UpdateLoraSortOrderRequest,
+    _: str = Depends(verify_api_key)
+):
+    """
+    更新姿势的LORA排序
+
+    前5个LORA会被标记为enabled，其余为disabled
+    """
+    try:
+        import sqlite3
+        conn = sqlite3.connect(str(POSE_DB_PATH))
+        cursor = conn.cursor()
+
+        # 更新每个LORA的sort_order
+        for idx, lora_id in enumerate(request.lora_ids):
+            cursor.execute("""
+                UPDATE pose_loras
+                SET sort_order = ?
+                WHERE id = ? AND pose_id = ?
+            """, (idx, lora_id, pose_id))
+
+        conn.commit()
+        cursor.close()
+        conn.close()
+
+        return {"message": "排序更新成功", "updated_count": len(request.lora_ids)}
+
+    except Exception as e:
+        raise HTTPException(500, f"更新排序失败: {str(e)}")
+
 
