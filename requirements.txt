@@ -9,3 +9,4 @@ pydantic>=2.0
 python-dotenv
 anthropic>=0.40.0
 cos-python-sdk-v5
+pymysql

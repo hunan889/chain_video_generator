@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>姿势推荐测试</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:#1a1a2e;color:#e0e0e0;padding:20px}
+.container{max-width:1200px;margin:0 auto}
+h1{text-align:center;color:#7c83ff;margin-bottom:30px}
+.test-panel{background:#16213e;border:1px solid #333;border-radius:12px;padding:24px;margin-bottom:20px}
+.input-group{margin-bottom:20px}
+label{display:block;font-size:14px;color:#aaa;margin-bottom:8px}
+input,textarea{width:100%;padding:12px;background:#0a0a23;border:1px solid #444;border-radius:8px;color:#e0e0e0;font-size:14px}
+textarea{min-height:100px;resize:vertical}
+.btn{padding:12px 24px;background:#7c83ff;border:none;border-radius:8px;color:#fff;font-size:14px;font-weight:600;cursor:pointer;transition:background 0.2s}
+.btn:hover{background:#6b72e0}
+.results{background:#16213e;border:1px solid #333;border-radius:12px;padding:24px}
+.result-item{background:#0a0a23;border:1px solid #444;border-radius:8px;padding:16px;margin-bottom:12px}
+.result-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px}
+.pose-name{font-size:16px;font-weight:600;color:#7c83ff}
+.score{font-size:14px;color:#4ade80}
+.match-reason{font-size:13px;color:#aaa;margin-bottom:4px}
+.category{font-size:12px;color:#666}
+.empty{text-align:center;padding:40px;color:#666}
+</style>
+</head>
+<body>
+<div class="container">
+<h1>🎭 姿势推荐测试</h1>
+
+<div class="test-panel">
+<div class="input-group">
+<label>输入查询 (支持自然语言)</label>
+<textarea id="prompt" placeholder="例如: woman riding on top, blowjob, from behind...">woman riding on top</textarea>
+</div>
+
+<div class="input-group">
+<label>已选姿势 (可选，逗号分隔)</label>
+<input type="text" id="selectedPoses" placeholder="例如: missionary, cowgirl">
+</div>
+
+<div class="input-group">
+<label>返回数量</label>
+<input type="number" id="topK" value="5" min="1" max="20">
+</div>
+
+<div class="input-group">
+<label><input type="checkbox" id="useEmbedding" checked style="width:auto;margin-right:8px">使用 Embedding 语义匹配（更快更准）</label>
+</div>
+
+<div class="input-group">
+<label><input type="checkbox" id="useLlm" checked style="width:auto;margin-right:8px">使用 LLM 重排序（最准确但较慢）</label>
+</div>
+
+<button class="btn" onclick="testRecommend()">🔍 测试推荐</button>
+</div>
+
+<div class="results" id="results">
+<div class="empty">输入查询并点击测试按钮</div>
+</div>
+</div>
+
+<script>
+const API_KEY = 'wan22-default-key-change-me';
+
+async function testRecommend() {
+  const prompt = document.getElementById('prompt').value.trim();
+  const selectedPosesStr = document.getElementById('selectedPoses').value.trim();
+  const topK = parseInt(document.getElementById('topK').value);
+  const useEmbedding = document.getElementById('useEmbedding').checked;
+  const useLlm = document.getElementById('useLlm').checked;
+
+  if (!prompt) {
+    alert('请输入查询');
+    return;
+  }
+
+  const selectedPoses = selectedPosesStr ? selectedPosesStr.split(',').map(s => s.trim()) : null;
+
+  const resultsEl = document.getElementById('results');
+  resultsEl.innerHTML = '<div class="empty">加载中...</div>';
+
+  try {
+    const response = await fetch('/api/v1/poses/recommend', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-API-Key': API_KEY
+      },
+      body: JSON.stringify({
+        prompt: prompt,
+        selected_poses: selectedPoses,
+        top_k: topK,
+        use_embedding: useEmbedding,
+        use_llm: useLlm
+      })
+    });
+
+    const data = await response.json();
+
+    if (data.recommendations && data.recommendations.length > 0) {
+      resultsEl.innerHTML = data.recommendations.map((item, index) => `
+        <div class="result-item">
+          <div class="result-header">
+            <div class="pose-name">${index + 1}. ${item.name_cn} (${item.name_en})</div>
+            <div class="score">分数: ${item.score.toFixed(3)}</div>
+          </div>
+          <div class="match-reason">💡 ${item.match_reason}</div>
+          <div class="category">🏷️ 分类: ${item.category || '未分类'} | Key: ${item.pose_key}</div>
+        </div>
+      `).join('');
+    } else {
+      resultsEl.innerHTML = '<div class="empty">没有找到匹配的姿势</div>';
+    }
+  } catch (error) {
+    resultsEl.innerHTML = `<div class="empty" style="color:#f87171">错误: ${error.message}</div>`;
+  }
+}
+</script>
+</body>
+</html>

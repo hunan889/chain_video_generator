@@ -212,24 +212,10 @@ let selectedPoseKeys = new Set();
 
 async function loadStats() {
   try {
-    // Load stats for each type
-    const types = ['image', 'video', 'pose_image', 'video_lora', 'image_lora'];
-    const promises = types.map(type =>
-      fetch(`/api/v1/favorites/all?favorite_type=${type}&page=1&page_size=1`, {
-        headers: { 'X-API-Key': API_KEY }
-      }).then(r => r.json())
-    );
-
-    const results = await Promise.all(promises);
-    stats = {
-      image: results[0].total,
-      video: results[1].total,
-      pose_image: results[2].total,
-      video_lora: results[3].total,
-      image_lora: results[4].total
-    };
-    stats.total = Object.values(stats).reduce((a, b) => a + b, 0);
-
+    const response = await fetch('/api/v1/favorites/stats', {
+      headers: { 'X-API-Key': API_KEY }
+    });
+    stats = await response.json();
     renderStats();
   } catch (error) {
     console.error('Failed to load stats:', error);

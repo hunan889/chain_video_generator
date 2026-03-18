@@ -1144,7 +1144,20 @@ h1{text-align:center;color:#7c83ff;margin-bottom:24px;font-size:1.6em}
 
 <!-- Poses Section -->
 <div class="main-section" id="section-poses">
-<iframe src="/pose_manager.html" style="width:100%;height:calc(100vh - 180px);border:none;border-radius:8px"></iframe>
+<div class="tabs">
+<div class="tab active" data-tab="pose-manager">姿势管理</div>
+<div class="tab" data-tab="pose-recommend">推荐测试</div>
+<div class="tab" data-tab="pose-synonyms">同义词配置</div>
+</div>
+<div class="panel active" id="panel-pose-manager">
+<iframe src="/pose_manager.html" style="width:100%;height:calc(100vh - 240px);border:none;border-radius:8px"></iframe>
+</div>
+<div class="panel" id="panel-pose-recommend">
+<iframe src="/pose_recommend_test.html" style="width:100%;height:calc(100vh - 240px);border:none;border-radius:8px"></iframe>
+</div>
+<div class="panel" id="panel-pose-synonyms">
+<iframe src="/pose_synonyms_admin.html" style="width:100%;height:calc(100vh - 240px);border:none;border-radius:8px"></iframe>
+</div>
 </div><!-- end section-poses -->
 
 <!-- Prompt Optimize Modal -->

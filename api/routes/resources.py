@@ -546,6 +546,40 @@ async def check_lora_favorite(
         conn.close()
 
 
+@router.get("/favorites/stats")
+async def get_favorites_stats(_: str = Depends(verify_api_key)):
+    """获取收藏统计数据（所有类型）"""
+    conn = get_db()
+    cursor = conn.cursor(pymysql.cursors.DictCursor)
+
+    try:
+        # 一次查询获取所有统计
+        cursor.execute("""
+            SELECT
+                COUNT(*) as total,
+                SUM(CASE WHEN r.resource_type = 'image' THEN 1 ELSE 0 END) as image,
+                SUM(CASE WHEN r.resource_type IN ('video', 'generated_video') THEN 1 ELSE 0 END) as video,
+                SUM(CASE WHEN f.resource_path LIKE '/pose-files/%%' THEN 1 ELSE 0 END) as pose_image
+            FROM favorites f
+            LEFT JOIN resources r ON f.resource_id = r.id
+        """)
+        stats = cursor.fetchone()
+
+        # 获取LORA统计
+        cursor.execute("SELECT COUNT(*) as total FROM lora_metadata WHERE enabled = 1")
+        lora_stats = cursor.fetchone()
+
+        return {
+            'total': (stats['total'] or 0) + (lora_stats['total'] or 0),
+            'image': stats['image'] or 0,
+            'video': stats['video'] or 0,
+            'pose_image': stats['pose_image'] or 0,
+            'video_lora': lora_stats['total'] or 0,
+            'image_lora': 0
+        }
+    finally:
+        conn.close()
+
 @router.get("/favorites/all")
 async def list_all_favorites(
     page: int = Query(1, ge=1),

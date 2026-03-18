@@ -5,6 +5,7 @@ from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel
 from typing import List, Optional, Dict
 from api.services.pose_matcher import get_pose_matcher, PoseConfig
+from api.services.pose_recommender import get_pose_recommender
 from api.middleware.auth import verify_api_key
 import sqlite3
 from pathlib import Path
@@ -287,6 +288,70 @@ async def recommend_workflow(
 
     except HTTPException:
         raise
+    except Exception as e:
+        raise HTTPException(500, f"推荐失败: {str(e)}")
+
+
+class PoseRecommendRequest(BaseModel):
+    """姿势推荐请求"""
+    prompt: str
+    selected_poses: Optional[List[str]] = None
+    top_k: int = 5
+    use_llm: bool = True
+    use_embedding: bool = True
+
+
+class PoseRecommendItem(BaseModel):
+    """推荐的姿势"""
+    pose_key: str
+    name_cn: str
+    name_en: str
+    score: float
+    match_reason: str
+    category: str
+
+
+class PoseRecommendResponse(BaseModel):
+    """姿势推荐响应"""
+    recommendations: List[PoseRecommendItem]
+
+
+@router.post("/poses/recommend", response_model=PoseRecommendResponse)
+async def recommend_poses_by_prompt(
+    request: PoseRecommendRequest,
+    _: str = Depends(verify_api_key)
+):
+    """
+    基于prompt推荐姿势
+
+    三阶段推荐流程：
+    1. 同义词扩展
+    2. Embedding语义匹配（可选，默认开启）
+    3. LLM重排序（可选，默认开启）
+    """
+    try:
+        recommender = get_pose_recommender()
+        results = await recommender.recommend(
+            prompt=request.prompt,
+            selected_poses=request.selected_poses,
+            top_k=request.top_k,
+            use_llm=request.use_llm,
+            use_embedding=request.use_embedding
+        )
+
+        return PoseRecommendResponse(
+            recommendations=[
+                PoseRecommendItem(
+                    pose_key=r.pose_key,
+                    name_cn=r.name_cn,
+                    name_en=r.name_en,
+                    score=r.score,
+                    match_reason=r.match_reason,
+                    category=r.category
+                )
+                for r in results
+            ]
+        )
     except Exception as e:
         raise HTTPException(500, f"推荐失败: {str(e)}")
 

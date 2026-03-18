@@ -7,7 +7,7 @@ from fastapi.responses import FileResponse
 from pathlib import Path
 from api.config import API_HOST, API_PORT, VIDEOS_DIR, UPLOADS_DIR
 from api.services.task_manager import TaskManager
-from api.routes import generate, generate_i2v, tasks, loras, civitai, prompt, lora_recommend, extend, workflow, tts, postprocess, image, chat, resources, lora_admin, search, recommend, embeddings, resource_admin, pose_images, poses, pose_admin
+from api.routes import generate, generate_i2v, tasks, loras, civitai, prompt, lora_recommend, extend, workflow, tts, postprocess, image, chat, resources, lora_admin, search, recommend, embeddings, resource_admin, pose_images, poses, pose_admin, pose_synonyms_admin
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
 logger = logging.getLogger(__name__)
@@ -57,7 +57,7 @@ app.include_router(resources.router)
 app.include_router(pose_images.router)
 app.include_router(poses.router, prefix="/api/v1", tags=["poses"])
 app.include_router(pose_admin.router, prefix="/api/v1", tags=["pose_admin"])
-app.include_router(workflow_recommend.router, prefix="/api/v1", tags=["workflow"])
+app.include_router(pose_synonyms_admin.router)
 
 STATIC_DIR = Path(__file__).parent / "static"
 
@@ -99,6 +99,16 @@ async def pose_preview():
 @app.get("/pose_manager.html")
 async def pose_manager():
     return FileResponse(STATIC_DIR / "pose_manager.html")
+
+
+@app.get("/pose_recommend_test.html")
+async def pose_recommend_test():
+    return FileResponse(STATIC_DIR / "pose_recommend_test.html")
+
+
+@app.get("/pose_synonyms_admin.html")
+async def pose_synonyms_admin():
+    return FileResponse(STATIC_DIR / "pose_synonyms_admin.html")
 
 
 @app.get("/keywords_editor.html")

@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>姿势同义词管理</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:#1a1a2e;color:#e0e0e0;padding:20px}
+.container{max-width:1400px;margin:0 auto}
+h1{text-align:center;color:#7c83ff;margin-bottom:30px}
+.nav{display:flex;gap:12px;margin-bottom:20px;justify-content:center}
+.nav-btn{padding:10px 24px;background:#16213e;border:1px solid #333;border-radius:8px;color:#aaa;cursor:pointer;font-size:14px;transition:all 0.2s;text-decoration:none}
+.nav-btn:hover{border-color:#7c83ff;color:#7c83ff}
+.synonym-list{display:grid;gap:16px}
+.synonym-card{background:#16213e;border:1px solid #333;border-radius:12px;padding:20px}
+.card-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:16px}
+.pose-key{font-size:18px;font-weight:600;color:#7c83ff}
+.btn-edit{padding:8px 16px;background:#0f3460;border:1px solid #7c83ff;border-radius:6px;color:#7c83ff;font-size:13px;cursor:pointer;transition:all 0.2s}
+.btn-edit:hover{background:#7c83ff;color:#fff}
+.synonyms{display:flex;flex-wrap:wrap;gap:8px}
+.synonym-tag{padding:6px 12px;background:#0a0a23;border:1px solid #444;border-radius:6px;font-size:13px;color:#e0e0e0}
+.empty{text-align:center;padding:40px;color:#666}
+.modal{display:none;position:fixed;inset:0;background:rgba(0,0,0,0.85);z-index:1000;align-items:center;justify-content:center;padding:20px}
+.modal.active{display:flex}
+.modal-content{background:#1a1a2e;border:1px solid #333;border-radius:12px;width:90%;max-width:600px;max-height:85vh;display:flex;flex-direction:column}
+.modal-header{padding:20px;border-bottom:1px solid #333;display:flex;justify-content:space-between;align-items:center}
+.modal-header h3{color:#7c83ff;font-size:1.2em;margin:0}
+.modal-close{background:transparent;border:none;color:#aaa;font-size:28px;cursor:pointer;padding:0;width:32px;height:32px}
+.modal-close:hover{color:#fff}
+.modal-body{padding:20px;overflow-y:auto;flex:1}
+.form-group{margin-bottom:16px}
+.form-group label{display:block;font-size:13px;color:#aaa;margin-bottom:6px}
+.form-group textarea{width:100%;padding:10px;background:#0a0a23;border:1px solid #444;border-radius:6px;color:#e0e0e0;font-size:13px;min-height:150px;resize:vertical;font-family:inherit}
+.form-group textarea:focus{outline:none;border-color:#7c83ff}
+.modal-footer{padding:16px 20px;border-top:1px solid #333;display:flex;justify-content:flex-end;gap:12px}
+.btn-secondary{padding:10px 24px;background:#16213e;border:1px solid #444;border-radius:8px;color:#aaa;font-size:14px;cursor:pointer}
+.btn-secondary:hover{border-color:#7c83ff;color:#7c83ff}
+.btn-primary{padding:10px 24px;background:#7c83ff;border:none;border-radius:8px;color:#fff;font-size:14px;font-weight:600;cursor:pointer}
+.btn-primary:hover{background:#6b72e0}
+.hint{font-size:12px;color:#666;margin-top:4px}
+</style>
+</head>
+<body>
+<div class="container">
+<h1>🔤 姿势同义词管理</h1>
+
+<div class="nav">
+<a href="/pose_recommend_test.html" class="nav-btn">← 返回推荐测试</a>
+</div>
+
+<div class="synonym-list" id="synonymList">
+<div class="empty">加载中...</div>
+</div>
+</div>
+
+<div class="modal" id="editModal">
+<div class="modal-content">
+<div class="modal-header">
+<h3 id="modalTitle">编辑同义词</h3>
+<button class="modal-close" onclick="closeModal()">&times;</button>
+</div>
+<div class="modal-body">
+<div class="form-group">
+<label>姿势Key</label>
+<input type="text" id="editPoseKey" readonly style="background:#0a0a23;border:1px solid #444;padding:10px;border-radius:6px;color:#666;width:100%">
+</div>
+<div class="form-group">
+<label>同义词列表 (每行一个)</label>
+<textarea id="editSynonyms" placeholder="woman on top&#10;riding&#10;girl on top"></textarea>
+<div class="hint">💡 每行输入一个同义词，支持中英文</div>
+</div>
+</div>
+<div class="modal-footer">
+<button class="btn-secondary" onclick="closeModal()">取消</button>
+<button class="btn-primary" onclick="saveSynonyms()">保存</button>
+</div>
+</div>
+</div>
+
+<script>
+const API_KEY = 'wan22-default-key-change-me';
+let currentPoseKey = null;
+
+async function loadSynonyms() {
+  try {
+    const response = await fetch('/api/v1/admin/pose-synonyms', {
+      headers: { 'X-API-Key': API_KEY }
+    });
+    const data = await response.json();
+    renderSynonyms(data.synonyms);
+  } catch (error) {
+    document.getElementById('synonymList').innerHTML =
+      `<div class="empty" style="color:#f87171">加载失败: ${error.message}</div>`;
+  }
+}
+
+function renderSynonyms(synonyms) {
+  const listEl = document.getElementById('synonymList');
+
+  if (Object.keys(synonyms).length === 0) {
+    listEl.innerHTML = '<div class="empty">暂无同义词配置</div>';
+    return;
+  }
+
+  listEl.innerHTML = Object.entries(synonyms).map(([poseKey, syns]) => `
+    <div class="synonym-card">
+      <div class="card-header">
+        <div class="pose-key">${poseKey}</div>
+        <button class="btn-edit" onclick="openEditModal('${poseKey}')">编辑</button>
+      </div>
+      <div class="synonyms">
+        ${syns.map(syn => `<span class="synonym-tag">${escapeHtml(syn)}</span>`).join('')}
+      </div>
+    </div>
+  `).join('');
+}
+
+function openEditModal(poseKey) {
+  currentPoseKey = poseKey;
+
+  fetch('/api/v1/admin/pose-synonyms', {
+    headers: { 'X-API-Key': API_KEY }
+  })
+  .then(r => r.json())
+  .then(data => {
+    const synonyms = data.synonyms[poseKey] || [];
+    document.getElementById('editPoseKey').value = poseKey;
+    document.getElementById('editSynonyms').value = synonyms.join('\n');
+    document.getElementById('editModal').classList.add('active');
+  });
+}
+
+function closeModal() {
+  document.getElementById('editModal').classList.remove('active');
+  currentPoseKey = null;
+}
+
+async function saveSynonyms() {
+  const synonymsText = document.getElementById('editSynonyms').value;
+  const synonyms = synonymsText.split('\n').map(s => s.trim()).filter(s => s);
+
+  try {
+    const response = await fetch(`/api/v1/admin/pose-synonyms/${currentPoseKey}`, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-API-Key': API_KEY
+      },
+      body: JSON.stringify({
+        pose_key: currentPoseKey,
+        synonyms: synonyms
+      })
+    });
+
+    if (response.ok) {
+      closeModal();
+      loadSynonyms();
+      alert('保存成功！');
+    } else {
+      alert('保存失败');
+    }
+  } catch (error) {
+    alert('保存失败: ' + error.message);
+  }
+}
+
+function escapeHtml(str) {
+  const div = document.createElement('div');
+  div.textContent = str;
+  return div.innerHTML;
+}
+
+loadSynonyms();
+</script>
+</body>
+</html>
