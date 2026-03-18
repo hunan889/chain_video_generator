@@ -225,10 +225,45 @@
       font-size: 11px;
       border: 1px solid #1a1a2e;
       transition: all 0.2s;
+      cursor: move;
+      position: relative;
     }
     .pose-lora-item:hover {
       background: #1a1a2e;
       border-color: #2a2a3a;
+    }
+    .pose-lora-item.disabled {
+      opacity: 0.5;
+      background: #0a0a15;
+    }
+    .pose-lora-item.disabled::after {
+      content: 'DISABLED';
+      position: absolute;
+      top: 4px;
+      right: 50px;
+      font-size: 9px;
+      color: #f87171;
+      font-weight: 600;
+      background: rgba(248, 113, 113, 0.1);
+      padding: 2px 6px;
+      border-radius: 3px;
+    }
+    .pose-lora-item.dragging {
+      opacity: 0.5;
+      transform: scale(0.95);
+    }
+    .pose-lora-item.drag-over {
+      border-color: #7c83ff;
+      background: #1a1a3e;
+    }
+    .pose-lora-drag-handle {
+      color: #666;
+      cursor: grab;
+      font-size: 16px;
+      padding: 0 4px;
+    }
+    .pose-lora-drag-handle:active {
+      cursor: grabbing;
     }
     .pose-lora-preview {
       width: 40px;
@@ -918,6 +953,9 @@
       const html = document.getElementById(`pose-details-${poseId}-template-${poseId}`)?.innerHTML ||
         generatePoseDetailsHTML(poseId, data);
       detailsContainer.innerHTML = html;
+
+      // 初始化拖拽功能
+      initLoraDragAndDrop(poseId);
     }
 
     function generatePoseDetailsHTML(poseId, data) {
@@ -940,14 +978,16 @@
         const expanded = document.getElementById(`video-loras-${poseId}`)?.classList.contains('expanded');
         const displayLoras = expanded ? data.video_loras : data.video_loras.slice(0, 3);
         const remaining = data.video_loras.length - 3;
-        html += `<div class="pose-lora-list" id="video-loras-${poseId}" ${expanded ? 'class="expanded"' : ''}>${displayLoras.map(lora => {
+        html += `<div class="pose-lora-list" id="video-loras-${poseId}" data-pose-id="${poseId}" data-lora-type="video" ${expanded ? 'class="expanded"' : ''}>${displayLoras.map((lora, idx) => {
           const isVideo = lora.preview_url && (lora.preview_url.endsWith('.mp4') || lora.preview_url.endsWith('.webm'));
           const previewHtml = lora.preview_url ? (isVideo ? `<video src="${lora.preview_url}" class="pose-lora-preview" muted loop playsinline onmouseenter="this.play()" onmouseleave="this.pause()" onclick="openImageZoom('${lora.preview_url}', true)" style="cursor:pointer"></video>` : `<img src="${lora.preview_url}" class="pose-lora-preview" onclick="openImageZoom('${lora.preview_url}', false)" style="cursor:pointer">`) : '<div class="pose-lora-preview"></div>';
           const civitaiLink = lora.civitai_id ? `https://civitai.com/models/${lora.civitai_id}` : null;
           const displayName = lora.is_merged ? `${lora.baseName || `LORA ${lora.lora_id}`} <span style="color:#7c83ff;font-size:9px;">[HIGH/LOW]</span>` : (lora.lora_name || `LORA ${lora.lora_id}`);
           const nameHtml = civitaiLink ? `<div class="pose-lora-name" onclick="window.open('${civitaiLink}', '_blank')" title="点击访问 Civitai">${displayName} 🔗</div>` : `<div class="pose-lora-name" onclick="viewLoraDetail(${lora.lora_id})" title="点击查看详情">${displayName}</div>`;
           const deleteHandler = lora.is_merged ? `deleteMultiplePoseLoras(${poseId}, [${lora.variant_ids.join(',')}])` : `deletePoseLora(${poseId}, ${lora.id})`;
-          return `<div class="pose-lora-item">${previewHtml}<div class="pose-lora-info">${nameHtml}<div class="pose-lora-type">权重: ${lora.recommended_weight || 1.0}</div></div><div class="pose-lora-delete" onclick="${deleteHandler}">删除</div></div>`;
+          const isDisabled = lora.enabled === false || idx >= 5;
+          const disabledClass = isDisabled ? ' disabled' : '';
+          return `<div class="pose-lora-item${disabledClass}" draggable="true" data-lora-id="${lora.id}" data-lora-index="${idx}"><span class="pose-lora-drag-handle">⋮⋮</span>${previewHtml}<div class="pose-lora-info">${nameHtml}<div class="pose-lora-type">权重: ${lora.recommended_weight || 1.0}</div></div><div class="pose-lora-delete" onclick="${deleteHandler}">删除</div></div>`;
         }).join('')}${!expanded && remaining > 0 ? `<div style="text-align:center;padding:8px;color:#7c83ff;font-size:11px;cursor:pointer;border:1px solid #444;border-radius:4px;margin-top:4px;" onclick="expandLoras(${poseId}, 'video')">还有 ${remaining} 个... 点击展开</div>` : ''}</div>`;
       } else {
         html += `<div class="pose-preview-empty">暂无视频LORA<br><button class="btn btn-secondary" onclick="openLoraSelector(${poseId}, 'video')" style="padding:4px 12px;font-size:11px;">添加视频LORA</button></div>`;
@@ -959,14 +999,16 @@
         const expanded = document.getElementById(`image-loras-${poseId}`)?.classList.contains('expanded');
         const displayLoras = expanded ? data.image_loras : data.image_loras.slice(0, 3);
         const remaining = data.image_loras.length - 3;
-        html += `<div class="pose-lora-list" id="image-loras-${poseId}" ${expanded ? 'class="expanded"' : ''}>${displayLoras.map(lora => {
+        html += `<div class="pose-lora-list" id="image-loras-${poseId}" data-pose-id="${poseId}" data-lora-type="image" ${expanded ? 'class="expanded"' : ''}>${displayLoras.map((lora, idx) => {
           const isVideo = lora.preview_url && (lora.preview_url.endsWith('.mp4') || lora.preview_url.endsWith('.webm'));
           const previewHtml = lora.preview_url ? (isVideo ? `<video src="${lora.preview_url}" class="pose-lora-preview" muted loop playsinline onmouseenter="this.play()" onmouseleave="this.pause()" onclick="openImageZoom('${lora.preview_url}', true)" style="cursor:pointer"></video>` : `<img src="${lora.preview_url}" class="pose-lora-preview" onclick="openImageZoom('${lora.preview_url}', false)" style="cursor:pointer">`) : '<div class="pose-lora-preview"></div>';
           const civitaiLink = lora.civitai_id ? `https://civitai.com/models/${lora.civitai_id}` : null;
           const displayName = lora.is_merged ? `${lora.baseName || `LORA ${lora.lora_id}`} <span style="color:#7c83ff;font-size:9px;">[HIGH/LOW]</span>` : (lora.lora_name || `LORA ${lora.lora_id}`);
           const nameHtml = civitaiLink ? `<div class="pose-lora-name" onclick="window.open('${civitaiLink}', '_blank')" title="点击访问 Civitai">${displayName} 🔗</div>` : `<div class="pose-lora-name" onclick="viewLoraDetail(${lora.lora_id})" title="点击查看详情">${displayName}</div>`;
           const deleteHandler = lora.is_merged ? `deleteMultiplePoseLoras(${poseId}, [${lora.variant_ids.join(',')}])` : `deletePoseLora(${poseId}, ${lora.id})`;
-          return `<div class="pose-lora-item">${previewHtml}<div class="pose-lora-info">${nameHtml}<div class="pose-lora-type">权重: ${lora.recommended_weight || 1.0}</div></div><div class="pose-lora-delete" onclick="${deleteHandler}">删除</div></div>`;
+          const isDisabled = lora.enabled === false || idx >= 5;
+          const disabledClass = isDisabled ? ' disabled' : '';
+          return `<div class="pose-lora-item${disabledClass}" draggable="true" data-lora-id="${lora.id}" data-lora-index="${idx}"><span class="pose-lora-drag-handle">⋮⋮</span>${previewHtml}<div class="pose-lora-info">${nameHtml}<div class="pose-lora-type">权重: ${lora.recommended_weight || 1.0}</div></div><div class="pose-lora-delete" onclick="${deleteHandler}">删除</div></div>`;
         }).join('')}${!expanded && remaining > 0 ? `<div style="text-align:center;padding:8px;color:#7c83ff;font-size:11px;cursor:pointer;border:1px solid #444;border-radius:4px;margin-top:4px;" onclick="expandLoras(${poseId}, 'image')">还有 ${remaining} 个... 点击展开</div>` : ''}</div>`;
       } else {
         html += `<div class="pose-preview-empty">暂无图片LORA<br><button class="btn btn-secondary" onclick="openLoraSelector(${poseId}, 'image')" style="padding:4px 12px;font-size:11px;">添加图片LORA</button></div>`;
@@ -2055,6 +2097,110 @@
     }
   }
 
+  </script>
+
+  <script>
+    // LORA拖拽排序功能
+    function initLoraDragAndDrop(poseId) {
+      const loraLists = document.querySelectorAll(`#pose-details-${poseId} .pose-lora-list`);
+
+      loraLists.forEach(list => {
+        const items = list.querySelectorAll('.pose-lora-item');
+
+        items.forEach(item => {
+          item.addEventListener('dragstart', handleDragStart);
+          item.addEventListener('dragend', handleDragEnd);
+          item.addEventListener('dragover', handleDragOver);
+          item.addEventListener('drop', handleDrop);
+          item.addEventListener('dragleave', handleDragLeave);
+        });
+      });
+    }
+
+    let draggedItem = null;
+
+    function handleDragStart(e) {
+      draggedItem = this;
+      this.classList.add('dragging');
+      e.dataTransfer.effectAllowed = 'move';
+    }
+
+    function handleDragEnd(e) {
+      this.classList.remove('dragging');
+      document.querySelectorAll('.pose-lora-item').forEach(item => {
+        item.classList.remove('drag-over');
+      });
+    }
+
+    function handleDragOver(e) {
+      if (e.preventDefault) e.preventDefault();
+      e.dataTransfer.dropEffect = 'move';
+
+      if (this !== draggedItem) {
+        this.classList.add('drag-over');
+      }
+      return false;
+    }
+
+    function handleDragLeave(e) {
+      this.classList.remove('drag-over');
+    }
+
+    function handleDrop(e) {
+      if (e.stopPropagation) e.stopPropagation();
+
+      if (draggedItem !== this) {
+        const list = this.parentNode;
+        const allItems = [...list.querySelectorAll('.pose-lora-item')];
+        const draggedIndex = allItems.indexOf(draggedItem);
+        const targetIndex = allItems.indexOf(this);
+
+        if (draggedIndex < targetIndex) {
+          this.parentNode.insertBefore(draggedItem, this.nextSibling);
+        } else {
+          this.parentNode.insertBefore(draggedItem, this);
+        }
+
+        // 更新排序
+        updateLoraOrder(list);
+      }
+
+      return false;
+    }
+
+    async function updateLoraOrder(listElement) {
+      const poseId = listElement.dataset.poseId;
+      const loraType = listElement.dataset.loraType;
+      const items = listElement.querySelectorAll('.pose-lora-item');
+
+      const loraIds = Array.from(items).map(item => parseInt(item.dataset.loraId));
+
+      try {
+        const response = await fetch(`/api/v1/poses/${poseId}/loras/reorder`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-API-Key': API_KEY
+          },
+          body: JSON.stringify({ lora_ids: loraIds })
+        });
+
+        if (response.ok) {
+          // 更新enabled/disabled状态
+          items.forEach((item, idx) => {
+            if (idx < 5) {
+              item.classList.remove('disabled');
+            } else {
+              item.classList.add('disabled');
+            }
+          });
+          console.log('LORA排序已更新');
+        }
+      } catch (error) {
+        console.error('更新LORA排序失败:', error);
+        alert('更新排序失败，请重试');
+      }
+    }
   </script>
 
   <!-- 资源选择器模态框 -->
