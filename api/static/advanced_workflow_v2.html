@@ -730,29 +730,58 @@ function loadFormParams() {
         if (params.s2_faceSwapStrength) document.getElementById('s2_faceSwapStrength').value = params.s2_faceSwapStrength;
 
         // Stage 3
-        if (params.s3_enabled !== undefined) document.getElementById('s3_enabled').checked = params.s3_enabled;
+        const s3EnabledEl = document.getElementById('s3_enabled');
+        if (s3EnabledEl && params.s3_enabled !== undefined) s3EnabledEl.checked = params.s3_enabled;
         // Note: s3_mode will be restored but may be corrected by updateModeRelatedUI() if incompatible
-        if (params.s3_mode) document.getElementById('s3_mode').value = params.s3_mode;
-        if (params.s3_prompt) document.getElementById('s3_prompt').value = params.s3_prompt;
-        if (params.s3_enableReactor !== undefined) document.getElementById('s3_enableReactor').checked = params.s3_enableReactor;
-        if (params.s3_strength) document.getElementById('s3_strength').value = params.s3_strength;
-        if (params.s3_seed) document.getElementById('s3_seed').value = params.s3_seed;
+        if (params.s3_mode) {
+            const s3ModeEl = document.getElementById('s3_mode');
+            if (s3ModeEl) s3ModeEl.value = params.s3_mode;
+        }
+        if (params.s3_prompt) {
+            const s3PromptEl = document.getElementById('s3_prompt');
+            if (s3PromptEl) s3PromptEl.value = params.s3_prompt;
+        }
+        const s3ReactorEl = document.getElementById('s3_enableReactor');
+        if (s3ReactorEl && params.s3_enableReactor !== undefined) s3ReactorEl.checked = params.s3_enableReactor;
+        if (params.s3_strength) {
+            const s3StrengthEl = document.getElementById('s3_strength');
+            if (s3StrengthEl) s3StrengthEl.value = params.s3_strength;
+        }
+        if (params.s3_seed) {
+            const s3SeedEl = document.getElementById('s3_seed');
+            if (s3SeedEl) s3SeedEl.value = params.s3_seed;
+        }
 
         // Stage 4
-        if (params.s4_model) document.getElementById('s4_model').value = params.s4_model;
-        if (params.s4_modelPreset) document.getElementById('s4_modelPreset').value = params.s4_modelPreset;
-        if (params.s4_steps) document.getElementById('s4_steps').value = params.s4_steps;
-        if (params.s4_cfg) document.getElementById('s4_cfg').value = params.s4_cfg;
-        if (params.s4_shift) document.getElementById('s4_shift').value = params.s4_shift;
-        if (params.s4_scheduler) document.getElementById('s4_scheduler').value = params.s4_scheduler;
-        if (params.s4_noiseAug) document.getElementById('s4_noiseAug').value = params.s4_noiseAug;
-        if (params.s4_motionAmp) document.getElementById('s4_motionAmp').value = params.s4_motionAmp;
-        if (params.s4_upscaleEnabled !== undefined) document.getElementById('s4_upscaleEnabled').checked = params.s4_upscaleEnabled;
-        if (params.s4_upscaleModel) document.getElementById('s4_upscaleModel').value = params.s4_upscaleModel;
-        if (params.s4_upscaleResize) document.getElementById('s4_upscaleResize').value = params.s4_upscaleResize;
-        if (params.s4_interpEnabled !== undefined) document.getElementById('s4_interpEnabled').checked = params.s4_interpEnabled;
-        if (params.s4_interpMultiplier) document.getElementById('s4_interpMultiplier').value = params.s4_interpMultiplier;
-        if (params.s4_interpProfile) document.getElementById('s4_interpProfile').value = params.s4_interpProfile;
+        const s4ModelEl = document.getElementById('s4_model');
+        const s4ModelPresetEl = document.getElementById('s4_modelPreset');
+        const s4StepsEl = document.getElementById('s4_steps');
+        const s4CfgEl = document.getElementById('s4_cfg');
+        const s4ShiftEl = document.getElementById('s4_shift');
+        const s4SchedulerEl = document.getElementById('s4_scheduler');
+        const s4NoiseAugEl = document.getElementById('s4_noiseAug');
+        const s4MotionAmpEl = document.getElementById('s4_motionAmp');
+        const s4UpscaleEnabledEl = document.getElementById('s4_upscaleEnabled');
+        const s4UpscaleModelEl = document.getElementById('s4_upscaleModel');
+        const s4UpscaleResizeEl = document.getElementById('s4_upscaleResize');
+        const s4InterpEnabledEl = document.getElementById('s4_interpEnabled');
+        const s4InterpMultiplierEl = document.getElementById('s4_interpMultiplier');
+        const s4InterpProfileEl = document.getElementById('s4_interpProfile');
+
+        if (s4ModelEl && params.s4_model) s4ModelEl.value = params.s4_model;
+        if (s4ModelPresetEl && params.s4_modelPreset) s4ModelPresetEl.value = params.s4_modelPreset;
+        if (s4StepsEl && params.s4_steps) s4StepsEl.value = params.s4_steps;
+        if (s4CfgEl && params.s4_cfg) s4CfgEl.value = params.s4_cfg;
+        if (s4ShiftEl && params.s4_shift) s4ShiftEl.value = params.s4_shift;
+        if (s4SchedulerEl && params.s4_scheduler) s4SchedulerEl.value = params.s4_scheduler;
+        if (s4NoiseAugEl && params.s4_noiseAug) s4NoiseAugEl.value = params.s4_noiseAug;
+        if (s4MotionAmpEl && params.s4_motionAmp) s4MotionAmpEl.value = params.s4_motionAmp;
+        if (s4UpscaleEnabledEl && params.s4_upscaleEnabled !== undefined) s4UpscaleEnabledEl.checked = params.s4_upscaleEnabled;
+        if (s4UpscaleModelEl && params.s4_upscaleModel) s4UpscaleModelEl.value = params.s4_upscaleModel;
+        if (s4UpscaleResizeEl && params.s4_upscaleResize) s4UpscaleResizeEl.value = params.s4_upscaleResize;
+        if (s4InterpEnabledEl && params.s4_interpEnabled !== undefined) s4InterpEnabledEl.checked = params.s4_interpEnabled;
+        if (s4InterpMultiplierEl && params.s4_interpMultiplier) s4InterpMultiplierEl.value = params.s4_interpMultiplier;
+        if (s4InterpProfileEl && params.s4_interpProfile) s4InterpProfileEl.value = params.s4_interpProfile;
 
         // 更新 SeeDream prompt 和 UI 状态
         updateSeeDreamPrompt();
@@ -765,14 +794,17 @@ function loadFormParams() {
 
 // 更新 Stage 3 可见性和验证
 function updateStage3Visibility() {
-    const enabled = document.getElementById('s3_enabled').checked;
-    const params = document.getElementById('s3_params');
-    params.style.display = enabled ? 'block' : 'none';
+    const enabledEl = document.getElementById('s3_enabled');
+    const paramsEl = document.getElementById('s3_params');
+    if (!enabledEl || !paramsEl) return;
+    paramsEl.style.display = enabledEl.checked ? 'block' : 'none';
 }
 
 // 更新模式相关的 UI 状态
 function updateModeRelatedUI() {
-    const mode = document.getElementById('imageRole').value;
+    const mode = document.getElementById('imageRole')?.value;
+    if (!mode) return;
+
     const s2FaceSwapSection = document.getElementById('s2_faceSwapSection');
     const s3EnabledCheckbox = document.getElementById('s3_enabled');
     const s3EnabledHint = document.getElementById('s3_enabledHint');

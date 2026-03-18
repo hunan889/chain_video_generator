@@ -393,33 +393,40 @@ function switchType(type) {
   });
 
   // Show/hide sections based on type
+  const filters = document.querySelector('.filters');
+  const contentGrid = document.getElementById('contentGrid');
+  const pagination = document.getElementById('pagination');
+  const searchDebug = document.getElementById('searchDebugSection');
+  const keywordsEditor = document.getElementById('keywordsEditorSection');
+  const poseImages = document.getElementById('poseImagesSection');
+
   if (type === 'pose_images') {
     if (currentMode === 'favorited') {
       // 已收藏模式：使用统一的 contentGrid
-      document.querySelector('.filters').style.display = 'none';
-      document.getElementById('contentGrid').style.display = 'grid';
-      document.getElementById('pagination').style.display = 'flex';
-      document.getElementById('searchDebugSection').style.display = 'none';
-      document.getElementById('keywordsEditorSection').style.display = 'none';
-      document.getElementById('poseImagesSection').style.display = 'none';
+      if (filters) filters.style.display = 'none';
+      if (contentGrid) contentGrid.style.display = 'grid';
+      if (pagination) pagination.style.display = 'flex';
+      if (searchDebug) searchDebug.style.display = 'none';
+      if (keywordsEditor) keywordsEditor.style.display = 'none';
+      if (poseImages) poseImages.style.display = 'none';
       loadData();
     } else {
       // 所有模式：使用独立的姿势图片区域
-      document.querySelector('.filters').style.display = 'none';
-      document.getElementById('contentGrid').style.display = 'none';
-      document.getElementById('pagination').style.display = 'none';
-      document.getElementById('searchDebugSection').style.display = 'none';
-      document.getElementById('keywordsEditorSection').style.display = 'none';
-      document.getElementById('poseImagesSection').style.display = 'block';
+      if (filters) filters.style.display = 'none';
+      if (contentGrid) contentGrid.style.display = 'none';
+      if (pagination) pagination.style.display = 'none';
+      if (searchDebug) searchDebug.style.display = 'none';
+      if (keywordsEditor) keywordsEditor.style.display = 'none';
+      if (poseImages) poseImages.style.display = 'block';
       loadPoseImages();
     }
   } else {
-    document.querySelector('.filters').style.display = 'block';
-    document.getElementById('contentGrid').style.display = 'grid';
-    document.getElementById('pagination').style.display = 'flex';
-    document.getElementById('searchDebugSection').style.display = 'none';
-    document.getElementById('keywordsEditorSection').style.display = 'none';
-    document.getElementById('poseImagesSection').style.display = 'none';
+    if (filters) filters.style.display = 'block';
+    if (contentGrid) contentGrid.style.display = 'grid';
+    if (pagination) pagination.style.display = 'flex';
+    if (searchDebug) searchDebug.style.display = 'none';
+    if (keywordsEditor) keywordsEditor.style.display = 'none';
+    if (poseImages) poseImages.style.display = 'none';
     updateFilterVisibility();
     loadData();
   }
