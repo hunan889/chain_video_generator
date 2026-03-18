@@ -134,6 +134,7 @@ h1{text-align:center;color:#7c83ff;margin-bottom:24px;font-size:1.6em}
 <div class="main-tab active" data-main="video">视频生成</div>
 <div class="main-tab" data-main="image">图片生成</div>
 <div class="main-tab" data-main="workflow">高级工作流</div>
+<div class="main-tab" data-main="favorites">我的收藏</div>
 <div class="main-tab" data-main="annotate">资源管理</div>
 <div class="main-tab" data-main="poses">姿势管理</div>
 </div>
@@ -143,7 +144,6 @@ h1{text-align:center;color:#7c83ff;margin-bottom:24px;font-size:1.6em}
 <div class="tab" data-tab="i2v">I2V 图片生成视频</div>
 <div class="tab" data-tab="chain">长视频生成</div>
 <div class="tab" data-tab="query">查询任务</div>
-<div class="tab" data-tab="favorites">我的收藏</div>
 <div class="tab" data-tab="dlora">下载 LoRA</div>
 <div class="tab" data-tab="civitai">CivitAI</div>
 <div class="tab" data-tab="tts">TTS 语音</div>
@@ -434,11 +434,6 @@ h1{text-align:center;color:#7c83ff;margin-bottom:24px;font-size:1.6em}
 </div>
 <div id="history-list"></div>
 </div>
-</div>
-
-<!-- Favorites Panel -->
-<div class="panel" id="panel-favorites">
-<iframe src="/static/my_favorites.html" style="width:100%;height:calc(100vh - 200px);border:none;border-radius:8px;background:#0a0a23"></iframe>
 </div>
 
 <!-- Download LoRA Panel -->
@@ -1121,6 +1116,11 @@ h1{text-align:center;color:#7c83ff;margin-bottom:24px;font-size:1.6em}
 <div class="main-section" id="section-workflow">
 <iframe src="/advanced_workflow_v2.html" style="width:100%;height:calc(100vh - 200px);border:none;border-radius:8px;"></iframe>
 </div><!-- end section-workflow -->
+
+<!-- Favorites Section -->
+<div class="main-section" id="section-favorites">
+<iframe src="/static/my_favorites.html" style="width:100%;height:calc(100vh - 200px);border:none;border-radius:8px;background:#0a0a23"></iframe>
+</div><!-- end section-favorites -->
 
 <div class="main-section" id="section-chat">
 <div style="display:flex;flex-direction:column;height:calc(100vh - 200px);max-height:800px">

@@ -9,6 +9,7 @@ from api.models.schemas import (
 from api.services import civitai_client
 from api.config import LORAS_PATH, COMFYUI_PATH, CIVITAI_API_TOKEN
 from api.middleware.auth import verify_api_key
+from api.utils.lora_naming import normalize_lora_name
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -61,7 +62,7 @@ def _register_lora(model_data: dict, version_data: dict, filename: str):
     version_id = version_data.get("id")
     # Strip HIGH/LOW variant suffixes to get base name for loras.yaml
     file_base = filename.replace(".safetensors", "")
-    file_base = re.sub(r"[-_](HIGH|LOW|H|L)([-_]v?\d+)?$", "", file_base, flags=re.IGNORECASE)
+    file_base = normalize_lora_name(file_base)
 
     # Dedup by civitai_version_id or file base name — update existing if found
     for existing in loras:
