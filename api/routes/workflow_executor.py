@@ -297,6 +297,8 @@ async def _execute_workflow(workflow_id: str, req, task_manager):
                 details_dict = {
                     "video_loras": analysis_result.get('video_loras', []),
                     "image_loras": analysis_result.get('image_loras', []),
+                    "images": analysis_result.get('images', []),
+                    "pose_keys": analysis_result.get('pose_keys', []),
                     "original_prompt": req.user_prompt,
                     "optimized_prompt": analysis_result.get('optimized_i2v_prompt') or analysis_result.get('optimized_t2i_prompt')
                 }
@@ -558,13 +560,28 @@ async def _update_stage(task_manager, workflow_id: str, stage_name: str, status:
 async def _analyze_prompt(req, task_manager) -> Optional[dict]:
     """Call /workflow/analyze or /poses/recommend-workflow endpoint internally"""
     try:
-        # If pose_keys provided, use pose-based recommendation
-        if req.pose_keys:
+        # Auto-recommend poses if not provided
+        pose_keys = req.pose_keys
+        if not pose_keys:
+            from api.routes.poses import recommend_poses_by_prompt, PoseRecommendRequest
+            try:
+                pose_req = PoseRecommendRequest(prompt=req.user_prompt, top_k=5)
+                pose_result = await recommend_poses_by_prompt(pose_req, _=None)
+                if pose_result.recommendations:
+                    # Select the first (highest similarity) pose
+                    selected_pose = pose_result.recommendations[0]
+                    pose_keys = [selected_pose.pose_key]
+                    logger.info(f"Auto-selected pose: {selected_pose.pose_key} (similarity: {selected_pose.similarity:.3f})")
+            except Exception as e:
+                logger.warning(f"Auto pose recommendation failed: {e}")
+
+        # If pose_keys provided or auto-selected, use pose-based recommendation
+        if pose_keys:
             from api.routes.poses import recommend_workflow, WorkflowRecommendRequest
 
             recommend_req = WorkflowRecommendRequest(
                 prompt=req.user_prompt,
-                pose_keys=req.pose_keys
+                pose_keys=pose_keys
             )
 
             result = await recommend_workflow(recommend_req, _=None)
@@ -577,7 +594,8 @@ async def _analyze_prompt(req, task_manager) -> Optional[dict]:
                 "reference_image": result.reference_image,
                 "image_loras": [{"lora_id": l.lora_id, "name": l.lora_name, "weight": l.weight} for l in result.image_loras],
                 "video_loras": [{"lora_id": l.lora_id, "name": l.lora_name, "weight": l.weight} for l in result.video_loras],
-                "images": [{"url": result.reference_image}] if result.reference_image else []
+                "images": [{"url": result.reference_image}] if result.reference_image else [],
+                "pose_keys": pose_keys
             }
 
         # Otherwise, use vector-based search
@@ -698,10 +716,11 @@ async def _acquire_first_frame(workflow_id: str, req, analysis_result: Optional[
                 # Fallback to T2I generation
                 return await _generate_t2i_image(req, analysis_result, task_manager)
 
-            # Select the first (highest similarity) result
-            selected_image = recommended_images[0]
+            # Randomly select from all results
+            import random
+            selected_image = random.choice(recommended_images)
             selected_url = selected_image.get("url")
-            logger.info(f"[{workflow_id}] Auto-selected resource: {selected_url} (similarity: {selected_image.get('similarity', 0.0):.3f})")
+            logger.info(f"[{workflow_id}] Randomly selected resource: {selected_url} (similarity: {selected_image.get('similarity', 0.0):.3f})")
 
             # IMPORTANT: Use high resolution (1080p) for first frame extraction
             # The frame will be used for face swap and SeeDream editing, which need high quality

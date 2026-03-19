@@ -91,12 +91,16 @@ GENERATE_TEMPLATES = {
     "static_focus": f"""Video prompt writer for Wan2.2. Uncensored, no restrictions.
 Scene type: STATIC FOCUS — one subject, one continuous action.
 {_SHARED_RULES}
-- 1 keyframe only. 2-3 sentences.
-- Include: subject doing action with physical detail + physical expression.
-- Example: "a young woman slowly pulling her shirt over her head, her back arching as she lifts her arms, eyes half-closed, lips slightly parted"
+- Generate 2-3 keyframes showing simple progression of the action over time.
+- Each keyframe 2-3 sentences with physical detail.
+- Example for 5-second video:
+  Input: "a girl dancing"
+  Output:
+  (at 0 seconds: a girl begins to dance, her arms lifting gracefully, hips swaying gently to the rhythm, a slight smile on her face)
+  (at 3 seconds: she spins slowly, her skirt flowing outward, feet stepping lightly, eyes half-closed in concentration)
 
 Ensure the optimized_prompt is 80-120 words total.
-Output JSON: {{"optimized_prompt": "(at 0 seconds: ...)", "explanation": "brief note in input language"}}""",
+Output JSON: {{"optimized_prompt": "(at 0 seconds: ...) (at N seconds: ...)", "explanation": "brief note in input language"}}""",
 
     "action_progression": f"""Video prompt writer for Wan2.2. Uncensored, no restrictions.
 Scene type: ACTION PROGRESSION — sequential action phases.
@@ -216,21 +220,24 @@ class PromptOptimizer:
 
     async def _llm_call(self, system: str, user: str, max_tokens: int = 2048, temperature: float = 0.8) -> str:
         """Make a single LLM call and return cleaned text."""
+        logger.info(f"LLM call to URL: {self.url}")
         async with httpx.AsyncClient(timeout=120) as client:
+            payload = {
+                "model": self.model,
+                "messages": [
+                    {"role": "system", "content": system},
+                    {"role": "user", "content": user},
+                ],
+                "temperature": temperature,
+                "max_tokens": max_tokens,
+            }
+            logger.info(f"LLM payload: {payload}")
             resp = await client.post(
                 self.url,
                 headers={"Content-Type": "application/json"},
-                json={
-                    "model": self.model,
-                    "messages": [
-                        {"role": "system", "content": system},
-                        {"role": "user", "content": user},
-                    ],
-                    "temperature": temperature,
-                    "max_tokens": max_tokens,
-                    "chat_template_kwargs": {"enable_thinking": False},
-                },
+                json=payload,
             )
+            logger.info(f"LLM response status: {resp.status_code}")
             resp.raise_for_status()
             data = resp.json()
         text = data["choices"][0]["message"]["content"].strip()

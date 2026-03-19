@@ -118,6 +118,7 @@ async def keywords_editor():
 
 app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 app.mount("/uploads", StaticFiles(directory=str(UPLOADS_DIR)), name="uploads")
+app.mount("/api/v1/uploads", StaticFiles(directory=str(UPLOADS_DIR)), name="api_uploads")
 
 
 @app.get("/health")

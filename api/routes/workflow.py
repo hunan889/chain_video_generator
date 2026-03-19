@@ -93,20 +93,20 @@ async def analyze_workflow(req: WorkflowAnalyzeRequest, _=Depends(verify_api_key
             embedding_service,
             req.prompt,
             req.top_k_image_loras,
-            min_similarity=0.6
+            min_similarity=0.3
         )
         video_lora_task = _search_video_loras(
             embedding_service,
             req.prompt,
             req.mode,
             req.top_k_video_loras,
-            min_similarity=0.6
+            min_similarity=0.3
         )
         images_task = _search_reference_images(
             embedding_service,
             req.prompt,
             top_k=5,
-            min_similarity=0.6
+            min_similarity=0.3
         )
 
         image_loras, video_loras, images = await asyncio.gather(
@@ -275,40 +275,38 @@ async def _optimize_prompt_with_llm(
 
         # Optimize T2I prompt (for first frame generation)
         optimized_t2i = None
-        if mode in ["face_reference", "full_body_reference"] and image_trigger_words:
+        if mode in ["face_reference", "full_body_reference"]:
             try:
                 result = await optimizer.optimize(
                     prompt=prompt,
                     trigger_words=image_trigger_words,
-                    mode="t2v",  # Use t2v mode for static image
-                    duration=0.0,  # Single frame
+                    mode="t2v",
+                    duration=0.0,
                     lora_info=[]
                 )
                 optimized_t2i = result.get("optimized_prompt")
-
-                # Add emphasis on front face for T2I
                 if optimized_t2i and mode == "face_reference":
                     optimized_t2i = "front view, looking at camera, detailed face, " + optimized_t2i
-
                 logger.info(f"T2I prompt optimized: {optimized_t2i[:100]}...")
             except Exception as e:
                 logger.warning(f"T2I prompt optimization failed: {e}")
 
         # Optimize I2V prompt (for video generation)
         optimized_i2v = None
-        if video_trigger_words:
-            try:
-                result = await optimizer.optimize(
-                    prompt=prompt,
-                    trigger_words=video_trigger_words,
-                    mode="i2v",
-                    duration=5.0,  # Default 5 seconds
-                    lora_info=lora_info
-                )
-                optimized_i2v = result.get("optimized_prompt")
-                logger.info(f"I2V prompt optimized: {optimized_i2v[:100]}...")
-            except Exception as e:
-                logger.warning(f"I2V prompt optimization failed: {e}")
+        try:
+            result = await optimizer.optimize(
+                prompt=prompt,
+                trigger_words=video_trigger_words,
+                mode="i2v",
+                duration=5.0,
+                lora_info=lora_info
+            )
+            optimized_i2v = result.get("optimized_prompt")
+            logger.info(f"I2V prompt optimized: {optimized_i2v[:100] if optimized_i2v else 'None'}...")
+        except Exception as e:
+            logger.warning(f"I2V prompt optimization failed: {e}")
+            # Fallback: use original prompt
+            optimized_i2v = prompt
 
         return optimized_t2i, optimized_i2v
 
@@ -408,14 +406,30 @@ async def _search_reference_images(
     embedding_service,
     query: str,
     top_k: int,
-    min_similarity: float = 0.6
+    min_similarity: float = 0.3
 ) -> list[dict]:
     """Search for similar reference images using semantic search"""
     try:
-        # Search using existing embedding service
+        from api.services.embedding_service import FEATURE_KEYWORDS, BOOST_WEIGHT
+
+        # Get resource search_keywords for keyword boosting
+        resource_search_keywords = None
+        if BOOST_WEIGHT > 0:
+            conn = pymysql.connect(**DB_CONFIG)
+            cursor = conn.cursor(pymysql.cursors.DictCursor)
+            cursor.execute("SELECT id, search_keywords FROM resources")
+            rows = cursor.fetchall()
+            resource_search_keywords = {row['id']: row['search_keywords'] or "" for row in rows}
+            cursor.close()
+            conn.close()
+
+        # Search using existing embedding service with keyword boosting
         results = await embedding_service.search_similar_resources(
             query=query,
-            top_k=top_k * 3  # Get more results for filtering
+            top_k=top_k * 3,
+            boost_weight=BOOST_WEIGHT,
+            feature_keywords=FEATURE_KEYWORDS,
+            resource_search_keywords=resource_search_keywords
         )
 
         if not results:

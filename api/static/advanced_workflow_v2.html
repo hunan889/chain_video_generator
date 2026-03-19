@@ -383,6 +383,7 @@ h2{color:#7c83ff;margin-bottom:20px;font-size:1.4em}
 </div>
 
 <div class="btn-row">
+<button class="btn" id="analyzeBtn" onclick="analyzeOnly()" style="background:#0f3460;margin-right:10px">🔍 仅分析推荐</button>
 <button class="btn" id="generateBtn" onclick="generateVideo()">🎬 生成视频</button>
 </div>
 
@@ -888,6 +889,100 @@ window.addEventListener('DOMContentLoaded', function() {
 });
 
 // 生成视频
+async function analyzeOnly() {
+    const prompt = document.getElementById('prompt').value.trim();
+    if (!prompt) {
+        alert('请输入提示词');
+        return;
+    }
+
+    const analyzeBtn = document.getElementById('analyzeBtn');
+    analyzeBtn.disabled = true;
+    analyzeBtn.textContent = '🔍 分析中...';
+
+    try {
+        const response = await fetch('/api/v1/workflow/analyze', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-API-Key': 'wan22-default-key-change-me'
+            },
+            body: JSON.stringify({
+                prompt: prompt,
+                mode: document.getElementById('imageRole').value,
+                top_k_image_loras: 5,
+                top_k_video_loras: 5
+            })
+        });
+
+        if (!response.ok) throw new Error('分析失败');
+        const result = await response.json();
+
+        // 显示结果
+        let html = '<div style="background:#0a0a23;padding:20px;border-radius:8px;margin-top:20px">';
+        html += '<h3 style="color:#7c83ff;margin-bottom:16px">📊 分析结果</h3>';
+
+        if (result.original_prompt) html += `<div style="margin-bottom:12px"><span style="color:#888">原始 Prompt:</span> ${result.original_prompt}</div>`;
+        if (result.optimized_i2v_prompt) html += `<div style="margin-bottom:12px"><span style="color:#888">优化后 Prompt:</span> ${result.optimized_i2v_prompt}</div>`;
+
+        if (result.video_loras && result.video_loras.length > 0) {
+            html += `<div style="margin-bottom:12px"><span style="color:#888">推荐 Video LoRAs (${result.video_loras.length}):</span></div>`;
+            html += `<div style="display:flex;gap:8px;flex-wrap:wrap">`;
+            result.video_loras.forEach(lora => {
+                html += `<div style="position:relative;width:150px">`;
+                if (lora.preview_url) {
+                    if (lora.preview_url.endsWith('.mp4') || lora.preview_url.includes('video')) {
+                        html += `<video src="${lora.preview_url}" style="width:150px;height:150px;object-fit:cover;border-radius:6px;border:1px solid #444" muted loop autoplay></video>`;
+                    } else {
+                        html += `<img src="${lora.preview_url}" style="width:150px;height:150px;object-fit:cover;border-radius:6px;border:1px solid #444">`;
+                    }
+                } else {
+                    html += `<div style="width:150px;height:150px;background:#16213e;border-radius:6px;border:1px solid #444;display:flex;align-items:center;justify-content:center;font-size:12px;color:#666">No Preview</div>`;
+                }
+                html += `<div style="margin-top:4px;font-size:11px;color:#aaa"><strong>${lora.name}</strong></div>`;
+                html += `<div style="font-size:10px;color:#4ade80">相似度: ${(lora.similarity * 100).toFixed(1)}%</div>`;
+                html += `</div>`;
+            });
+            html += `</div>`;
+        }
+
+        if (result.images && result.images.length > 0) {
+            html += `<div style="margin-bottom:12px;margin-top:16px"><span style="color:#888">推荐图片 (${result.images.length}):</span></div>`;
+            html += `<div style="display:flex;gap:8px;flex-wrap:wrap">`;
+            result.images.forEach(img => {
+                const similarity = img.similarity ? (img.similarity * 100).toFixed(1) + '%' : '';
+                html += `<div style="position:relative">`;
+                if (img.url && (img.url.endsWith('.mp4') || img.url.includes('video') || img.url.includes('.mp4'))) {
+                    html += `<video src="${img.url}" style="width:150px;height:150px;object-fit:cover;border-radius:6px;border:1px solid #444" muted loop autoplay></video>`;
+                } else {
+                    html += `<img src="${img.url}" style="width:150px;height:150px;object-fit:cover;border-radius:6px;border:1px solid #444">`;
+                }
+                html += `<div style="position:absolute;bottom:4px;right:4px;background:rgba(0,0,0,0.7);padding:2px 6px;border-radius:4px;font-size:10px;color:#4ade80">${similarity}</div>`;
+                html += `</div>`;
+            });
+            html += `</div>`;
+        }
+
+        html += '</div>';
+
+        const container = document.querySelector('.container');
+        let resultDiv = document.getElementById('analyzeResult');
+        if (!resultDiv) {
+            resultDiv = document.createElement('div');
+            resultDiv.id = 'analyzeResult';
+            container.appendChild(resultDiv);
+        }
+        resultDiv.innerHTML = html;
+        resultDiv.scrollIntoView({ behavior: 'smooth' });
+
+    } catch (error) {
+        alert('分析失败: ' + error.message);
+    } finally {
+        analyzeBtn.disabled = false;
+        analyzeBtn.textContent = '🔍 仅分析推荐';
+    }
+}
+
 async function generateVideo() {
     // 验证必填项
     const prompt = document.getElementById('prompt').value.trim();
@@ -1182,8 +1277,55 @@ function updateProgress(status) {
             if (stageInfo.title.includes('Stage 1')) {
                 if (details.original_prompt) detailsHtml += `<div style="margin-bottom:8px"><span style="color:#888">原始 Prompt:</span> ${details.original_prompt}</div>`;
                 if (details.optimized_prompt) detailsHtml += `<div style="margin-bottom:8px"><span style="color:#888">优化后 Prompt:</span> ${details.optimized_prompt}</div>`;
-                if (details.image_loras) detailsHtml += `<div style="margin-bottom:8px"><span style="color:#888">Image LoRAs:</span> ${Array.isArray(details.image_loras) ? details.image_loras.join(', ') : details.image_loras}</div>`;
-                if (details.video_loras) detailsHtml += `<div style="margin-bottom:8px"><span style="color:#888">Video LoRAs:</span> ${Array.isArray(details.video_loras) ? details.video_loras.join(', ') : details.video_loras}</div>`;
+                if (details.pose_keys && Array.isArray(details.pose_keys) && details.pose_keys.length > 0) {
+                    detailsHtml += `<div style="margin-bottom:8px"><span style="color:#888">推荐姿势:</span> ${details.pose_keys.join(', ')}</div>`;
+                }
+                if (details.image_loras && Array.isArray(details.image_loras) && details.image_loras.length > 0) {
+                    detailsHtml += `<div style="margin-bottom:8px"><span style="color:#888">Image LoRAs (${details.image_loras.length}):</span></div>`;
+                    details.image_loras.forEach(lora => {
+                        const name = lora.name || lora.lora_id || 'Unknown';
+                        detailsHtml += `<div style="background:#16213e;padding:6px;margin:4px 0;border-radius:4px;font-size:11px">${name}</div>`;
+                    });
+                }
+                if (details.video_loras && Array.isArray(details.video_loras) && details.video_loras.length > 0) {
+                    detailsHtml += `<div style="margin-bottom:8px"><span style="color:#888">Video LoRAs (${details.video_loras.length}):</span></div>`;
+                    detailsHtml += `<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px">`;
+                    details.video_loras.forEach(lora => {
+                        const name = lora.name || lora.lora_id || 'Unknown';
+                        const previewUrl = lora.preview_url;
+                        console.log('LoRA:', name, 'Preview URL:', previewUrl);
+                        detailsHtml += `<div style="position:relative;width:120px">`;
+                        if (previewUrl) {
+                            if (previewUrl.endsWith('.mp4') || previewUrl.includes('video')) {
+                                detailsHtml += `<video src="${previewUrl}" style="width:120px;height:120px;object-fit:cover;border-radius:6px;border:1px solid #444" muted loop autoplay></video>`;
+                            } else {
+                                detailsHtml += `<img src="${previewUrl}" style="width:120px;height:120px;object-fit:cover;border-radius:6px;border:1px solid #444">`;
+                            }
+                        } else {
+                            detailsHtml += `<div style="width:120px;height:120px;background:#16213e;border-radius:6px;border:1px solid #444;display:flex;align-items:center;justify-content:center;font-size:10px;color:#666">No Preview</div>`;
+                        }
+                        detailsHtml += `<div style="margin-top:4px;font-size:10px;color:#aaa;text-align:center;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${name}</div>`;
+                        detailsHtml += `</div>`;
+                    });
+                    detailsHtml += `</div>`;
+                }
+                if (details.images && Array.isArray(details.images) && details.images.length > 0) {
+                    detailsHtml += `<div style="margin-bottom:8px;margin-top:12px"><span style="color:#888">推荐图片 (${details.images.length}):</span></div>`;
+                    detailsHtml += `<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px">`;
+                    details.images.slice(0, 5).forEach(img => {
+                        const similarity = img.similarity ? (img.similarity * 100).toFixed(1) + '%' : '';
+                        const url = img.url;
+                        detailsHtml += `<div style="position:relative">`;
+                        if (url && (url.endsWith('.mp4') || url.includes('video') || url.includes('.mp4'))) {
+                            detailsHtml += `<video src="${url}" style="width:120px;height:120px;object-fit:cover;border-radius:6px;border:1px solid #444" muted loop autoplay></video>`;
+                        } else {
+                            detailsHtml += `<img src="${url}" style="width:120px;height:120px;object-fit:cover;border-radius:6px;border:1px solid #444">`;
+                        }
+                        detailsHtml += `<div style="position:absolute;bottom:4px;right:4px;background:rgba(0,0,0,0.7);padding:2px 6px;border-radius:4px;font-size:10px;color:#4ade80">${similarity}</div>`;
+                        detailsHtml += `</div>`;
+                    });
+                    detailsHtml += `</div>`;
+                }
             } else if (stageInfo.title.includes('Stage 2')) {
                 if (details.source) detailsHtml += `<div style="margin-bottom:8px"><span style="color:#888">首帧来源:</span> ${details.source}</div>`;
                 if (details.url || status.first_frame_url) {
@@ -1340,8 +1482,54 @@ function showResult(status) {
         if (stageNum === 1) {
             if (details.original_prompt) detailsHtml += `<div style="margin-bottom:8px"><span style="color:#888">原始 Prompt:</span> ${details.original_prompt}</div>`;
             if (details.optimized_prompt) detailsHtml += `<div style="margin-bottom:8px"><span style="color:#888">优化后 Prompt:</span> ${details.optimized_prompt}</div>`;
-            if (details.image_loras) detailsHtml += `<div style="margin-bottom:8px"><span style="color:#888">Image LoRAs:</span> ${Array.isArray(details.image_loras) ? details.image_loras.join(', ') : details.image_loras}</div>`;
-            if (details.video_loras) detailsHtml += `<div style="margin-bottom:8px"><span style="color:#888">Video LoRAs:</span> ${Array.isArray(details.video_loras) ? details.video_loras.join(', ') : details.video_loras}</div>`;
+            if (details.pose_keys && Array.isArray(details.pose_keys) && details.pose_keys.length > 0) {
+                detailsHtml += `<div style="margin-bottom:8px"><span style="color:#888">推荐姿势:</span> ${details.pose_keys.join(', ')}</div>`;
+            }
+            if (details.image_loras && Array.isArray(details.image_loras) && details.image_loras.length > 0) {
+                detailsHtml += `<div style="margin-bottom:8px"><span style="color:#888">Image LoRAs (${details.image_loras.length}):</span></div>`;
+                details.image_loras.forEach(lora => {
+                    const name = lora.name || lora.lora_id || 'Unknown';
+                    detailsHtml += `<div style="background:#16213e;padding:6px;margin:4px 0;border-radius:4px;font-size:11px">${name}</div>`;
+                });
+            }
+            if (details.video_loras && Array.isArray(details.video_loras) && details.video_loras.length > 0) {
+                detailsHtml += `<div style="margin-bottom:8px"><span style="color:#888">Video LoRAs (${details.video_loras.length}):</span></div>`;
+                detailsHtml += `<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px">`;
+                details.video_loras.forEach(lora => {
+                    const name = lora.name || lora.lora_id || 'Unknown';
+                    const previewUrl = lora.preview_url;
+                    detailsHtml += `<div style="position:relative;width:150px">`;
+                    if (previewUrl) {
+                        if (previewUrl.endsWith('.mp4') || previewUrl.includes('video')) {
+                            detailsHtml += `<video src="${previewUrl}" style="width:150px;height:150px;object-fit:cover;border-radius:6px;border:1px solid #444" muted loop autoplay></video>`;
+                        } else {
+                            detailsHtml += `<img src="${previewUrl}" style="width:150px;height:150px;object-fit:cover;border-radius:6px;border:1px solid #444">`;
+                        }
+                    } else {
+                        detailsHtml += `<div style="width:150px;height:150px;background:#16213e;border-radius:6px;border:1px solid #444;display:flex;align-items:center;justify-content:center;font-size:10px;color:#666">No Preview</div>`;
+                    }
+                    detailsHtml += `<div style="margin-top:4px;font-size:10px;color:#aaa;text-align:center;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${name}</div>`;
+                    detailsHtml += `</div>`;
+                });
+                detailsHtml += `</div>`;
+            }
+            if (details.images && Array.isArray(details.images) && details.images.length > 0) {
+                detailsHtml += `<div style="margin-bottom:8px;margin-top:12px"><span style="color:#888">推荐图片 (${details.images.length}):</span></div>`;
+                detailsHtml += `<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px">`;
+                details.images.slice(0, 5).forEach(img => {
+                    const similarity = img.similarity ? (img.similarity * 100).toFixed(1) + '%' : '';
+                    const url = img.url;
+                    detailsHtml += `<div style="position:relative">`;
+                    if (url && (url.endsWith('.mp4') || url.includes('video') || url.includes('.mp4'))) {
+                        detailsHtml += `<video src="${url}" style="width:150px;height:150px;object-fit:cover;border-radius:6px;border:1px solid #444" muted loop autoplay></video>`;
+                    } else {
+                        detailsHtml += `<img src="${url}" style="width:150px;height:150px;object-fit:cover;border-radius:6px;border:1px solid #444">`;
+                    }
+                    detailsHtml += `<div style="position:absolute;bottom:4px;right:4px;background:rgba(0,0,0,0.7);padding:2px 6px;border-radius:4px;font-size:10px;color:#4ade80">${similarity}</div>`;
+                    detailsHtml += `</div>`;
+                });
+                detailsHtml += `</div>`;
+            }
         } else if (stageNum === 2) {
             if (details.source) detailsHtml += `<div style="margin-bottom:8px"><span style="color:#888">首帧来源:</span> ${details.source}</div>`;
             if (details.url || status.first_frame_url) {

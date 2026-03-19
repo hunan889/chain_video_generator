@@ -246,8 +246,7 @@ async def recommend_workflow(
             for lora in video_loras_dict.values()
         ]
 
-        # 优化prompt：融合trigger_words
-        # 收集image和video的trigger_words
+        # 收集trigger_words
         image_trigger_words = []
         for lora in image_loras_dict.values():
             trigger = lora.get('trigger_words', '')
@@ -265,22 +264,29 @@ async def recommend_workflow(
         if image_trigger_words:
             image_prompt = f"{request.prompt}, {', '.join(image_trigger_words)}"
 
-        # 生成video_prompt - 时间轴格式
-        # 格式: "at 0 seconds: base_prompt, trigger_words"
-        video_prompt_parts = [request.prompt]
-        if video_trigger_words:
-            video_prompt_parts.extend(video_trigger_words)
+        # 使用PromptOptimizer生成多帧video_prompt
+        from api.services.prompt_optimizer import PromptOptimizer
+        optimizer = PromptOptimizer()
 
-        video_prompt = f"at 0 seconds: {', '.join(video_prompt_parts)}"
+        # 准备LORA信息用于优化
+        lora_info = [
+            {
+                "name": lora.get('lora_name', ''),
+                "description": lora.get('description', ''),
+                "example_prompts": lora.get('example_prompts', [])
+            }
+            for lora in video_loras_dict.values()
+        ]
 
-        # 添加prompt模板（如果有）
-        if all_prompt_templates:
-            template = all_prompt_templates[0].get('template', '')
-            if template:
-                image_prompt = f"{image_prompt}, {template}"
-                # 时间轴格式的video prompt，模板也加在0秒处
-                video_prompt = f"at 0 seconds: {', '.join(video_prompt_parts)}, {template}"
+        result = await optimizer.optimize(
+            prompt=request.prompt,
+            trigger_words=video_trigger_words,
+            mode="i2v",
+            duration=5.0,
+            lora_info=lora_info if lora_info else None
+        )
 
+        video_prompt = result["optimized_prompt"]
         optimized_prompt = video_prompt
 
         return WorkflowRecommendResponse(
