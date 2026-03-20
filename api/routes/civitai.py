@@ -1,4 +1,5 @@
 import re
+import json
 import asyncio
 import logging
 import yaml
@@ -10,6 +11,61 @@ from api.services import civitai_client
 from api.config import LORAS_PATH, COMFYUI_PATH, CIVITAI_API_TOKEN
 from api.middleware.auth import verify_api_key
 from api.utils.lora_naming import normalize_lora_name
+
+DB_CONFIG = {
+    'host': 'use-cdb-b9nvte6o.sql.tencentcdb.com',
+    'port': 20603,
+    'user': 'user_soga',
+    'password': '1IvO@*#68',
+    'database': 'tudou_soga',
+    'charset': 'utf8mb4',
+}
+
+
+def _sync_entry_to_db(entry: dict):
+    """Sync a loras.yaml entry into MySQL lora_metadata (best-effort)."""
+    try:
+        import pymysql
+        file_lower = entry.get('file', '').lower()
+        if 'high' in file_lower:
+            noise_stage = 'high'
+        elif 'low' in file_lower:
+            noise_stage = 'low'
+        else:
+            noise_stage = 'single'
+        combined = (entry.get('name', '') + ' ' + entry.get('file', '')).lower()
+        if 'i2v' in combined and 't2v' not in combined:
+            mode = 'I2V'
+        elif 't2v' in combined and 'i2v' not in combined:
+            mode = 'T2V'
+        else:
+            mode = 'both'
+        conn = pymysql.connect(**DB_CONFIG)
+        cursor = conn.cursor()
+        cursor.execute("""
+            INSERT INTO lora_metadata
+                (name, file, description, tags, trigger_words, preview_url, civitai_id, enabled, mode, noise_stage)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, 1, %s, %s)
+            ON DUPLICATE KEY UPDATE
+                name=VALUES(name), preview_url=VALUES(preview_url),
+                trigger_words=VALUES(trigger_words), mode=VALUES(mode)
+        """, (
+            entry.get('name', ''),
+            entry.get('file', ''),
+            (entry.get('description', '') or '')[:2000],
+            json.dumps(entry.get('tags', []) or []),
+            json.dumps(entry.get('trigger_words', []) or []),
+            entry.get('preview_url', ''),
+            entry.get('civitai_id'),
+            mode,
+            noise_stage,
+        ))
+        conn.commit()
+        cursor.close()
+        conn.close()
+        logger.info('Synced LoRA to DB: %s', entry.get('name'))
+    except Exception as e:
+        logger.warning('Failed to sync LoRA to DB: %s', e)
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -108,6 +164,7 @@ def _register_lora(model_data: dict, version_data: dict, filename: str):
     data["loras"] = loras
     with open(LORAS_PATH, "w") as f:
         yaml.dump(data, f, allow_unicode=True, default_flow_style=False)
+    _sync_entry_to_db(entry)
     return entry
 
 
@@ -171,10 +228,10 @@ async def download_from_civitai(req: CivitAIDownloadRequest, _=Depends(verify_ap
                 dest = str(LORAS_DIR / fi["filename"])
                 # CivitAI requires token as query param for downloads
                 url = fi["url"]
-                cmd = ["curl", "-sL", "-o", dest]
                 if CIVITAI_API_TOKEN:
-                    cmd += ["-H", f"Authorization: Bearer {CIVITAI_API_TOKEN}"]
-                cmd.append(url)
+                    sep = "&" if "?" in url else "?"
+                    url = f"{url}{sep}token={CIVITAI_API_TOKEN}"
+                cmd = ["curl", "-sL", "-o", dest, url]
                 proc = await asyncio.create_subprocess_exec(*cmd)
                 await proc.wait()
                 if proc.returncode == 0:
