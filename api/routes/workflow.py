@@ -57,6 +57,7 @@ class VideoLoraRecommendation(BaseModel):
     name: str
     description: Optional[str]
     trigger_words: list[str]
+    trigger_prompt: Optional[str] = None
     mode: str  # I2V, T2V, both
     noise_stage: str  # high, low, single
     category: Optional[str]
@@ -357,7 +358,7 @@ async def _search_video_loras(
 
         placeholders = ','.join(['%s'] * len(lora_ids))
         cursor.execute(f"""
-            SELECT id, name, description, trigger_words, mode, noise_stage, category, preview_url
+            SELECT id, name, description, trigger_words, trigger_prompt, mode, noise_stage, category, preview_url
             FROM lora_metadata
             WHERE id IN ({placeholders})
             AND (enabled = 1 OR enabled = TRUE)
@@ -384,6 +385,7 @@ async def _search_video_loras(
                 name=lora['name'],
                 description=lora.get('description'),
                 trigger_words=trigger_words,
+                trigger_prompt=lora.get('trigger_prompt') or None,
                 mode=lora['mode'],
                 noise_stage=lora['noise_stage'],
                 category=lora.get('category'),
@@ -561,6 +563,15 @@ async def seedream_edit(req: SeeDreamEditRequest, _=Depends(verify_api_key)):
                 scene_data = local_path.read_bytes()
             else:
                 raise HTTPException(400, f"Upload file not found: {req.scene_image}")
+        elif req.scene_image.startswith('/pose-files/'):
+            # Pose reference files - /pose-files/<pose>/<filename> -> data/pose_references/...
+            from api.routes.pose_images import POSE_DIR
+            rel_path = req.scene_image[len('/pose-files/'):]
+            local_path = POSE_DIR / rel_path
+            if local_path.exists():
+                scene_data = local_path.read_bytes()
+            else:
+                raise HTTPException(400, f"Pose file not found: {req.scene_image}")
         elif '/' not in req.scene_image and '.' in req.scene_image:
             # Local filename (e.g., "abc123.png")
             local_path = UPLOADS_DIR / req.scene_image

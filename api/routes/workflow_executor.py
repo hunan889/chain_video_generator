@@ -111,9 +111,9 @@ def get_default_seedream_prompt(mode: str) -> str:
         Default prompt string
     """
     prompts = {
-        "face_only": "edit image 2, keep the position and pose of image 2, swap face to image 1, only change the face, keep everything else exactly the same including clothing, accessories, background",
-        "face_wearings": "edit image 2, keep the position and pose of image 2, swap face to image 1, change face and accessories (jewelry, glasses, hair accessories) to match image 1, keep clothing and background the same",
-        "full_body": "edit image 2, keep the position and pose of image 2, swap face to image 1, change face, accessories, and clothing to match image 1, keep background the same"
+        "face_only": "edit image 2, keep the position and pose of image 2, swap face to image 1, only change the face identity, preserve the facial expression from image 2, keep clothing the same as image 2, keep accessories the same as image 2, keep background the same as image 2",
+        "face_wearings": "edit image 2, keep the position and pose of image 2, swap face to image 1, change face identity to match image 1, change accessories (jewelry, glasses, hair accessories) to match image 1, preserve the facial expression from image 2, keep clothing the same as image 2, keep background the same as image 2",
+        "full_body": "edit image 2, keep the position and pose of image 2, swap face to image 1, change face identity to match image 1, change clothing to match image 1, change accessories to match image 1, preserve the facial expression from image 2, keep background the same as image 2"
     }
     return prompts.get(mode, prompts["face_wearings"])
 
@@ -472,10 +472,14 @@ async def _execute_workflow(workflow_id: str, req, task_manager):
                     running_details["error"] = edit_result.error
                 await _update_stage(task_manager, workflow_id, "seedream_edit", "completed", details_dict=running_details)
             else:
-                running_details["error"] = "编辑失败，使用原图"
+                running_details["error"] = "SeeDream 编辑失败"
                 running_details["api_status"] = "failed"
+                await _update_stage(task_manager, workflow_id, "seedream_edit", "failed", details_dict=running_details)
+                if req.mode == "full_body_reference":
+                    raise Exception("SeeDream editing failed and is required for full_body_reference mode")
+                # face_reference 模式允许 fallback
                 running_details["fallback_used"] = True
-                running_details["fallback_reason"] = "SeeDream 调用异常"
+                running_details["fallback_reason"] = "SeeDream 调用异常，使用原图"
                 edited_frame_url = first_frame_url
                 await _update_stage(task_manager, workflow_id, "seedream_edit", "completed", details_dict=running_details)
         else:
@@ -499,6 +503,10 @@ async def _execute_workflow(workflow_id: str, req, task_manager):
         interp_enabled = postprocess_config.get("interpolation", {}).get("enabled", False) if isinstance(postprocess_config, dict) else False
 
         # 在 running 状态时就保存所有参数
+        auto_prompt = _get_config(req, "stage1_prompt_analysis", "auto_prompt", True)
+        display_prompt = req.user_prompt
+        if analysis_result and auto_prompt:
+            display_prompt = analysis_result.get("optimized_i2v_prompt") or req.user_prompt
         running_details = {
             "model": video_model,
             "resolution": video_resolution,
@@ -507,7 +515,7 @@ async def _execute_workflow(workflow_id: str, req, task_manager):
             "upscale_enabled": upscale_enabled,
             "interpolation_enabled": interp_enabled,
             "first_frame_url": edited_frame_url,
-            "prompt": req.user_prompt
+            "prompt": display_prompt
         }
         await _update_stage(task_manager, workflow_id, "video_generation", "running", details_dict=running_details)
 
@@ -523,6 +531,11 @@ async def _execute_workflow(workflow_id: str, req, task_manager):
         running_details["video_url"] = final_video_url
         if loras_info:
             running_details["loras"] = loras_info
+            # 计算完整 prompt（含 trigger words），用于前端展示
+            from api.models.schemas import LoraInput as _LoraInput
+            from api.services.workflow_builder import _inject_trigger_words as _itw
+            _lora_objs = [_LoraInput(name=l["name"], strength=l["strength"], trigger_words=l.get("trigger_words") or [], trigger_prompt=l.get("trigger_prompt")) for l in loras_info]
+            running_details["prompt"] = _itw(running_details["prompt"], _lora_objs)
 
         await _update_stage(task_manager, workflow_id, "video_generation", "completed", details_dict=running_details)
 
@@ -592,8 +605,8 @@ async def _analyze_prompt(req, task_manager) -> Optional[dict]:
                 "optimized_i2v_prompt": result.video_prompt,
                 "optimized_t2i_prompt": result.image_prompt,
                 "reference_image": result.reference_image,
-                "image_loras": [{"lora_id": l.lora_id, "name": l.lora_name, "weight": l.weight} for l in result.image_loras],
-                "video_loras": [{"lora_id": l.lora_id, "name": l.lora_name, "weight": l.weight} for l in result.video_loras],
+                "image_loras": [{"lora_id": l.lora_id, "name": l.lora_name, "weight": l.weight, "trigger_words": l.trigger_words, "trigger_prompt": l.trigger_prompt} for l in result.image_loras],
+                "video_loras": [{"lora_id": l.lora_id, "name": l.lora_name, "weight": l.weight, "trigger_words": l.trigger_words, "trigger_prompt": l.trigger_prompt} for l in result.video_loras],
                 "images": [{"url": result.reference_image}] if result.reference_image else [],
                 "pose_keys": pose_keys
             }
@@ -797,14 +810,34 @@ async def _generate_t2i_image(req, analysis_result: Optional[dict], task_manager
             if image_loras:
                 # Add LoRAs to prompt using SD WebUI format: <lora:name:strength>
                 lora_tags = []
+                trigger_parts = []
                 for lora in image_loras[:3]:  # Use top 3 image LoRAs
                     lora_id = lora.get("lora_id", "")
                     lora_name = lora.get("name", "")
-                    # Use strength 0.8 as default
                     lora_tags.append(f"<lora:{lora_id}:0.8>")
                     logger.info(f"Adding Image LoRA to T2I: {lora_name} (ID: {lora_id})")
+                    # Collect trigger_words and trigger_prompt (controlled by stage1 switches)
+                    inject_trigger_prompt_t2i = _get_config(req, "stage1_prompt_analysis", "inject_trigger_prompt", True)
+                    inject_trigger_words_t2i = _get_config(req, "stage1_prompt_analysis", "inject_trigger_words", True)
+                    import json as _json
+                    if inject_trigger_words_t2i:
+                        tw = lora.get("trigger_words", [])
+                        if isinstance(tw, str):
+                            try:
+                                tw = _json.loads(tw)
+                            except Exception:
+                                tw = []
+                        for word in (tw or []):
+                            if word and word not in trigger_parts:
+                                trigger_parts.append(word)
+                    if inject_trigger_prompt_t2i:
+                        tp = lora.get("trigger_prompt") or ""
+                        if tp.strip() and tp.strip() not in trigger_parts:
+                            trigger_parts.append(tp.strip())
 
-                # Append LoRA tags to prompt
+                # Prepend trigger words/prompt, append LoRA tags
+                if trigger_parts:
+                    prompt = "\n\n".join(trigger_parts) + "\n\n" + prompt
                 if lora_tags:
                     prompt = prompt + " " + " ".join(lora_tags)
 
@@ -1110,11 +1143,24 @@ async def _generate_video(workflow_id: str, req, first_frame_url: str, analysis_
                 filtered_loras = video_loras
                 logger.warning(f"[{workflow_id}] No matching LoRAs found for mode {image_mode}, using all recommended")
 
+            # Read trigger injection switches (from stage1 config)
+            inject_trigger_prompt = _get_config(req, "stage1_prompt_analysis", "inject_trigger_prompt", True)
+            inject_trigger_words = _get_config(req, "stage1_prompt_analysis", "inject_trigger_words", True)
+
             # Take top 3
             for lora in filtered_loras[:3]:
+                tw = lora.get("trigger_words", [])
+                if isinstance(tw, str):
+                    import json as _json
+                    try:
+                        tw = _json.loads(tw)
+                    except Exception:
+                        tw = []
                 loras.append(LoraInput(
-                    name=str(lora["lora_id"]),
-                    strength=0.8
+                    name=lora["name"],
+                    strength=0.8,
+                    trigger_words=tw if inject_trigger_words else [],
+                    trigger_prompt=lora.get("trigger_prompt") if inject_trigger_prompt else None,
                 ))
                 logger.info(f"[{workflow_id}] Selected LoRA: {lora['name']} (mode={lora.get('mode')}, noise_stage={lora.get('noise_stage')})")
 
@@ -1152,6 +1198,15 @@ async def _generate_video(workflow_id: str, req, first_frame_url: str, analysis_
                 raise Exception(f"First frame file not found in uploads: {first_frame_url}")
             image_data = local_path.read_bytes()
             logger.info(f"[{workflow_id}] Read first frame from uploads: {local_path}")
+        elif first_frame_url.startswith('/pose-files/'):
+            # Pose reference files - /pose-files/<pose>/<filename> -> data/pose_references/<pose>/<filename>
+            from api.routes.pose_images import POSE_DIR
+            rel_path = first_frame_url[len('/pose-files/'):]
+            local_path = POSE_DIR / rel_path
+            if not local_path.exists():
+                raise Exception(f"Pose file not found: {local_path}")
+            image_data = local_path.read_bytes()
+            logger.info(f"[{workflow_id}] Read first frame from pose files: {local_path}")
         else:
             # Plain filename - try UPLOADS_DIR first, then RESULTS_DIR
             from api.config import RESULTS_DIR
@@ -1266,8 +1321,18 @@ async def _generate_video(workflow_id: str, req, first_frame_url: str, analysis_
             upscale_config = postprocess_config.get("upscale", {})
             if upscale_config.get("enabled"):
                 chain_req.enable_upscale = True
-                chain_req.upscale_model = upscale_config.get("model", "RealESRGAN_x4plus")
-                chain_req.upscale_resize = upscale_config.get("resize", 2.0)
+                raw_model = upscale_config.get("model", "4x-UltraSharp")
+                # Map legacy/invalid model names to valid TRT engine names
+                _upscale_model_map = {
+                    "RealESRGAN_x4plus": "4x-UltraSharp",
+                    "RealESRGAN_x2plus": "4x-UltraSharp",
+                    "realesrgan-x4plus": "4x-UltraSharp",
+                }
+                chain_req.upscale_model = _upscale_model_map.get(raw_model, raw_model)
+                if chain_req.upscale_model != raw_model:
+                    logger.warning(f"[VIDEO_PARAMS] {workflow_id} - upscale model '{raw_model}' remapped to '{chain_req.upscale_model}'")
+                resize_val = upscale_config.get("resize", 2)
+                chain_req.upscale_resize = f"{int(resize_val)}x" if isinstance(resize_val, (int, float)) else str(resize_val)
                 logger.info(f"[VIDEO_PARAMS] {workflow_id} - upscale enabled: model={chain_req.upscale_model}, resize={chain_req.upscale_resize}")
 
             # Interpolation
@@ -1297,7 +1362,7 @@ async def _generate_video(workflow_id: str, req, first_frame_url: str, analysis_
         final_video_url = None
 
         import asyncio
-        for _ in range(60):  # Poll for up to 5 minutes
+        for _ in range(180):  # Poll for up to 15 minutes
             await asyncio.sleep(5)
 
             chain_data = await task_manager.redis.hgetall(f"chain:{chain_id}")
@@ -1315,8 +1380,8 @@ async def _generate_video(workflow_id: str, req, first_frame_url: str, analysis_
         if not final_video_url:
             logger.warning(f"[{workflow_id}] Chain polling timeout, status: {status}")
 
-        # Return chain_id, final_video_url, and loras list
-        loras_info = [{"name": l.name, "strength": l.strength} for l in loras]
+        # Return chain_id, final_video_url, and loras list (with trigger_words for display)
+        loras_info = [{"name": l.name, "strength": l.strength, "trigger_words": l.trigger_words, "trigger_prompt": l.trigger_prompt} for l in loras]
         return chain_id, final_video_url, loras_info
 
     except Exception as e:

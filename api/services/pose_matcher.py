@@ -1,6 +1,7 @@
 """
 姿势配置服务
 """
+import json
 import sqlite3
 import pymysql
 import logging
@@ -160,7 +161,7 @@ class PoseMatcher:
 
                 placeholders = ','.join(['%s'] * len(lora_ids))
                 mysql_cursor.execute(f"""
-                SELECT id, name, file, preview_url, civitai_id
+                SELECT id, name, file, preview_url, civitai_id, trigger_words, trigger_prompt
                 FROM lora_metadata
                 WHERE id IN ({placeholders})
                 """, lora_ids)
@@ -181,6 +182,14 @@ class PoseMatcher:
                         lora['lora_name'] = name
                         lora['preview_url'] = lora_data[lora_id]['preview_url']
                         lora['civitai_id'] = lora_data[lora_id]['civitai_id']
+                        tw = lora_data[lora_id].get('trigger_words') or []
+                        if isinstance(tw, str):
+                            try:
+                                tw = json.loads(tw)
+                            except Exception:
+                                tw = []
+                        lora['trigger_words'] = tw
+                        lora['trigger_prompt'] = lora_data[lora_id].get('trigger_prompt') or None
                     elif not lora_id and lora.get('lora_name'):
                         # 如果没有lora_id，使用SQLite中存储的lora_name
                         # 这些LORA没有preview_url和civitai_id

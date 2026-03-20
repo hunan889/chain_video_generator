@@ -157,6 +157,16 @@ h2{color:#7c83ff;margin-bottom:20px;font-size:1.4em}
 </div>
 <div class="row">
 <div class="field">
+<label><input type="checkbox" id="s1_injectTriggerPrompt" checked> 注入 Trigger Prompt</label>
+<div class="hint">将 LoRA 的 Trigger Prompt 加入生图/生视频 Prompt</div>
+</div>
+<div class="field">
+<label><input type="checkbox" id="s1_injectTriggerWords" checked> 注入 Trigger Words</label>
+<div class="hint">将 LoRA 的 Trigger Words 加入生图/生视频 Prompt</div>
+</div>
+</div>
+<div class="row">
+<div class="field">
 <label>Image LORA 推荐数量</label>
 <input type="number" id="s1_topKImage" value="5" min="1" max="20">
 </div>
@@ -346,8 +356,8 @@ h2{color:#7c83ff;margin-bottom:20px;font-size:1.4em}
 <div class="field">
 <label>超分模型</label>
 <select id="s4_upscaleModel">
-<option value="RealESRGAN_x4plus">RealESRGAN_x4plus</option>
-<option value="RealESRGAN_x2plus">RealESRGAN_x2plus</option>
+<option value="4x-UltraSharp">4x-UltraSharp (TRT)</option>
+<option value="RealESRGAN_x2plus">RealESRGAN_x2plus (不支持)</option>
 </select>
 </div>
 <div class="field">
@@ -414,9 +424,9 @@ h2{color:#7c83ff;margin-bottom:20px;font-size:1.4em}
 <script>
 // 默认 SeeDream Prompt 映射
 const DEFAULT_SEEDREAM_PROMPTS = {
-    face_only: "edit image 2, keep the position and pose of image 2, swap face to image 1, only change the face, keep everything else exactly the same including clothing, accessories, background",
-    face_wearings: "edit image 2, keep the position and pose of image 2, swap face to image 1, change face and accessories (jewelry, glasses, hair accessories) to match image 1, keep clothing and background the same",
-    full_body: "edit image 2, keep the position and pose of image 2, swap face to image 1, change face, accessories, and clothing to match image 1, keep background the same"
+    face_only: "edit image 2, keep the position and pose of image 2, swap face to image 1, only change the face identity, preserve the facial expression from image 2, keep clothing the same as image 2, keep accessories the same as image 2, keep background the same as image 2",
+    face_wearings: "edit image 2, keep the position and pose of image 2, swap face to image 1, change face identity to match image 1, change accessories (jewelry, glasses, hair accessories) to match image 1, preserve the facial expression from image 2, keep clothing the same as image 2, keep background the same as image 2",
+    full_body: "edit image 2, keep the position and pose of image 2, swap face to image 1, change face identity to match image 1, change clothing to match image 1, change accessories to match image 1, preserve the facial expression from image 2, keep background the same as image 2"
 };
 
 // 全局变量
@@ -621,14 +631,7 @@ function toggleCollapsible(element) {
 function updateSeeDreamPrompt() {
     const mode = document.getElementById('s3_mode').value;
     const promptTextarea = document.getElementById('s3_prompt');
-
-    // 如果用户已经自定义了内容，不覆盖
-    if (promptTextarea.value.trim() !== '' &&
-        !Object.values(DEFAULT_SEEDREAM_PROMPTS).includes(promptTextarea.value.trim())) {
-        return;
-    }
-
-    promptTextarea.value = DEFAULT_SEEDREAM_PROMPTS[mode];
+    promptTextarea.value = DEFAULT_SEEDREAM_PROMPTS[mode] || '';
 }
 
 // 保存参数到 localStorage
@@ -1108,7 +1111,9 @@ function buildRequestData() {
             auto_lora: document.getElementById('s1_autoLora').checked,
             auto_prompt: document.getElementById('s1_autoPrompt').checked,
             top_k_image_loras: parseInt(document.getElementById('s1_topKImage').value),
-            top_k_video_loras: parseInt(document.getElementById('s1_topKVideo').value)
+            top_k_video_loras: parseInt(document.getElementById('s1_topKVideo').value),
+            inject_trigger_prompt: document.getElementById('s1_injectTriggerPrompt').checked,
+            inject_trigger_words: document.getElementById('s1_injectTriggerWords').checked
         },
         stage2_first_frame: {
             first_frame_source: document.getElementById('s2_firstFrameSource').value,
@@ -1364,7 +1369,7 @@ function updateProgress(status) {
                 if (details.model) detailsHtml += `<div style="margin-bottom:8px"><span style="color:#888">视频模型:</span> ${details.model}</div>`;
                 if (details.resolution) detailsHtml += `<div style="margin-bottom:8px"><span style="color:#888">分辨率:</span> ${details.resolution}</div>`;
                 if (details.duration) detailsHtml += `<div style="margin-bottom:8px"><span style="color:#888">时长:</span> ${details.duration}</div>`;
-                if (details.prompt) detailsHtml += `<div style="margin-bottom:8px"><span style="color:#888">Prompt:</span> ${details.prompt}</div>`;
+                if (details.prompt) detailsHtml += `<div style="margin-bottom:8px"><span style="color:#888">Prompt:</span><div style="margin-top:4px;padding:8px;background:#1a1a1a;border-radius:4px;white-space:pre-wrap;font-size:12px;color:#e0e0e0;max-height:200px;overflow-y:auto">${details.prompt.replace(/</g,'&lt;').replace(/>/g,'&gt;')}</div></div>`;
                 if (details.loras && details.loras.length > 0) {
                     const lorasText = details.loras.map(l => `${l.name} (${l.strength})`).join(', ');
                     detailsHtml += `<div style="margin-bottom:8px"><span style="color:#888">LoRAs:</span> ${lorasText}</div>`;
@@ -1453,7 +1458,10 @@ function showResult(status) {
 
     const videoUrl = status.video_url || status.final_video_url;
     if (!videoUrl) {
-        showError('视频生成完成，但未返回视频URL');
+        // Check if there's a real error message from video generation stage
+        const videoStage = status.stages && status.stages.find(s => s.name === 'video_generation');
+        const errMsg = (videoStage && videoStage.error) || status.error || '视频生成失败，未返回视频URL';
+        showError(errMsg);
         return;
     }
 
@@ -1556,7 +1564,7 @@ function showResult(status) {
             if (details.model) detailsHtml += `<div style="margin-bottom:8px"><span style="color:#888">视频模型:</span> ${details.model}</div>`;
             if (details.resolution) detailsHtml += `<div style="margin-bottom:8px"><span style="color:#888">分辨率:</span> ${details.resolution}</div>`;
             if (details.duration) detailsHtml += `<div style="margin-bottom:8px"><span style="color:#888">时长:</span> ${details.duration}</div>`;
-            if (details.prompt) detailsHtml += `<div style="margin-bottom:8px"><span style="color:#888">Prompt:</span> ${details.prompt}</div>`;
+            if (details.prompt) detailsHtml += `<div style="margin-bottom:8px"><span style="color:#888">Prompt:</span><div style="margin-top:4px;padding:8px;background:#111;border-radius:4px;white-space:pre-wrap;font-size:12px;color:#e0e0e0;max-height:200px;overflow-y:auto">${details.prompt.replace(/</g,'&lt;').replace(/>/g,'&gt;')}</div></div>`;
             if (details.face_swap_enabled !== undefined) detailsHtml += `<div style="margin-bottom:8px"><span style="color:#888">视频换脸:</span> ${details.face_swap_enabled ? '✅ 启用' : '❌ 禁用'}</div>`;
             if (details.upscale_enabled !== undefined) detailsHtml += `<div style="margin-bottom:8px"><span style="color:#888">超分:</span> ${details.upscale_enabled ? '✅ 启用' : '❌ 禁用'}</div>`;
             if (details.interpolation_enabled !== undefined) detailsHtml += `<div style="margin-bottom:8px"><span style="color:#888">插帧:</span> ${details.interpolation_enabled ? '✅ 启用' : '❌ 禁用'}</div>`;

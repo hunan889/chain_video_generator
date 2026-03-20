@@ -1,14 +1,19 @@
 """
 资源和标签管理 API
 """
-from fastapi import APIRouter, HTTPException, Depends, Query
+from fastapi import APIRouter, HTTPException, Depends, Query, UploadFile, File, Form
 from typing import List, Optional
 from pydantic import BaseModel
 import pymysql
 import sqlite3
+import uuid
+import logging
 from pathlib import Path
 from api.middleware.auth import verify_api_key
 from api.services.content_suggester import get_content_suggester
+from api.config import UPLOADS_DIR, COS_ENABLED
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/v1", tags=["resources"])
 
@@ -732,7 +737,7 @@ async def list_lora_favorites(lora_type: str, page: int, page_size: int):
             total = cursor.fetchone()['total']
 
             cursor.execute("""
-                SELECT id, name, file, preview_url, description, trigger_prompt, category, 'video' as lora_type
+                SELECT id, name, file, preview_url, description, trigger_words, trigger_prompt, category, 'video' as lora_type
                 FROM lora_metadata
                 WHERE enabled = 1
                 ORDER BY id
@@ -777,6 +782,7 @@ async def list_lora_favorites(lora_type: str, page: int, page_size: int):
                     'file': lora['file'],
                     'preview_url': lora['preview_url'],
                     'description': lora['description'],
+                    'trigger_words': lora['trigger_words'],
                     'trigger_prompt': lora['trigger_prompt'],
                     'category': lora['category'],
                     'created_at': None,
@@ -1069,6 +1075,116 @@ async def update_resource_poses(
     finally:
         mysql_cursor.close()
         mysql_conn.close()
+
+
+@router.post("/resources/upload")
+async def upload_resource(
+    file: UploadFile = File(...),
+    resource_type: str = Form(...),
+    prompt: str = Form(None),
+    _: str = Depends(verify_api_key)
+):
+    """上传图片或视频，自动添加到收藏"""
+    IMAGE_EXTS = {'.jpg', '.jpeg', '.png', '.webp', '.gif'}
+    VIDEO_EXTS = {'.mp4', '.webm', '.mov', '.avi'}
+
+    original_name = file.filename or 'upload'
+    ext = Path(original_name).suffix.lower()
+
+    if resource_type == 'image' and ext not in IMAGE_EXTS:
+        raise HTTPException(400, f"不支持的图片格式: {ext}")
+    if resource_type == 'video' and ext not in VIDEO_EXTS:
+        raise HTTPException(400, f"不支持的视频格式: {ext}")
+
+    filename = f"{uuid.uuid4().hex}{ext}"
+    local_path = UPLOADS_DIR / filename
+    UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
+
+    content = await file.read()
+    with open(local_path, 'wb') as f:
+        f.write(content)
+
+    url = f"/uploads/{filename}"
+    if COS_ENABLED:
+        try:
+            from api.services.cos_client import upload_file as cos_upload
+            url = cos_upload(local_path, 'uploads', filename)
+        except Exception as e:
+            logger.warning(f"COS upload failed: {e}, using local path")
+
+    conn = get_db()
+    cursor = conn.cursor()
+    try:
+        cursor.execute(
+            "INSERT INTO resources (resource_type, url, prompt, created_at) VALUES (%s, %s, %s, NOW())",
+            (resource_type, url, prompt)
+        )
+        resource_id = cursor.lastrowid
+        cursor.execute(
+            "INSERT INTO favorites (resource_id, note) VALUES (%s, NULL)",
+            (resource_id,)
+        )
+        conn.commit()
+        return {"success": True, "resource_id": resource_id, "url": url}
+    finally:
+        cursor.close()
+        conn.close()
+
+
+@router.get("/favorites/pose-associated")
+async def list_pose_associated_images(
+    page: int = Query(1, ge=1),
+    page_size: int = Query(50, ge=1, le=200),
+    _: str = Depends(verify_api_key)
+):
+    """获取所有已关联姿势的图片（不限于手动收藏）"""
+    try:
+        sqlite_conn = sqlite3.connect(str(POSE_DB_PATH))
+        sqlite_conn.row_factory = sqlite3.Row
+        sqlite_cursor = sqlite_conn.cursor()
+
+        sqlite_cursor.execute("SELECT COUNT(DISTINCT image_url) as total FROM pose_reference_images")
+        total = sqlite_cursor.fetchone()['total']
+
+        offset = (page - 1) * page_size
+        sqlite_cursor.execute("""
+            SELECT pri.image_url,
+                   GROUP_CONCAT(p.pose_key, ',') as pose_keys,
+                   GROUP_CONCAT(COALESCE(p.name_cn, p.name_en, p.pose_key), ',') as pose_names
+            FROM pose_reference_images pri
+            JOIN poses p ON pri.pose_id = p.id
+            GROUP BY pri.image_url
+            ORDER BY pri.image_url
+            LIMIT ? OFFSET ?
+        """, (page_size, offset))
+
+        rows = sqlite_cursor.fetchall()
+        sqlite_cursor.close()
+        sqlite_conn.close()
+
+        VIDEO_EXTS = {'.mp4', '.webm', '.mov', '.avi'}
+        result = []
+        for row in rows:
+            image_url = row['image_url']
+            pose_keys = [k for k in (row['pose_keys'] or '').split(',') if k]
+            pose_names = [n for n in (row['pose_names'] or '').split(',') if n]
+            resource_type = 'video' if Path(image_url).suffix.lower() in VIDEO_EXTS else 'image'
+            result.append({
+                'url': image_url,
+                'resource_type': resource_type,
+                'pose_keys': pose_keys,
+                'pose_names': pose_names,
+            })
+
+        return {
+            'items': result,
+            'total': total,
+            'page': page,
+            'page_size': page_size,
+            'total_pages': (total + page_size - 1) // page_size
+        }
+    except Exception as e:
+        raise HTTPException(500, f"查询失败: {str(e)}")
 
 
 @router.get("/resources/{resource_id}")

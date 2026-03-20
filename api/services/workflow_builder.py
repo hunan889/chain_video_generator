@@ -228,25 +228,42 @@ def _has_conflict(word: str, prompt_lower: str) -> bool:
 
 
 def _inject_trigger_words(prompt: str, loras: list[LoraInput]) -> str:
-    """Collect trigger words and example tags from selected LoRAs and prepend to prompt."""
+    """Collect trigger words and trigger_prompt from selected LoRAs and prepend to prompt.
+
+    Priority:
+    1. lora.trigger_words (from DB) - short activation keywords
+    2. lora.trigger_prompt (from DB) - example prompts
+    3. Fallback: loras.yaml keyword map
+    """
     kw_map = _load_lora_keywords()
-    all_words = []
+    all_parts = []
     prompt_lower = prompt.lower()
+
     for lora in loras:
-        for word in kw_map.get(lora.name, []):
-            # Skip extremely long text blocks
-            if len(word) > 200:
-                continue
-            if word.lower() in prompt_lower or word in all_words:
-                continue
-            # Skip words that conflict with the prompt
-            if _has_conflict(word, prompt_lower):
-                logger.debug("Skipping conflicting trigger '%s' for prompt", word)
-                continue
-            all_words.append(word)
-    if not all_words:
+        if lora.trigger_words or lora.trigger_prompt:
+            # Use DB fields
+            for word in lora.trigger_words:
+                if word and word.lower() not in prompt_lower and word not in all_parts:
+                    all_parts.append(word)
+            if lora.trigger_prompt and lora.trigger_prompt.strip():
+                tp = lora.trigger_prompt.strip()
+                if tp not in all_parts:
+                    all_parts.append(tp)
+        else:
+            # Fallback to loras.yaml keyword map
+            for word in kw_map.get(lora.name, []):
+                if len(word) > 200:
+                    continue
+                if word.lower() in prompt_lower or word in all_parts:
+                    continue
+                if _has_conflict(word, prompt_lower):
+                    logger.debug("Skipping conflicting trigger '%s' for prompt", word)
+                    continue
+                all_parts.append(word)
+
+    if not all_parts:
         return prompt
-    return "\n".join(all_words) + "\n\n" + prompt
+    return "\n\n".join(all_parts) + "\n\n" + prompt
 
 
 _lora_name_map: dict[str, str] = _load_lora_name_map()

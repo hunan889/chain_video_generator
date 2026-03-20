@@ -33,6 +33,8 @@ class ImageMode(str, Enum):
 class LoraInput(BaseModel):
     name: str
     strength: float = Field(default=0.8, ge=-2.0, le=2.0)
+    trigger_words: list[str] = Field(default_factory=list)
+    trigger_prompt: Optional[str] = None
 
 
 class FaceSwapConfig(BaseModel):

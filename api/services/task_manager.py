@@ -1164,6 +1164,9 @@ class TaskManager:
                     upscale=seg.get("upscale", False),
                     loras=seg.get("loras", []),
                 )
+                # Inject post-processing nodes (upscale, RIFE, MMAudio) if enabled
+                if seg.get("enable_upscale") or seg.get("enable_interpolation") or seg.get("enable_mmaudio"):
+                    workflow = _inject_story_postproc(workflow, seg)
                 return workflow
 
             if not image_filename:

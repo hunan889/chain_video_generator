@@ -1,16 +1,22 @@
 """
 LORA管理API路由
 """
+import asyncio
 import logging
 import json
 import os
-from fastapi import APIRouter, Depends, HTTPException
+import re
+import uuid
+from pathlib import Path
+from typing import Dict, Optional
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from pydantic import BaseModel
-from typing import Optional
 from api.middleware.auth import verify_api_key
 from api.services.lora_classifier import get_lora_classifier
 from api.services.content_suggester import get_content_suggester
+import aiohttp
 import pymysql
+from api.config import COMFYUI_PATH, CIVITAI_API_TOKEN
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -42,6 +48,7 @@ class LoraUpdateRequest(BaseModel):
     custom_tags: Optional[list[str]] = None
     enabled: Optional[bool] = None
     trigger_prompt: Optional[str] = None
+    trigger_words: Optional[list[str]] = None
 
 
 class BatchSuggestResponse(BaseModel):
@@ -152,6 +159,11 @@ async def update_lora_metadata(lora_id: str, req: LoraUpdateRequest, _=Depends(v
                 updates.append("trigger_prompt = %s")
                 params.append(req.trigger_prompt)
 
+            if req.trigger_words is not None:
+                import json
+                updates.append("trigger_words = %s")
+                params.append(json.dumps(req.trigger_words))
+
             if not updates:
                 cursor.close()
                 conn.close()
@@ -207,6 +219,11 @@ async def update_lora_metadata(lora_id: str, req: LoraUpdateRequest, _=Depends(v
         if req.trigger_prompt is not None:
             updates.append("trigger_prompt = %s")
             params.append(req.trigger_prompt)
+
+        if req.trigger_words is not None:
+            import json
+            updates.append("trigger_words = %s")
+            params.append(json.dumps(req.trigger_words))
 
         if not updates:
             raise HTTPException(400, "No fields to update")
@@ -505,3 +522,196 @@ async def update_lora_poses(lora_id: int, request: _PoseKeysRequest, _=Depends(v
 
     except Exception as e:
         raise HTTPException(500, f"更新失败: {str(e)}")
+
+
+# ─── LORA 下载功能 ───────────────────────────────────────────────
+
+_IMAGE_LORA_DIR = Path('/home/gime/soft/lora/stable-diffusion-webui-forge/models/Lora')
+_download_tasks: Dict[str, dict] = {}
+
+
+class LoraDownloadRequest(BaseModel):
+    url: str
+    lora_type: str  # "video" or "image"
+    name: Optional[str] = None
+
+
+def _civitai_version_id(url: str) -> Optional[str]:
+    """从CivitAI URL中提取版本ID"""
+    m = re.search(r'civitai\.com/api/download/models/(\d+)', url)
+    if m:
+        return m.group(1)
+    m = re.search(r'modelVersionId=(\d+)', url)
+    if m:
+        return m.group(1)
+    return None
+
+
+async def _fetch_civitai_meta(version_id: str) -> dict:
+    headers = {}
+    if CIVITAI_API_TOKEN:
+        headers['Authorization'] = f'Bearer {CIVITAI_API_TOKEN}'
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(
+                f'https://civitai.com/api/v1/model-versions/{version_id}',
+                headers=headers, timeout=aiohttp.ClientTimeout(total=15)
+            ) as resp:
+                if resp.status == 200:
+                    return await resp.json()
+    except Exception:
+        pass
+    return {}
+
+
+async def _do_download(task_id: str, url: str, lora_type: str, name: Optional[str]):
+    task = _download_tasks[task_id]
+    try:
+        # Determine save directory
+        save_dir = _IMAGE_LORA_DIR if lora_type == 'image' else (COMFYUI_PATH / 'models' / 'loras')
+        save_dir.mkdir(parents=True, exist_ok=True)
+
+        # CivitAI: fetch metadata + build download URL
+        civitai_meta = {}
+        version_id = _civitai_version_id(url)
+        if version_id:
+            civitai_meta = await _fetch_civitai_meta(version_id)
+            # Build authenticated download URL
+            dl_url = f'https://civitai.com/api/download/models/{version_id}'
+            if CIVITAI_API_TOKEN:
+                dl_url += f'?token={CIVITAI_API_TOKEN}'
+        else:
+            dl_url = url
+
+        # Resolve filename
+        if name:
+            filename = name if name.endswith('.safetensors') else name + '.safetensors'
+        elif civitai_meta:
+            # Use CivitAI model name
+            model_name = civitai_meta.get('model', {}).get('name', 'lora')
+            filename = re.sub(r'[^\w\-.]', '_', model_name)[:80] + '.safetensors'
+        else:
+            filename = f'lora_{task_id[:8]}.safetensors'
+
+        task['filename'] = filename
+        save_path = save_dir / filename
+
+        # Stream download with progress
+        headers = {}
+        if CIVITAI_API_TOKEN and 'civitai.com' in dl_url:
+            headers['Authorization'] = f'Bearer {CIVITAI_API_TOKEN}'
+
+        async with aiohttp.ClientSession() as session:
+            async with session.get(dl_url, headers=headers, timeout=aiohttp.ClientTimeout(total=3600)) as resp:
+                if resp.status != 200:
+                    task['status'] = 'error'
+                    task['error'] = f'HTTP {resp.status}'
+                    return
+
+                # Try to get filename from Content-Disposition
+                cd = resp.headers.get('Content-Disposition', '')
+                cd_match = re.search(r'filename="?([^"\n]+)', cd)
+                if cd_match and not name:
+                    cd_filename = cd_match.group(1).strip()
+                    if cd_filename:
+                        filename = cd_filename
+                        task['filename'] = filename
+                        save_path = save_dir / filename
+
+                total_size = int(resp.headers.get('Content-Length', 0))
+                task['total_size'] = total_size
+                downloaded = 0
+
+                with open(save_path, 'wb') as f:
+                    async for chunk in resp.content.iter_chunked(1024 * 256):
+                        f.write(chunk)
+                        downloaded += len(chunk)
+                        task['downloaded'] = downloaded
+                        if total_size > 0:
+                            task['progress'] = round(downloaded / total_size * 100, 1)
+                        else:
+                            task['progress'] = -1  # unknown size
+
+        # Insert metadata into DB
+        stem = Path(filename).stem
+        display_name = name or (civitai_meta.get('model', {}).get('name') if civitai_meta else None) or stem
+        description = civitai_meta.get('description', '') or ''
+        preview_url = ''
+        if civitai_meta.get('images'):
+            preview_url = civitai_meta['images'][0].get('url', '')
+        tags_raw = civitai_meta.get('trainedWords', []) if civitai_meta else []
+        civitai_id = int(version_id) if version_id else None
+
+        conn = pymysql.connect(**DB_CONFIG)
+        cursor = conn.cursor()
+        try:
+            if lora_type == 'video':
+                cursor.execute("""
+                    INSERT INTO lora_metadata
+                        (name, file, description, tags, trigger_words, preview_url, civitai_id, enabled)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, 1)
+                    ON DUPLICATE KEY UPDATE name=VALUES(name), preview_url=VALUES(preview_url)
+                """, (
+                    display_name, stem,
+                    description[:2000] if description else '',
+                    json.dumps(tags_raw), json.dumps(tags_raw),
+                    preview_url, civitai_id
+                ))
+            else:
+                cursor.execute("""
+                    INSERT INTO image_lora_metadata
+                        (name, file, filepath, description, tags, preview_url, enabled)
+                    VALUES (%s, %s, %s, %s, %s, %s, 1)
+                    ON DUPLICATE KEY UPDATE name=VALUES(name), preview_url=VALUES(preview_url)
+                """, (
+                    display_name, stem, str(save_path),
+                    description[:2000] if description else '',
+                    json.dumps(tags_raw),
+                    preview_url
+                ))
+            conn.commit()
+        finally:
+            cursor.close()
+            conn.close()
+
+        task['status'] = 'done'
+        task['progress'] = 100
+        logger.info(f"LORA download complete: {filename}")
+
+    except Exception as e:
+        logger.error(f"LORA download failed [{task_id}]: {e}")
+        task['status'] = 'error'
+        task['error'] = str(e)
+
+
+@router.post("/loras/download-url")
+async def start_lora_download(
+    request: LoraDownloadRequest,
+    background_tasks: BackgroundTasks,
+    _=Depends(verify_api_key)
+):
+    """从URL下载LORA文件（支持CivitAI及任意直链）"""
+    if request.lora_type not in ('video', 'image'):
+        raise HTTPException(400, "lora_type must be 'video' or 'image'")
+
+    task_id = uuid.uuid4().hex
+    _download_tasks[task_id] = {
+        'task_id': task_id,
+        'status': 'pending',
+        'progress': 0,
+        'filename': '',
+        'downloaded': 0,
+        'total_size': 0,
+        'error': None,
+    }
+    background_tasks.add_task(_do_download, task_id, request.url, request.lora_type, request.name)
+    return {'task_id': task_id}
+
+
+@router.get("/loras/download-url/{task_id}")
+async def get_lora_download_progress(task_id: str, _=Depends(verify_api_key)):
+    """查询LORA下载进度（download-url任务）"""
+    task = _download_tasks.get(task_id)
+    if not task:
+        raise HTTPException(404, "下载任务不存在")
+    return task

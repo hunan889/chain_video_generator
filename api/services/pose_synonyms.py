@@ -68,6 +68,21 @@ POSE_SYNONYMS = {
         "lying side",
         "侧卧式"
     ],
+    "footjob": [
+        "foot job",
+        "feet job",
+        "using feet",
+        "using foot",
+        "feet on penis",
+        "foot on cock",
+        "toes on cock",
+        "feet stimulation",
+        "foot fetish",
+        "foot sex",
+        "sex with feet",
+        "feet play",
+        "足交"
+    ],
     "paizuri": [
         "titjob",
         "breast sex",

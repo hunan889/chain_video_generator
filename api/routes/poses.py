@@ -2,7 +2,7 @@
 姿势API路由
 """
 from fastapi import APIRouter, HTTPException, Depends
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from typing import List, Optional, Dict
 from api.services.pose_matcher import get_pose_matcher, PoseConfig
 from api.services.pose_recommender import get_pose_recommender
@@ -153,6 +153,8 @@ class LoraItem(BaseModel):
     lora_id: int
     lora_name: str
     weight: float
+    trigger_words: list = Field(default_factory=list)
+    trigger_prompt: Optional[str] = None
 
 
 class WorkflowRecommendResponse(BaseModel):
@@ -232,7 +234,9 @@ async def recommend_workflow(
             LoraItem(
                 lora_id=lora['lora_id'],
                 lora_name=lora.get('lora_name', ''),
-                weight=lora.get('recommended_weight', 1.0)
+                weight=lora.get('recommended_weight', 1.0),
+                trigger_words=lora.get('trigger_words') or [],
+                trigger_prompt=lora.get('trigger_prompt') or None,
             )
             for lora in image_loras_dict.values()
         ]
@@ -241,7 +245,9 @@ async def recommend_workflow(
             LoraItem(
                 lora_id=lora['lora_id'],
                 lora_name=lora.get('lora_name', ''),
-                weight=lora.get('recommended_weight', 1.0)
+                weight=lora.get('recommended_weight', 1.0),
+                trigger_words=lora.get('trigger_words') or [],
+                trigger_prompt=lora.get('trigger_prompt') or None,
             )
             for lora in video_loras_dict.values()
         ]
@@ -269,14 +275,18 @@ async def recommend_workflow(
         optimizer = PromptOptimizer()
 
         # 准备LORA信息用于优化
-        lora_info = [
-            {
+        lora_info = []
+        for lora in video_loras_dict.values():
+            tw = lora.get('trigger_words') or []
+            tp = lora.get('trigger_prompt') or ''
+            example_prompts = list(lora.get('example_prompts') or [])
+            if tp.strip() and tp.strip() not in example_prompts:
+                example_prompts.insert(0, tp.strip())
+            lora_info.append({
                 "name": lora.get('lora_name', ''),
-                "description": lora.get('description', ''),
-                "example_prompts": lora.get('example_prompts', [])
-            }
-            for lora in video_loras_dict.values()
-        ]
+                "description": ', '.join(tw) if tw else lora.get('description', ''),
+                "example_prompts": example_prompts
+            })
 
         result = await optimizer.optimize(
             prompt=request.prompt,

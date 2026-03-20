@@ -131,6 +131,34 @@ h1{text-align:center;color:#7c83ff;margin-bottom:24px;font-size:1.6em}
 
 .empty{text-align:center;padding:60px 20px;color:#666;font-size:16px}
 .loading{text-align:center;padding:60px 20px;color:#7c83ff;font-size:16px}
+
+/* Toolbar */
+.toolbar{display:flex;justify-content:flex-end;margin-bottom:12px;gap:8px}
+.btn-upload{padding:8px 18px;background:#0f3460;border:1px solid #7c83ff;border-radius:8px;color:#7c83ff;cursor:pointer;font-size:13px;transition:all 0.2s}
+.btn-upload:hover{background:#1a4a80;color:#fff}
+
+/* Upload Modal */
+.upload-modal{background:#1a1a2e;border:1px solid #333;border-radius:12px;width:90%;max-width:560px;display:flex;flex-direction:column}
+.drop-zone{border:2px dashed #444;border-radius:8px;padding:40px 20px;text-align:center;cursor:pointer;transition:all 0.2s;color:#888;font-size:14px;margin-bottom:16px}
+.drop-zone.drag-over{border-color:#7c83ff;background:rgba(124,131,255,0.08);color:#7c83ff}
+.drop-zone.has-file{border-color:#4ade80;background:rgba(74,222,128,0.06);color:#4ade80}
+.upload-progress{margin-top:12px;display:none}
+.progress-bar-wrap{background:#0a0a23;border-radius:6px;height:8px;overflow:hidden;margin-top:6px}
+.progress-bar-fill{height:8px;background:#7c83ff;border-radius:6px;transition:width 0.3s;width:0%}
+.upload-prompt-input{width:100%;padding:10px;background:#0a0a23;border:1px solid #444;border-radius:6px;color:#e0e0e0;font-size:13px;resize:vertical;min-height:60px;margin-top:12px}
+.upload-prompt-input:focus{outline:none;border-color:#7c83ff}
+
+/* LORA Download Modal */
+.lora-dl-modal{background:#1a1a2e;border:1px solid #333;border-radius:12px;width:90%;max-width:560px;display:flex;flex-direction:column}
+.lora-dl-input{width:100%;padding:10px;background:#0a0a23;border:1px solid #444;border-radius:6px;color:#e0e0e0;font-size:13px;margin-bottom:12px}
+.lora-dl-input:focus{outline:none;border-color:#7c83ff}
+.lora-type-select{width:100%;padding:10px;background:#0a0a23;border:1px solid #444;border-radius:6px;color:#e0e0e0;font-size:13px;margin-bottom:12px}
+.lora-type-select:focus{outline:none;border-color:#7c83ff}
+.dl-progress-wrap{margin-top:8px;display:none}
+.dl-status-text{font-size:12px;color:#aaa;margin-top:6px}
+
+/* Pose-associated badge */
+.pose-assoc-badge{display:inline-block;padding:2px 7px;background:#1a3a2e;border:1px solid #4ade80;border-radius:4px;font-size:11px;color:#4ade80;margin-right:4px;margin-bottom:4px}
 </style>
 </head>
 <body>
@@ -147,7 +175,11 @@ h1{text-align:center;color:#7c83ff;margin-bottom:24px;font-size:1.6em}
 <div class="tab" data-type="pose_image" onclick="switchType('pose_image')">姿势图片</div>
 <div class="tab" data-type="video_lora" onclick="switchType('video_lora')">视频LORA</div>
 <div class="tab" data-type="image_lora" onclick="switchType('image_lora')">图片LORA</div>
+<div class="tab" data-type="pose_associated" onclick="switchType('pose_associated')">姿势关联图片</div>
 </div>
+
+<!-- Toolbar -->
+<div class="toolbar" id="toolbar"></div>
 
 <!-- Grid -->
 <div class="grid" id="grid"></div>
@@ -155,6 +187,60 @@ h1{text-align:center;color:#7c83ff;margin-bottom:24px;font-size:1.6em}
 <!-- Pagination -->
 <div class="pagination" id="pagination"></div>
 
+</div>
+
+<!-- Upload Modal -->
+<div class="modal-overlay" id="uploadModal">
+  <div class="upload-modal">
+    <div class="modal-header">
+      <h3 id="uploadModalTitle">上传文件</h3>
+      <button class="modal-close" onclick="closeUploadModal()">&times;</button>
+    </div>
+    <div class="modal-body">
+      <div class="drop-zone" id="dropZone" onclick="document.getElementById('fileInput').click()">
+        <div id="dropZoneText">点击或拖拽文件到此处</div>
+        <input type="file" id="fileInput" style="display:none" onchange="onFileSelected(event)">
+      </div>
+      <textarea class="upload-prompt-input" id="uploadPrompt" placeholder="输入prompt描述（可选）"></textarea>
+      <div class="upload-progress" id="uploadProgress">
+        <div style="font-size:12px;color:#aaa" id="uploadProgressText">上传中...</div>
+        <div class="progress-bar-wrap"><div class="progress-bar-fill" id="uploadProgressBar"></div></div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn-secondary" onclick="closeUploadModal()">取消</button>
+      <button class="btn-primary" id="uploadConfirmBtn" onclick="confirmUpload()">上传</button>
+    </div>
+  </div>
+</div>
+
+<!-- LORA Download Modal -->
+<div class="modal-overlay" id="loraDownloadModal">
+  <div class="lora-dl-modal">
+    <div class="modal-header">
+      <h3>从链接添加 LORA</h3>
+      <button class="modal-close" onclick="closeLoraDownloadModal()">&times;</button>
+    </div>
+    <div class="modal-body">
+      <label style="font-size:12px;color:#aaa;display:block;margin-bottom:6px">下载链接（支持 CivitAI 及任意直链）</label>
+      <input class="lora-dl-input" id="loraDownloadUrl" type="text" placeholder="https://civitai.com/models/...">
+      <label style="font-size:12px;color:#aaa;display:block;margin-bottom:6px">LORA 类型</label>
+      <select class="lora-type-select" id="loraDownloadType">
+        <option value="video">视频 LORA</option>
+        <option value="image">图片 LORA</option>
+      </select>
+      <label style="font-size:12px;color:#aaa;display:block;margin-bottom:6px">自定义名称（可选，默认从链接解析）</label>
+      <input class="lora-dl-input" id="loraDownloadName" type="text" placeholder="留空自动命名">
+      <div class="dl-progress-wrap" id="dlProgressWrap">
+        <div class="progress-bar-wrap"><div class="progress-bar-fill" id="dlProgressBar"></div></div>
+        <div class="dl-status-text" id="dlStatusText">准备下载...</div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn-secondary" onclick="closeLoraDownloadModal()">取消</button>
+      <button class="btn-primary" id="loraDownloadBtn" onclick="startLoraDownload()">开始下载</button>
+    </div>
+  </div>
 </div>
 
 <!-- Edit Modal -->
@@ -257,10 +343,15 @@ function switchType(type) {
     }
   });
 
+  renderToolbar();
   loadFavorites();
 }
 
 async function loadFavorites() {
+  if (currentType === 'pose_associated') {
+    return loadPoseAssociated();
+  }
+
   const grid = document.getElementById('grid');
   grid.innerHTML = '<div class="loading">加载中...</div>';
 
@@ -483,6 +574,11 @@ function createLoraCard(lora) {
       : `<img src="${escapeHtml(lora.preview_url)}" alt="LORA Preview">`)
     : `<div style="display:flex;align-items:center;justify-content:center;height:100%;color:#666;">No Preview</div>`;
 
+  const tw = Array.isArray(lora.trigger_words) ? lora.trigger_words.join(', ')
+    : (typeof lora.trigger_words === 'string' ? (() => { try { return JSON.parse(lora.trigger_words).join(', '); } catch(e) { return lora.trigger_words || ''; } })()
+    : '');
+  const loraType = lora.lora_type === 'video' ? 'video_lora' : 'image_lora';
+
   return `
     <div class="resource-card">
       <div class="card-badges">
@@ -492,9 +588,18 @@ function createLoraCard(lora) {
       <div class="card-media">${previewHtml}</div>
       <div class="card-body">
         <div class="card-title">${escapeHtml(lora.name || `LORA #${lora.lora_id}`)}</div>
-        <div class="card-prompt">${escapeHtml(lora.description || lora.trigger_prompt || '')}</div>
-        <div class="card-poses" id="pose-badges-lora-${lora.lora_id}"></div>
-        <div class="card-meta">已启用</div>
+        <div style="margin-bottom:6px">
+          <label style="font-size:11px;color:#9ca3af;display:block;margin-bottom:3px">Trigger Words</label>
+          <input type="text" value="${escapeHtml(tw)}" placeholder="逗号分隔，如: titJob, paizuri"
+            style="width:100%;padding:5px 7px;background:#0a0a23;border:1px solid #333;border-radius:4px;color:#e0e0e0;font-size:12px"
+            onchange="saveLoraField(${lora.lora_id}, 'trigger_words', this.value)">
+        </div>
+        <div style="margin-bottom:6px">
+          <label style="font-size:11px;color:#9ca3af;display:block;margin-bottom:3px">Trigger Prompt</label>
+          <textarea placeholder="触发提示词..."
+            style="width:100%;padding:5px 7px;background:#0a0a23;border:1px solid #333;border-radius:4px;color:#e0e0e0;font-size:12px;min-height:60px;resize:vertical;font-family:inherit"
+            onchange="saveLoraField(${lora.lora_id}, 'trigger_prompt', this.value)">${escapeHtml(lora.trigger_prompt || '')}</textarea>
+        </div>
         <div class="card-poses" id="pose-badges-lora-${lora.lora_id}"></div>
         <div class="pose-association-inline">
           <label>🎭 关联姿势</label>
@@ -605,6 +710,7 @@ function formatDate(dateStr) {
 // Initialize
 loadAllPoses();
 loadStats();
+renderToolbar();
 loadFavorites();
 
 // Edit Modal
@@ -655,9 +761,15 @@ async function loadLoraEdit(loraId, container) {
     });
     const lora = await response.json();
 
+    const tw = Array.isArray(lora.trigger_words) ? lora.trigger_words.join(', ') :
+      (typeof lora.trigger_words === 'string' ? JSON.parse(lora.trigger_words || '[]').join(', ') : '');
     container.innerHTML = `
       <div class="edit-field">
-        <label>触发提示词</label>
+        <label>Trigger Words <span style="font-size:11px;color:#9ca3af">（逗号分隔）</span></label>
+        <input type="text" id="edit-trigger-words" placeholder="例如: titJob, paizuri, girlMove" value="${tw}">
+      </div>
+      <div class="edit-field">
+        <label>触发提示词 (Trigger Prompt)</label>
         <textarea id="edit-trigger-prompt" placeholder="输入触发提示词...">${lora.trigger_prompt || ''}</textarea>
       </div>
     `;
@@ -689,8 +801,29 @@ async function saveResourceEdit() {
   return;
 }
 
+async function saveLoraField(loraId, field, value) {
+  const body = {};
+  if (field === 'trigger_words') {
+    body.trigger_words = value ? value.split(',').map(s => s.trim()).filter(s => s) : [];
+  } else {
+    body[field] = value;
+  }
+  try {
+    const res = await fetch(`/api/v1/admin/loras/${loraId}`, {
+      method: 'PATCH',
+      headers: { 'X-API-Key': API_KEY, 'Content-Type': 'application/json' },
+      body: JSON.stringify(body)
+    });
+    if (!res.ok) throw new Error('保存失败');
+  } catch (e) {
+    alert('保存失败: ' + e.message);
+  }
+}
+
 async function saveLoraEdit() {
   const triggerPrompt = document.getElementById('edit-trigger-prompt').value.trim();
+  const twRaw = document.getElementById('edit-trigger-words').value.trim();
+  const triggerWords = twRaw ? twRaw.split(',').map(s => s.trim()).filter(s => s) : [];
 
   const response = await fetch(`/api/v1/admin/loras/${currentEditId}`, {
     method: 'PATCH',
@@ -699,7 +832,8 @@ async function saveLoraEdit() {
       'Content-Type': 'application/json'
     },
     body: JSON.stringify({
-      trigger_prompt: triggerPrompt
+      trigger_prompt: triggerPrompt,
+      trigger_words: triggerWords
     })
   });
 
@@ -1021,6 +1155,254 @@ async function loadPoseBadges() {
   // Load pose badges for all visible items
   const favorites = document.querySelectorAll('.resource-card');
   // This will be called after render to populate pose badges
+}
+
+// ─── Toolbar ──────────────────────────────────────────────────────
+function renderToolbar() {
+  const tb = document.getElementById('toolbar');
+  if (!tb) return;
+  if (currentType === 'image' || currentType === 'video') {
+    tb.innerHTML = `<button class="btn-upload" onclick="openUploadModal('${currentType}')">+ 上传${currentType === 'image' ? '图片' : '视频'}</button>`;
+  } else if (currentType === 'video_lora' || currentType === 'image_lora') {
+    const lt = currentType === 'video_lora' ? 'video' : 'image';
+    tb.innerHTML = `<button class="btn-upload" onclick="openLoraDownloadModal('${lt}')">+ 从链接添加 LORA</button>`;
+  } else {
+    tb.innerHTML = '';
+  }
+}
+
+// ─── Upload Modal ─────────────────────────────────────────────────
+let _uploadResourceType = 'image';
+let _selectedFile = null;
+
+function openUploadModal(resourceType) {
+  _uploadResourceType = resourceType;
+  _selectedFile = null;
+  document.getElementById('uploadModalTitle').textContent = resourceType === 'image' ? '上传图片' : '上传视频';
+  const accept = resourceType === 'image' ? '.jpg,.jpeg,.png,.webp,.gif' : '.mp4,.webm,.mov';
+  document.getElementById('fileInput').accept = accept;
+  document.getElementById('fileInput').value = '';
+  document.getElementById('dropZoneText').textContent = '点击或拖拽文件到此处';
+  document.getElementById('dropZone').className = 'drop-zone';
+  document.getElementById('uploadPrompt').value = '';
+  document.getElementById('uploadProgress').style.display = 'none';
+  document.getElementById('uploadProgressBar').style.width = '0%';
+  document.getElementById('uploadConfirmBtn').disabled = false;
+  document.getElementById('uploadModal').classList.add('active');
+  setupDropZone();
+}
+
+function closeUploadModal() {
+  document.getElementById('uploadModal').classList.remove('active');
+  _selectedFile = null;
+}
+
+function setupDropZone() {
+  const dz = document.getElementById('dropZone');
+  dz.ondragover = e => { e.preventDefault(); dz.classList.add('drag-over'); };
+  dz.ondragleave = () => dz.classList.remove('drag-over');
+  dz.ondrop = e => {
+    e.preventDefault();
+    dz.classList.remove('drag-over');
+    const f = e.dataTransfer.files[0];
+    if (f) setSelectedFile(f);
+  };
+}
+
+function onFileSelected(event) {
+  const f = event.target.files[0];
+  if (f) setSelectedFile(f);
+}
+
+function setSelectedFile(f) {
+  _selectedFile = f;
+  const dz = document.getElementById('dropZone');
+  dz.classList.add('has-file');
+  document.getElementById('dropZoneText').textContent = `已选择: ${f.name} (${(f.size/1024/1024).toFixed(2)} MB)`;
+}
+
+async function confirmUpload() {
+  if (!_selectedFile) { alert('请先选择文件'); return; }
+  const btn = document.getElementById('uploadConfirmBtn');
+  btn.disabled = true;
+  const progress = document.getElementById('uploadProgress');
+  const bar = document.getElementById('uploadProgressBar');
+  const text = document.getElementById('uploadProgressText');
+  progress.style.display = 'block';
+  text.textContent = '上传中...';
+  bar.style.width = '10%';
+
+  try {
+    const formData = new FormData();
+    formData.append('file', _selectedFile);
+    formData.append('resource_type', _uploadResourceType);
+    const prompt = document.getElementById('uploadPrompt').value.trim();
+    if (prompt) formData.append('prompt', prompt);
+
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', '/api/v1/resources/upload');
+    xhr.setRequestHeader('X-API-Key', API_KEY);
+    xhr.upload.onprogress = e => {
+      if (e.lengthComputable) bar.style.width = Math.round(e.loaded / e.total * 90) + '%';
+    };
+    await new Promise((resolve, reject) => {
+      xhr.onload = () => xhr.status < 300 ? resolve(JSON.parse(xhr.responseText)) : reject(new Error(xhr.responseText));
+      xhr.onerror = () => reject(new Error('网络错误'));
+      xhr.send(formData);
+    });
+    bar.style.width = '100%';
+    text.textContent = '上传成功！';
+    setTimeout(() => {
+      closeUploadModal();
+      loadStats();
+      loadFavorites();
+    }, 800);
+  } catch (e) {
+    text.textContent = '上传失败: ' + e.message;
+    bar.style.width = '0%';
+    btn.disabled = false;
+  }
+}
+
+// ─── LORA Download Modal ──────────────────────────────────────────
+let _loraDownloadTaskId = null;
+let _loraDownloadTimer = null;
+
+function openLoraDownloadModal(loraType) {
+  document.getElementById('loraDownloadUrl').value = '';
+  document.getElementById('loraDownloadName').value = '';
+  document.getElementById('loraDownloadType').value = loraType;
+  document.getElementById('dlProgressWrap').style.display = 'none';
+  document.getElementById('dlProgressBar').style.width = '0%';
+  document.getElementById('dlStatusText').textContent = '准备下载...';
+  document.getElementById('loraDownloadBtn').disabled = false;
+  document.getElementById('loraDownloadBtn').textContent = '开始下载';
+  document.getElementById('loraDownloadModal').classList.add('active');
+  _loraDownloadTaskId = null;
+  if (_loraDownloadTimer) clearInterval(_loraDownloadTimer);
+}
+
+function closeLoraDownloadModal() {
+  document.getElementById('loraDownloadModal').classList.remove('active');
+  if (_loraDownloadTimer) clearInterval(_loraDownloadTimer);
+  _loraDownloadTimer = null;
+  _loraDownloadTaskId = null;
+}
+
+async function startLoraDownload() {
+  const url = document.getElementById('loraDownloadUrl').value.trim();
+  if (!url) { alert('请输入下载链接'); return; }
+  const loraType = document.getElementById('loraDownloadType').value;
+  const name = document.getElementById('loraDownloadName').value.trim() || null;
+
+  const btn = document.getElementById('loraDownloadBtn');
+  btn.disabled = true;
+  btn.textContent = '提交中...';
+  document.getElementById('dlProgressWrap').style.display = 'block';
+  document.getElementById('dlStatusText').textContent = '正在提交下载任务...';
+
+  try {
+    const resp = await fetch('/api/v1/loras/download-url', {
+      method: 'POST',
+      headers: { 'X-API-Key': API_KEY, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ url, lora_type: loraType, name })
+    });
+    if (!resp.ok) throw new Error(await resp.text());
+    const data = await resp.json();
+    _loraDownloadTaskId = data.task_id;
+    btn.textContent = '下载中...';
+    _loraDownloadTimer = setInterval(pollLoraDownload, 1500);
+  } catch (e) {
+    document.getElementById('dlStatusText').textContent = '提交失败: ' + e.message;
+    btn.disabled = false;
+    btn.textContent = '重试';
+  }
+}
+
+async function pollLoraDownload() {
+  if (!_loraDownloadTaskId) return;
+  try {
+    const resp = await fetch(`/api/v1/loras/download-url/${_loraDownloadTaskId}`, {
+      headers: { 'X-API-Key': API_KEY }
+    });
+    if (!resp.ok) return;
+    const task = await resp.json();
+    const bar = document.getElementById('dlProgressBar');
+    const statusText = document.getElementById('dlStatusText');
+
+    if (task.progress >= 0) {
+      bar.style.width = task.progress + '%';
+    } else {
+      // Unknown size — animate
+      const cur = parseFloat(bar.style.width) || 0;
+      bar.style.width = Math.min(cur + 2, 90) + '%';
+    }
+
+    const mb = task.downloaded ? (task.downloaded / 1024 / 1024).toFixed(1) : '0';
+    const total = task.total_size ? (task.total_size / 1024 / 1024).toFixed(1) : '?';
+    const fname = task.filename ? task.filename : '';
+    statusText.textContent = task.status === 'done'
+      ? `下载完成: ${fname}`
+      : task.status === 'error'
+      ? `下载失败: ${task.error}`
+      : `${fname ? fname + ' — ' : ''}${mb} / ${total} MB`;
+
+    if (task.status === 'done') {
+      clearInterval(_loraDownloadTimer);
+      _loraDownloadTimer = null;
+      bar.style.width = '100%';
+      document.getElementById('loraDownloadBtn').textContent = '完成';
+      loadStats();
+      setTimeout(() => { closeLoraDownloadModal(); loadFavorites(); }, 2000);
+    } else if (task.status === 'error') {
+      clearInterval(_loraDownloadTimer);
+      _loraDownloadTimer = null;
+      document.getElementById('loraDownloadBtn').disabled = false;
+      document.getElementById('loraDownloadBtn').textContent = '重试';
+    }
+  } catch (e) {
+    console.error('Poll error:', e);
+  }
+}
+
+// ─── Pose-Associated Tab ──────────────────────────────────────────
+async function loadPoseAssociated() {
+  const grid = document.getElementById('grid');
+  grid.innerHTML = '<div class="loading">加载中...</div>';
+  try {
+    const params = new URLSearchParams({ page: currentPage, page_size: pageSize });
+    const resp = await fetch(`/api/v1/favorites/pose-associated?${params}`, {
+      headers: { 'X-API-Key': API_KEY }
+    });
+    if (!resp.ok) throw new Error(await resp.text());
+    const data = await resp.json();
+    totalPages = data.total_pages;
+    renderPoseAssociated(data.items);
+    renderPagination();
+  } catch (e) {
+    grid.innerHTML = `<div class="empty">加载失败: ${e.message}</div>`;
+  }
+}
+
+function renderPoseAssociated(items) {
+  const grid = document.getElementById('grid');
+  if (!items.length) { grid.innerHTML = '<div class="empty">暂无关联姿势的图片</div>'; return; }
+  grid.innerHTML = items.map(item => {
+    const isVideo = item.resource_type === 'video';
+    const poseNameBadges = (item.pose_names || []).map(n =>
+      `<span class="pose-assoc-badge">${escapeHtml(n)}</span>`
+    ).join('');
+    const media = isVideo
+      ? `<video src="${item.url}" muted playsinline style="width:100%;max-height:220px;object-fit:cover;border-radius:8px 8px 0 0" onmouseover="this.play()" onmouseout="this.pause()"></video>`
+      : `<img src="${item.url}" style="width:100%;max-height:220px;object-fit:cover;border-radius:8px 8px 0 0" loading="lazy">`;
+    return `<div class="resource-card">
+      ${media}
+      <div style="padding:12px">
+        <div style="font-size:11px;color:#aaa;margin-bottom:6px;word-break:break-all">${escapeHtml(item.url.split('/').pop())}</div>
+        <div>${poseNameBadges}</div>
+      </div>
+    </div>`;
+  }).join('');
 }
 
 </script>
