@@ -73,6 +73,12 @@ POSE_SYNONYMS = {
         "feet job",
         "using feet",
         "using foot",
+        "using her feet",
+        "using his feet",
+        "with her feet",
+        "with his feet",
+        "with her foot",
+        "with his foot",
         "feet on penis",
         "foot on cock",
         "toes on cock",
@@ -80,6 +86,7 @@ POSE_SYNONYMS = {
         "foot fetish",
         "foot sex",
         "sex with feet",
+        "sex with her feet",
         "feet play",
         "足交"
     ],
@@ -123,15 +130,27 @@ def get_synonyms(pose_key: str) -> list:
     return POSE_SYNONYMS.get(pose_key, [])
 
 
+# 匹配时忽略的代词和冠词
+_STOP_WORDS = {'her', 'his', 'a', 'an', 'the', 'their', 'its', 'my', 'your', 'our'}
+
+
+def _normalize(text: str) -> str:
+    """去除代词/冠词，便于宽松匹配"""
+    return ' '.join(w for w in text.lower().split() if w not in _STOP_WORDS)
+
+
 def expand_query(query: str) -> str:
     """扩展查询，添加同义词"""
     query_lower = query.lower()
+    query_normalized = _normalize(query_lower)
     expanded_terms = [query_lower]
 
-    # 检查是否包含同义词
+    # 检查是否包含同义词（支持精确匹配和去代词匹配）
     for pose_key, synonyms in POSE_SYNONYMS.items():
         for synonym in synonyms:
-            if synonym.lower() in query_lower:
+            synonym_lower = synonym.lower()
+            synonym_normalized = _normalize(synonym_lower)
+            if synonym_lower in query_lower or synonym_normalized in query_normalized:
                 # 添加姿势key和其他同义词
                 expanded_terms.append(pose_key)
                 expanded_terms.extend(synonyms)

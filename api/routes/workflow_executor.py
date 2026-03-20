@@ -446,7 +446,7 @@ async def _execute_workflow(workflow_id: str, req, task_manager):
             running_details = {
                 "mode": edit_mode,
                 "enable_reactor": enable_reactor,
-                "prompt": custom_prompt or get_default_seedream_prompt(edit_mode),
+                "prompt": (custom_prompt or get_default_seedream_prompt(edit_mode)) + (f". {req.user_prompt}" if req.user_prompt else ""),
                 "strength": strength,
                 "seed": seed,
                 "size": size,
@@ -584,7 +584,7 @@ async def _analyze_prompt(req, task_manager) -> Optional[dict]:
                     # Select the first (highest similarity) pose
                     selected_pose = pose_result.recommendations[0]
                     pose_keys = [selected_pose.pose_key]
-                    logger.info(f"Auto-selected pose: {selected_pose.pose_key} (similarity: {selected_pose.similarity:.3f})")
+                    logger.info(f"Auto-selected pose: {selected_pose.pose_key} (score: {selected_pose.score:.3f})")
             except Exception as e:
                 logger.warning(f"Auto pose recommendation failed: {e}")
 
@@ -949,11 +949,10 @@ async def _edit_first_frame(workflow_id: str, req, first_frame_url: str, size: s
         seed = _get_config(req, "stage3_seedream", "seed", None)
         # Use the passed size parameter (already detected from first frame)
 
-        # Use custom prompt or default prompt
-        if custom_prompt:
-            prompt = custom_prompt
-        else:
-            prompt = get_default_seedream_prompt(edit_mode)
+        # Use custom prompt or default prompt, always append user prompt if available
+        prompt = custom_prompt or get_default_seedream_prompt(edit_mode)
+        if req.user_prompt:
+            prompt = f"{prompt}. {req.user_prompt}"
 
         # Call SeeDream edit endpoint
         edit_req = SeeDreamEditRequest(
@@ -1079,23 +1078,27 @@ async def _generate_video(workflow_id: str, req, first_frame_url: str, analysis_
         steps = video_steps
         cfg = video_cfg
 
-        # Parse resolution (must be multiples of 16 for VAE)
-        if resolution == "720p_3:4" or resolution == "720p_3_4":
-            width, height = 608, 832
-        elif resolution == "720p_16:9" or resolution == "720p_16_9":
-            width, height = 1280, 720
-        elif resolution == "1080p_16:9" or resolution == "1080p_16_9":
-            width, height = 1920, 1080
-        elif resolution == "1080p_3:4" or resolution == "1080p_3_4":
-            width, height = 832, 1088  # 3:4 ratio at 1080p height
-        elif resolution == "480p_3:4" or resolution == "480p_3_4":
-            width, height = 352, 480  # 352 is closest 16-multiple to 360 (3:4 ratio ≈ 0.73)
-        elif resolution == "480p_16:9" or resolution == "480p_16_9":
-            width, height = 832, 480
+        # Parse resolution: auto-calculate from "<p>p_<w>_<h>" or "<p>p_<w>:<h>" pattern
+        # "p" value = shorter side for landscape, longer side for portrait
+        def _round16(v: float) -> int:
+            return max(16, int(round(v / 16)) * 16)
+
+        import re as _re
+        _res_match = _re.match(r'^(\d+)p[_:]?(\d+)[_:](\d+)$', resolution.replace('p_', 'p_').replace('p:', 'p_'))
+        if _res_match:
+            p_val = int(_res_match.group(1))
+            ar_w = int(_res_match.group(2))
+            ar_h = int(_res_match.group(3))
+            if ar_w >= ar_h:  # landscape or square: p = height
+                height = _round16(p_val)
+                width = _round16(p_val * ar_w / ar_h)
+            else:  # portrait: p = width
+                width = _round16(p_val)
+                height = _round16(p_val * ar_h / ar_w)
         else:
-            # Default fallback
             width, height = 832, 480
             logger.warning(f"[{workflow_id}] Unknown resolution '{resolution}', using default 832x480")
+        logger.info(f"[{workflow_id}] Resolution '{resolution}' -> target {width}x{height}")
 
         # Parse duration
         duration_seconds = float(duration.rstrip('s'))
@@ -1331,9 +1334,13 @@ async def _generate_video(workflow_id: str, req, first_frame_url: str, analysis_
                 chain_req.upscale_model = _upscale_model_map.get(raw_model, raw_model)
                 if chain_req.upscale_model != raw_model:
                     logger.warning(f"[VIDEO_PARAMS] {workflow_id} - upscale model '{raw_model}' remapped to '{chain_req.upscale_model}'")
-                resize_val = upscale_config.get("resize", 2)
-                chain_req.upscale_resize = f"{int(resize_val)}x" if isinstance(resize_val, (int, float)) else str(resize_val)
-                logger.info(f"[VIDEO_PARAMS] {workflow_id} - upscale enabled: model={chain_req.upscale_model}, resize={chain_req.upscale_resize}")
+                # Always use 1.5x upscale: generate at target/1.5, then upscale back to target
+                chain_req.upscale_resize = "1.5x"
+                gen_width = max(16, int(round(width / 1.5 / 16)) * 16)
+                gen_height = max(16, int(round(height / 1.5 / 16)) * 16)
+                chain_req.width = gen_width
+                chain_req.height = gen_height
+                logger.info(f"[VIDEO_PARAMS] {workflow_id} - upscale enabled: model={chain_req.upscale_model}, resize=1.5x, gen={gen_width}x{gen_height} -> target={width}x{height}")
 
             # Interpolation
             interp_config = postprocess_config.get("interpolation", {})

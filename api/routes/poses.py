@@ -208,11 +208,11 @@ async def recommend_workflow(
             all_video_loras.extend(config.video_loras)
             all_prompt_templates.extend(config.prompt_templates)
 
-        # 选择首帧图片（优先选择默认图片）
+        # 从所有参考图片中随机选择一张
         reference_image = None
         if all_reference_images:
-            default_img = next((img for img in all_reference_images if img.get('is_default')), None)
-            reference_image = (default_img or all_reference_images[0]).get('image_url')
+            import random
+            reference_image = random.choice(all_reference_images).get('image_url')
 
         # 去重并选择LORA（只选择enabled的，即前5个）
         image_loras_dict = {}

@@ -183,7 +183,9 @@ class PoseRecommender:
                     ))
 
         # 阶段3: LLM重排序（可选）
-        if use_llm and len(candidates) > 1:
+        # 如果已有高置信度候选（score >= 0.8），跳过LLM重排，直接信任匹配结果
+        top_score = candidates[0].score if candidates else 0
+        if use_llm and len(candidates) > 1 and top_score < 0.8:
             candidates = await self._llm_rerank(prompt, candidates)
 
         return candidates[:top_k]
@@ -308,15 +310,21 @@ class PoseRecommender:
         if len(candidates) <= 1:
             return candidates
 
-        poses_desc = "\n".join([f"{i+1}. {c.name_en} ({c.name_cn})" for i, c in enumerate(candidates)])
+        poses_desc = "\n".join([f"{i+1}. {c.name_en} ({c.name_cn}) [score:{c.score:.2f}]" for i, c in enumerate(candidates)])
 
-        user_prompt = f"""Query: "{prompt}"
+        user_prompt = f"""You are a sex position classifier. Given a user query, rank the candidate positions by relevance.
 
-Rank by relevance:
+Query: "{prompt}"
+
+Candidates (pre-ranked by keyword score):
 {poses_desc}
 
-Output format: [2,1,3]
-Your answer:"""
+Rules:
+- A candidate with score >= 0.8 is almost certainly correct, keep it at rank 1 unless another candidate is clearly more relevant.
+- Focus on the PRIMARY sexual act described in the query.
+- Output ONLY a JSON array like [1,2,3]. No explanation.
+
+Your answer (JSON array only):"""
 
         try:
             async with aiohttp.ClientSession() as session:
