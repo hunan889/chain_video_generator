@@ -155,6 +155,7 @@ class LoraItem(BaseModel):
     weight: float
     trigger_words: list = Field(default_factory=list)
     trigger_prompt: Optional[str] = None
+    noise_stage: Optional[str] = None
 
 
 class WorkflowRecommendResponse(BaseModel):
@@ -225,9 +226,11 @@ async def recommend_workflow(
         video_loras_dict = {}
         for lora in all_video_loras:
             lora_id = lora.get('lora_id')
-            # 只添加enabled的LORA
-            if lora_id and lora_id not in video_loras_dict and lora.get('enabled', True):
-                video_loras_dict[lora_id] = lora
+            lora_name = lora.get('lora_name', '')
+            # 只添加enabled的LORA，使用lora_name去重避免相同文件重复叠加
+            dedup_key = lora_name or lora_id
+            if dedup_key and dedup_key not in video_loras_dict and lora.get('enabled', True):
+                video_loras_dict[dedup_key] = lora
 
         # 构建LORA列表（不再限制为5个，因为已经在上面过滤了enabled的）
         image_loras = [
@@ -248,6 +251,7 @@ async def recommend_workflow(
                 weight=lora.get('recommended_weight', 1.0),
                 trigger_words=lora.get('trigger_words') or [],
                 trigger_prompt=lora.get('trigger_prompt') or None,
+                noise_stage=lora.get('noise_stage') or None,
             )
             for lora in video_loras_dict.values()
         ]

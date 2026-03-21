@@ -293,6 +293,24 @@
     .pose-lora-type {
       color: #7c83ff;
       font-size: 10px;
+      display: flex;
+      align-items: center;
+      gap: 4px;
+    }
+    .lora-weight-input {
+      width: 54px;
+      padding: 1px 4px;
+      background: #16162a;
+      border: 1px solid #3a3a5a;
+      border-radius: 3px;
+      color: #e0e0e0;
+      font-size: 10px;
+      -moz-appearance: textfield;
+    }
+    .lora-weight-input::-webkit-outer-spin-button,
+    .lora-weight-input::-webkit-inner-spin-button {
+      -webkit-appearance: none;
+      margin: 0;
     }
     .view-all-btn {
       display: inline-block;
@@ -987,7 +1005,7 @@
           const deleteHandler = lora.is_merged ? `deleteMultiplePoseLoras(${poseId}, [${lora.variant_ids.join(',')}])` : `deletePoseLora(${poseId}, ${lora.id})`;
           const isDisabled = lora.enabled === false || idx >= 5;
           const disabledClass = isDisabled ? ' disabled' : '';
-          return `<div class="pose-lora-item${disabledClass}" draggable="true" data-lora-id="${lora.id}" data-lora-index="${idx}"><span class="pose-lora-drag-handle">⋮⋮</span>${previewHtml}<div class="pose-lora-info">${nameHtml}<div class="pose-lora-type">权重: ${lora.recommended_weight || 1.0}</div></div><div class="pose-lora-delete" onclick="${deleteHandler}">删除</div></div>`;
+          return `<div class="pose-lora-item${disabledClass}" draggable="true" data-lora-id="${lora.id}" data-lora-index="${idx}"><span class="pose-lora-drag-handle">⋮⋮</span>${previewHtml}<div class="pose-lora-info">${nameHtml}<div class="pose-lora-type">权重: <input type="number" class="lora-weight-input" value="${lora.recommended_weight || 1.0}" min="0" max="2" step="0.05" onchange="updateLoraWeight(${poseId}, ${lora.id}, this.value)" onclick="event.stopPropagation()"></div></div><div class="pose-lora-delete" onclick="${deleteHandler}">删除</div></div>`;
         }).join('')}${!expanded && remaining > 0 ? `<div style="text-align:center;padding:8px;color:#7c83ff;font-size:11px;cursor:pointer;border:1px solid #444;border-radius:4px;margin-top:4px;" onclick="expandLoras(${poseId}, 'video')">还有 ${remaining} 个... 点击展开</div>` : ''}</div>`;
       } else {
         html += `<div class="pose-preview-empty">暂无视频LORA<br><button class="btn btn-secondary" onclick="openLoraSelector(${poseId}, 'video')" style="padding:4px 12px;font-size:11px;">添加视频LORA</button></div>`;
@@ -1008,7 +1026,7 @@
           const deleteHandler = lora.is_merged ? `deleteMultiplePoseLoras(${poseId}, [${lora.variant_ids.join(',')}])` : `deletePoseLora(${poseId}, ${lora.id})`;
           const isDisabled = lora.enabled === false || idx >= 5;
           const disabledClass = isDisabled ? ' disabled' : '';
-          return `<div class="pose-lora-item${disabledClass}" draggable="true" data-lora-id="${lora.id}" data-lora-index="${idx}"><span class="pose-lora-drag-handle">⋮⋮</span>${previewHtml}<div class="pose-lora-info">${nameHtml}<div class="pose-lora-type">权重: ${lora.recommended_weight || 1.0}</div></div><div class="pose-lora-delete" onclick="${deleteHandler}">删除</div></div>`;
+          return `<div class="pose-lora-item${disabledClass}" draggable="true" data-lora-id="${lora.id}" data-lora-index="${idx}"><span class="pose-lora-drag-handle">⋮⋮</span>${previewHtml}<div class="pose-lora-info">${nameHtml}<div class="pose-lora-type">权重: <input type="number" class="lora-weight-input" value="${lora.recommended_weight || 1.0}" min="0" max="2" step="0.05" onchange="updateLoraWeight(${poseId}, ${lora.id}, this.value)" onclick="event.stopPropagation()"></div></div><div class="pose-lora-delete" onclick="${deleteHandler}">删除</div></div>`;
         }).join('')}${!expanded && remaining > 0 ? `<div style="text-align:center;padding:8px;color:#7c83ff;font-size:11px;cursor:pointer;border:1px solid #444;border-radius:4px;margin-top:4px;" onclick="expandLoras(${poseId}, 'image')">还有 ${remaining} 个... 点击展开</div>` : ''}</div>`;
       } else {
         html += `<div class="pose-preview-empty">暂无图片LORA<br><button class="btn btn-secondary" onclick="openLoraSelector(${poseId}, 'image')" style="padding:4px 12px;font-size:11px;">添加图片LORA</button></div>`;
@@ -1676,6 +1694,29 @@
       }
     }
 
+    // 更新LORA强度
+    async function updateLoraWeight(poseId, associationId, newWeight) {
+      const weight = parseFloat(newWeight);
+      if (isNaN(weight) || weight < 0 || weight > 2) return;
+      try {
+        const response = await fetch(`/api/v1/admin/poses/loras/${associationId}`, {
+          method: 'PATCH',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-API-Key': 'wan22-default-key-change-me'
+          },
+          body: JSON.stringify({ recommended_weight: weight })
+        });
+        if (!response.ok) {
+          const error = await response.json();
+          alert('更新强度失败: ' + (error.detail || '未知错误'));
+        }
+      } catch (error) {
+        console.error('更新LORA强度失败:', error);
+        alert('更新失败: ' + error.message);
+      }
+    }
+
     // 删除姿势LORA关联
     async function deletePoseLora(poseId, loraId) {
       if (!confirm('确定要删除这个LORA关联吗？')) return;
@@ -2011,6 +2052,9 @@
         return;
       }
 
+      const weightInput = document.getElementById('loraInitialWeight');
+      const initialWeight = weightInput ? parseFloat(weightInput.value) || 1.0 : 1.0;
+
       try {
         let addedCount = 0;
 
@@ -2032,7 +2076,7 @@
                 pose_id: currentPoseIdForLora,
                 lora_id: id,
                 lora_type: currentLoraType,
-                recommended_weight: 1.0,
+                recommended_weight: initialWeight,
                 is_default: false
               })
             });
@@ -2257,7 +2301,9 @@
         <div class="resource-selector-footer-info">
           已选择 <span id="loraSelectedCount">0</span> 个LORA
         </div>
-        <div style="display:flex;gap:12px;">
+        <div style="display:flex;gap:12px;align-items:center;">
+          <label style="color:#aaa;font-size:12px;white-space:nowrap;">初始强度:</label>
+          <input type="number" id="loraInitialWeight" value="1.0" min="0" max="2" step="0.05" style="width:70px;padding:4px 8px;background:#16162a;border:1px solid #2a2a3a;border-radius:4px;color:#e0e0e0;font-size:13px;">
           <button class="btn btn-secondary" onclick="closeLoraSelector()">取消</button>
           <button class="btn btn-primary" onclick="confirmLoraSelection()">确认添加</button>
         </div>

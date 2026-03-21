@@ -247,6 +247,39 @@ async def remove_pose_reference_image(image_id: int):
         conn.close()
 
 
+class PoseLoraUpdateRequest(BaseModel):
+    recommended_weight: Optional[float] = None
+
+
+@router.patch("/admin/poses/loras/{association_id}")
+async def update_pose_lora(association_id: int, request: PoseLoraUpdateRequest):
+    """更新姿势LORA关联属性（如 recommended_weight）"""
+    conn = _get_connection()
+    cursor = conn.cursor()
+
+    try:
+        updates = []
+        params = []
+        if request.recommended_weight is not None:
+            updates.append("recommended_weight = ?")
+            params.append(request.recommended_weight)
+        if not updates:
+            raise HTTPException(status_code=400, detail="No fields to update")
+        params.append(association_id)
+        cursor.execute(f"UPDATE pose_loras SET {', '.join(updates)} WHERE id = ?", params)
+        conn.commit()
+        if cursor.rowcount == 0:
+            raise HTTPException(status_code=404, detail="LORA association not found")
+        return {"success": True, "message": "Updated successfully"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        conn.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        conn.close()
+
+
 @router.delete("/admin/poses/loras/{association_id}")
 async def remove_pose_lora(association_id: int):
     """删除姿势LORA关联"""

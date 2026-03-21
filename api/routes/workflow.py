@@ -4,7 +4,7 @@ import asyncio
 from pathlib import Path
 from typing import Optional, Literal
 from enum import Enum
-from fastapi import APIRouter, Depends, HTTPException, Body, UploadFile, File, Form
+from fastapi import APIRouter, Depends, HTTPException, Body, UploadFile, File, Form, Query
 from pydantic import BaseModel, Field
 from api.models.schemas import GenerateResponse
 from api.models.enums import GenerateMode, ModelType, TaskStatus
@@ -1432,6 +1432,45 @@ async def run_workflow_with_image(
         params=params_dict,
         model=model,
     )
+
+
+@router.get("/workflow/history")
+async def list_workflow_history(
+    page: int = Query(1, ge=1),
+    page_size: int = Query(24, ge=1, le=200),
+    _=Depends(verify_api_key)
+):
+    """List past workflow executions from Redis, newest first, paginated."""
+    from api.main import task_manager
+    keys = await task_manager.redis.keys("workflow:wf_*")
+    results = []
+    for key in keys:
+        data = await task_manager.redis.hgetall(key)
+        if not data:
+            continue
+        wf_id = key.split(":", 1)[1] if ":" in key else key
+        results.append({
+            "workflow_id": wf_id,
+            "status": data.get("status"),
+            "mode": data.get("mode"),
+            "user_prompt": data.get("user_prompt"),
+            "created_at": int(data.get("created_at", 0)),
+            "first_frame_url": data.get("first_frame_url"),
+            "edited_frame_url": data.get("edited_frame_url"),
+            "final_video_url": data.get("final_video_url"),
+            "error": data.get("error"),
+        })
+    results.sort(key=lambda x: x["created_at"], reverse=True)
+    total = len(results)
+    total_pages = max(1, (total + page_size - 1) // page_size)
+    start = (page - 1) * page_size
+    return {
+        "workflows": results[start:start + page_size],
+        "total": total,
+        "page": page,
+        "page_size": page_size,
+        "total_pages": total_pages,
+    }
 
 
 @router.get("/workflow/list")

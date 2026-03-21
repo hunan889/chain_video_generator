@@ -600,13 +600,34 @@ async def _analyze_prompt(req, task_manager) -> Optional[dict]:
             result = await recommend_workflow(recommend_req, _=None)
 
             # Convert to analysis_result format
+            image_loras = [{"lora_id": l.lora_id, "name": l.lora_name, "weight": l.weight, "trigger_words": l.trigger_words, "trigger_prompt": l.trigger_prompt} for l in result.image_loras]
+            video_loras = [{"lora_id": l.lora_id, "name": l.lora_name, "weight": l.weight, "trigger_words": l.trigger_words, "trigger_prompt": l.trigger_prompt, "noise_stage": l.noise_stage} for l in result.video_loras]
+
+            # Fetch preview_url from MySQL lora_metadata
+            all_lora_ids = [l["lora_id"] for l in image_loras + video_loras if l.get("lora_id")]
+            if all_lora_ids:
+                try:
+                    import pymysql
+                    from api.routes.recommend import DB_CONFIG
+                    conn = pymysql.connect(**DB_CONFIG)
+                    cursor = conn.cursor(pymysql.cursors.DictCursor)
+                    placeholders = ','.join(['%s'] * len(all_lora_ids))
+                    cursor.execute(f"SELECT id, preview_url FROM lora_metadata WHERE id IN ({placeholders})", all_lora_ids)
+                    preview_map = {row['id']: row['preview_url'] for row in cursor.fetchall()}
+                    cursor.close()
+                    conn.close()
+                    for l in image_loras + video_loras:
+                        l['preview_url'] = preview_map.get(l['lora_id'])
+                except Exception as e:
+                    logger.warning(f"Failed to fetch lora preview_urls: {e}")
+
             return {
                 "optimized_prompt": result.optimized_prompt,
                 "optimized_i2v_prompt": result.video_prompt,
                 "optimized_t2i_prompt": result.image_prompt,
                 "reference_image": result.reference_image,
-                "image_loras": [{"lora_id": l.lora_id, "name": l.lora_name, "weight": l.weight, "trigger_words": l.trigger_words, "trigger_prompt": l.trigger_prompt} for l in result.image_loras],
-                "video_loras": [{"lora_id": l.lora_id, "name": l.lora_name, "weight": l.weight, "trigger_words": l.trigger_words, "trigger_prompt": l.trigger_prompt} for l in result.video_loras],
+                "image_loras": image_loras,
+                "video_loras": video_loras,
                 "images": [{"url": result.reference_image}] if result.reference_image else [],
                 "pose_keys": pose_keys
             }
@@ -643,16 +664,12 @@ async def _acquire_first_frame(workflow_id: str, req, analysis_result: Optional[
         from api.services.video_frame_extractor import convert_video_url_to_frame
 
         # Determine first_frame_source based on mode
-        # In first_frame mode, uploaded image is always used as first frame
-        # In face_reference/full_body_reference modes, use first_frame_source from config or request
-        if req.mode != "first_frame":
-            first_frame_source = req.first_frame_source or _get_config(req, "stage2_first_frame", "first_frame_source", "select_existing")
-            logger.info(f"[{workflow_id}] Mode is {req.mode}, first_frame_source: {first_frame_source}")
+        # In first_frame mode with upload, use uploaded image directly
+        # Without upload, fall back to first_frame_source from config
+        first_frame_source = req.first_frame_source or _get_config(req, "stage2_first_frame", "first_frame_source", "select_existing")
+        logger.info(f"[{workflow_id}] Mode is {req.mode}, first_frame_source: {first_frame_source}")
 
-        if req.mode == "first_frame":
-            # Use uploaded first frame (only in first_frame mode)
-            if not req.uploaded_first_frame:
-                raise Exception("uploaded_first_frame is required when mode=first_frame")
+        if req.mode == "first_frame" and req.uploaded_first_frame:
 
             # Handle different input formats
             if req.uploaded_first_frame.startswith('data:image'):
@@ -1129,19 +1146,22 @@ async def _generate_video(workflow_id: str, req, first_frame_url: str, analysis_
             is_i2v_mode = image_mode in [ImageMode.FIRST_FRAME, ImageMode.FACE_REFERENCE, ImageMode.FULL_BODY_REFERENCE]
 
             # Filter LoRAs by mode
+            # Pose-based LoRAs have no 'mode' field; noise_stage may be high/low/single.
+            # For those, all returned video LoRAs are already appropriate (filtered at DB level).
             filtered_loras = []
             for lora in video_loras:
                 lora_mode = lora.get("mode", "").upper()
+                lora_noise = lora.get("noise_stage") or ""
                 if is_i2v_mode:
-                    # For I2V, prefer I2V LoRAs or single-stage LoRAs
-                    if lora_mode == "I2V" or lora.get("noise_stage") == "single":
+                    # Accept I2V-tagged, any noise_stage (high/low/single), or no mode set
+                    if lora_mode == "I2V" or lora_noise in ("high", "low", "single") or not lora_mode:
                         filtered_loras.append(lora)
                 else:
-                    # For T2V, prefer T2V LoRAs
-                    if lora_mode == "T2V":
+                    # For T2V, prefer T2V LoRAs or no mode set
+                    if lora_mode == "T2V" or not lora_mode:
                         filtered_loras.append(lora)
 
-            # If no filtered LoRAs, fall back to original list
+            # If still no filtered LoRAs, fall back to original list
             if not filtered_loras:
                 filtered_loras = video_loras
                 logger.warning(f"[{workflow_id}] No matching LoRAs found for mode {image_mode}, using all recommended")

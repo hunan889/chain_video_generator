@@ -422,6 +422,19 @@ h2{color:#7c83ff;margin-bottom:20px;font-size:1.4em}
 </div>
 
 <script>
+// Route external media through backend proxy to avoid Chrome PNA CORS issues
+const PROXY_HOSTS = ['image.civitai.com', 'cdn.imagime.co', 'imagime.co'];
+function toProxyUrl(url) {
+  if (!url || url.startsWith('/')) return url;
+  try {
+    const u = new URL(url);
+    if (PROXY_HOSTS.some(h => u.hostname === h || u.hostname.endsWith('.' + h))) {
+      return '/api/v1/proxy-media?url=' + encodeURIComponent(url);
+    }
+  } catch(e) {}
+  return url;
+}
+
 // 默认 SeeDream Prompt 映射
 const DEFAULT_SEEDREAM_PROMPTS = {
     face_only: "edit image 2, keep the position and pose of image 2, swap face to image 1, only change the face identity, preserve the facial expression from image 2, keep clothing the same as image 2, keep accessories the same as image 2, keep background the same as image 2",
@@ -583,7 +596,7 @@ document.getElementById('imageFile').addEventListener('change', async function(e
         const response = await fetch('/api/v1/upload', {
             method: 'POST',
             headers: {
-                'X-API-Key': 'wan22-default-key-change-me'
+                'X-API-Key': localStorage.getItem('wan22_api_key') || 'wan22-default-key-change-me'
             },
             body: formData
         });
@@ -621,9 +634,9 @@ function toggleCollapsible(element) {
         content.classList.remove('active');
         content.style.maxHeight = null;
     } else {
-        // 展开
+        // 展开：直接用 CSS 的 5000px 上限，避免内部有 display:none 子元素时 scrollHeight 偏小
         content.classList.add('active');
-        content.style.maxHeight = content.scrollHeight + "px";
+        content.style.maxHeight = '5000px';
     }
 }
 
@@ -908,7 +921,7 @@ async function analyzeOnly() {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
-                'X-API-Key': 'wan22-default-key-change-me'
+                'X-API-Key': localStorage.getItem('wan22_api_key') || 'wan22-default-key-change-me'
             },
             body: JSON.stringify({
                 prompt: prompt,
@@ -934,10 +947,11 @@ async function analyzeOnly() {
             result.video_loras.forEach(lora => {
                 html += `<div style="position:relative;width:150px">`;
                 if (lora.preview_url) {
+                    const proxyUrl = toProxyUrl(lora.preview_url);
                     if (lora.preview_url.endsWith('.mp4') || lora.preview_url.includes('video')) {
-                        html += `<video src="${lora.preview_url}" style="width:150px;height:150px;object-fit:cover;border-radius:6px;border:1px solid #444" muted loop autoplay></video>`;
+                        html += `<video src="${proxyUrl}" style="width:150px;height:150px;object-fit:cover;border-radius:6px;border:1px solid #444" muted loop autoplay></video>`;
                     } else {
-                        html += `<img src="${lora.preview_url}" style="width:150px;height:150px;object-fit:cover;border-radius:6px;border:1px solid #444">`;
+                        html += `<img src="${proxyUrl}" style="width:150px;height:150px;object-fit:cover;border-radius:6px;border:1px solid #444">`;
                     }
                 } else {
                     html += `<div style="width:150px;height:150px;background:#16213e;border-radius:6px;border:1px solid #444;display:flex;align-items:center;justify-content:center;font-size:12px;color:#666">No Preview</div>`;
@@ -955,10 +969,11 @@ async function analyzeOnly() {
             result.images.forEach(img => {
                 const similarity = img.similarity ? (img.similarity * 100).toFixed(1) + '%' : '';
                 html += `<div style="position:relative">`;
+                const imgProxyUrl = toProxyUrl(img.url);
                 if (img.url && (img.url.endsWith('.mp4') || img.url.includes('video') || img.url.includes('.mp4'))) {
-                    html += `<video src="${img.url}" style="width:150px;height:150px;object-fit:cover;border-radius:6px;border:1px solid #444" muted loop autoplay></video>`;
+                    html += `<video src="${imgProxyUrl}" style="width:150px;height:150px;object-fit:cover;border-radius:6px;border:1px solid #444" muted loop autoplay></video>`;
                 } else {
-                    html += `<img src="${img.url}" style="width:150px;height:150px;object-fit:cover;border-radius:6px;border:1px solid #444">`;
+                    html += `<img src="${imgProxyUrl}" style="width:150px;height:150px;object-fit:cover;border-radius:6px;border:1px solid #444">`;
                 }
                 html += `<div style="position:absolute;bottom:4px;right:4px;background:rgba(0,0,0,0.7);padding:2px 6px;border-radius:4px;font-size:10px;color:#4ade80">${similarity}</div>`;
                 html += `</div>`;
@@ -1301,10 +1316,11 @@ function updateProgress(status) {
                         console.log('LoRA:', name, 'Preview URL:', previewUrl);
                         detailsHtml += `<div style="position:relative;width:120px">`;
                         if (previewUrl) {
+                            const proxied = toProxyUrl(previewUrl);
                             if (previewUrl.endsWith('.mp4') || previewUrl.includes('video')) {
-                                detailsHtml += `<video src="${previewUrl}" style="width:120px;height:120px;object-fit:cover;border-radius:6px;border:1px solid #444" muted loop autoplay></video>`;
+                                detailsHtml += `<video src="${proxied}" style="width:120px;height:120px;object-fit:cover;border-radius:6px;border:1px solid #444" muted loop autoplay></video>`;
                             } else {
-                                detailsHtml += `<img src="${previewUrl}" style="width:120px;height:120px;object-fit:cover;border-radius:6px;border:1px solid #444">`;
+                                detailsHtml += `<img src="${proxied}" style="width:120px;height:120px;object-fit:cover;border-radius:6px;border:1px solid #444">`;
                             }
                         } else {
                             detailsHtml += `<div style="width:120px;height:120px;background:#16213e;border-radius:6px;border:1px solid #444;display:flex;align-items:center;justify-content:center;font-size:10px;color:#666">No Preview</div>`;
@@ -1320,11 +1336,12 @@ function updateProgress(status) {
                     details.images.slice(0, 5).forEach(img => {
                         const similarity = img.similarity ? (img.similarity * 100).toFixed(1) + '%' : '';
                         const url = img.url;
+                        const urlProxied = toProxyUrl(url);
                         detailsHtml += `<div style="position:relative">`;
                         if (url && (url.endsWith('.mp4') || url.includes('video') || url.includes('.mp4'))) {
-                            detailsHtml += `<video src="${url}" style="width:120px;height:120px;object-fit:cover;border-radius:6px;border:1px solid #444" muted loop autoplay></video>`;
+                            detailsHtml += `<video src="${urlProxied}" style="width:120px;height:120px;object-fit:cover;border-radius:6px;border:1px solid #444" muted loop autoplay></video>`;
                         } else {
-                            detailsHtml += `<img src="${url}" style="width:120px;height:120px;object-fit:cover;border-radius:6px;border:1px solid #444">`;
+                            detailsHtml += `<img src="${urlProxied}" style="width:120px;height:120px;object-fit:cover;border-radius:6px;border:1px solid #444">`;
                         }
                         detailsHtml += `<div style="position:absolute;bottom:4px;right:4px;background:rgba(0,0,0,0.7);padding:2px 6px;border-radius:4px;font-size:10px;color:#4ade80">${similarity}</div>`;
                         detailsHtml += `</div>`;
@@ -1508,10 +1525,11 @@ function showResult(status) {
                     const previewUrl = lora.preview_url;
                     detailsHtml += `<div style="position:relative;width:150px">`;
                     if (previewUrl) {
+                        const proxied2 = toProxyUrl(previewUrl);
                         if (previewUrl.endsWith('.mp4') || previewUrl.includes('video')) {
-                            detailsHtml += `<video src="${previewUrl}" style="width:150px;height:150px;object-fit:cover;border-radius:6px;border:1px solid #444" muted loop autoplay></video>`;
+                            detailsHtml += `<video src="${proxied2}" style="width:150px;height:150px;object-fit:cover;border-radius:6px;border:1px solid #444" muted loop autoplay></video>`;
                         } else {
-                            detailsHtml += `<img src="${previewUrl}" style="width:150px;height:150px;object-fit:cover;border-radius:6px;border:1px solid #444">`;
+                            detailsHtml += `<img src="${proxied2}" style="width:150px;height:150px;object-fit:cover;border-radius:6px;border:1px solid #444">`;
                         }
                     } else {
                         detailsHtml += `<div style="width:150px;height:150px;background:#16213e;border-radius:6px;border:1px solid #444;display:flex;align-items:center;justify-content:center;font-size:10px;color:#666">No Preview</div>`;
@@ -1527,11 +1545,12 @@ function showResult(status) {
                 details.images.slice(0, 5).forEach(img => {
                     const similarity = img.similarity ? (img.similarity * 100).toFixed(1) + '%' : '';
                     const url = img.url;
+                    const urlProxied2 = toProxyUrl(url);
                     detailsHtml += `<div style="position:relative">`;
                     if (url && (url.endsWith('.mp4') || url.includes('video') || url.includes('.mp4'))) {
-                        detailsHtml += `<video src="${url}" style="width:150px;height:150px;object-fit:cover;border-radius:6px;border:1px solid #444" muted loop autoplay></video>`;
+                        detailsHtml += `<video src="${urlProxied2}" style="width:150px;height:150px;object-fit:cover;border-radius:6px;border:1px solid #444" muted loop autoplay></video>`;
                     } else {
-                        detailsHtml += `<img src="${url}" style="width:150px;height:150px;object-fit:cover;border-radius:6px;border:1px solid #444">`;
+                        detailsHtml += `<img src="${urlProxied2}" style="width:150px;height:150px;object-fit:cover;border-radius:6px;border:1px solid #444">`;
                     }
                     detailsHtml += `<div style="position:absolute;bottom:4px;right:4px;background:rgba(0,0,0,0.7);padding:2px 6px;border-radius:4px;font-size:10px;color:#4ade80">${similarity}</div>`;
                     detailsHtml += `</div>`;
@@ -1612,8 +1631,16 @@ function showError(errorMsg) {
     btn.disabled = false;
     btn.textContent = '🎬 生成视频';
 
-    alert('生成失败: ' + errorMsg);
     document.getElementById('progressSection').style.display = 'none';
+    const errDiv = document.getElementById('errorSection') || (() => {
+        const d = document.createElement('div');
+        d.id = 'errorSection';
+        d.style.cssText = 'background:#2a1a1a;border:1px solid #e05a5a;border-radius:8px;padding:16px;margin-top:16px;color:#ef5350;font-size:13px';
+        document.getElementById('progressSection').parentNode.insertBefore(d, document.getElementById('progressSection').nextSibling);
+        return d;
+    })();
+    errDiv.style.display = 'block';
+    errDiv.innerHTML = '<strong>生成失败</strong>: ' + errorMsg;
 }
 
 // 下载视频

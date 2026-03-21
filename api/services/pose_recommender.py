@@ -130,14 +130,19 @@ class PoseRecommender:
 
             logger.info(f"Built embeddings for {len(self.pose_embeddings)} poses")
 
-        # 在同步上下文中运行异步函数
-        try:
-            loop = asyncio.get_event_loop()
-        except RuntimeError:
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
+        # 在独立线程中运行，避免与 FastAPI 的事件循环冲突
+        import concurrent.futures
 
-        loop.run_until_complete(build())
+        def run_in_thread():
+            new_loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(new_loop)
+            try:
+                new_loop.run_until_complete(build())
+            finally:
+                new_loop.close()
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+            executor.submit(run_in_thread).result()
 
     async def recommend(self, prompt: str, selected_poses: List[str] = None, top_k: int = 5, use_llm: bool = True, use_embedding: bool = True) -> List[PoseRecommendation]:
         """
@@ -183,9 +188,9 @@ class PoseRecommender:
                     ))
 
         # 阶段3: LLM重排序（可选）
-        # 如果已有高置信度候选（score >= 0.8），跳过LLM重排，直接信任匹配结果
+        # 如果最高分候选 score >= 0.85，直接信任匹配结果，不调用LLM
         top_score = candidates[0].score if candidates else 0
-        if use_llm and len(candidates) > 1 and top_score < 0.8:
+        if use_llm and len(candidates) > 1 and top_score < 0.85:
             candidates = await self._llm_rerank(prompt, candidates)
 
         return candidates[:top_k]
@@ -310,31 +315,37 @@ class PoseRecommender:
         if len(candidates) <= 1:
             return candidates
 
-        poses_desc = "\n".join([f"{i+1}. {c.name_en} ({c.name_cn}) [score:{c.score:.2f}]" for i, c in enumerate(candidates)])
+        # 传给LLM前先按score降序排列，保证高分候选在前
+        sorted_candidates = sorted(candidates, key=lambda x: x.score, reverse=True)
+        poses_desc = "\n".join([
+            f"{i+1}. {c.name_en} ({c.name_cn}) [score:{c.score:.2f}] - {self.poses_data.get(c.pose_key, {}).get('description', c.name_en)}"
+            for i, c in enumerate(sorted_candidates)
+        ])
 
-        user_prompt = f"""You are a sex position classifier. Given a user query, rank the candidate positions by relevance.
+        system_prompt = """/no_think You are a sex position classifier. Your ONLY job is to rank candidate positions by relevance to the user query.
+Output ONLY a JSON array of integers like [1,2,3]. No explanation."""
 
-Query: "{prompt}"
+        user_prompt = f"""Query: "{prompt}"
 
-Candidates (pre-ranked by keyword score):
+Candidates (sorted by keyword score, higher = better pre-match):
 {poses_desc}
 
 Rules:
-- A candidate with score >= 0.8 is almost certainly correct, keep it at rank 1 unless another candidate is clearly more relevant.
-- Focus on the PRIMARY sexual act described in the query.
-- Output ONLY a JSON array like [1,2,3]. No explanation.
-
-Your answer (JSON array only):"""
+- Focus on the PRIMARY sexual act in the query.
+- Candidate with score >= 0.8 is almost certainly correct, keep it at rank 1.
+- Re-rank ALL candidates by how well they match the query.
+- Output ONLY a JSON array of integers representing your ranked order. Do NOT output [1,2,3] by default — actually reason about the best match."""
 
         try:
             async with aiohttp.ClientSession() as session:
                 async with session.post(LLM_API_URL, json={
                     "model": "Qwen3-14B-v2-Abliterated",
                     "messages": [
+                        {"role": "system", "content": system_prompt},
                         {"role": "user", "content": user_prompt}
                     ],
                     "temperature": 0.1,
-                    "max_tokens": 200
+                    "max_tokens": 100
                 }, timeout=aiohttp.ClientTimeout(total=8)) as resp:
                     if resp.status == 200:
                         data = await resp.json()
@@ -346,8 +357,8 @@ Your answer (JSON array only):"""
                         if match:
                             ranking = json.loads(match.group())
                             logger.info(f"Extracted ranking: {ranking}")
-                            reranked = [candidates[idx-1] for idx in ranking if 1 <= idx <= len(candidates)]
-                            return reranked if reranked else candidates
+                            reranked = [sorted_candidates[idx-1] for idx in ranking if 1 <= idx <= len(sorted_candidates)]
+                            return reranked if reranked else sorted_candidates
                         else:
                             logger.warning(f"No JSON array found in LLM response")
         except Exception as e:

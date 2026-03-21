@@ -1,10 +1,11 @@
 import logging
 from contextlib import asynccontextmanager
-from fastapi import FastAPI
+from fastapi import FastAPI, Query, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 from pathlib import Path
+from urllib.parse import urlparse
 from api.config import API_HOST, API_PORT, VIDEOS_DIR, UPLOADS_DIR
 from api.services.task_manager import TaskManager
 from api.routes import generate, generate_i2v, tasks, loras, civitai, prompt, lora_recommend, extend, workflow, tts, postprocess, image, chat, resources, lora_admin, search, recommend, embeddings, resource_admin, pose_images, poses, pose_admin, pose_synonyms_admin
@@ -119,6 +120,33 @@ async def keywords_editor():
 app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 app.mount("/uploads", StaticFiles(directory=str(UPLOADS_DIR)), name="uploads")
 app.mount("/api/v1/uploads", StaticFiles(directory=str(UPLOADS_DIR)), name="api_uploads")
+app.mount("/api/v1/results", StaticFiles(directory=str(VIDEOS_DIR)), name="api_results")
+
+
+ALLOWED_PROXY_HOSTS = {
+    "image.civitai.com",
+    "cdn.imagime.co",
+    "imagime.co",
+    "civitai.com",
+    "image.civitai.com",
+}
+
+
+@app.get("/api/v1/proxy-media")
+async def proxy_media(url: str = Query(...)):
+    """Proxy external media (images/videos) to avoid browser PNA CORS issues."""
+    import aiohttp
+    parsed = urlparse(url)
+    if parsed.hostname not in ALLOWED_PROXY_HOSTS:
+        raise HTTPException(status_code=403, detail="Host not allowed")
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(url, timeout=aiohttp.ClientTimeout(total=30)) as resp:
+                content = await resp.read()
+                content_type = resp.headers.get("Content-Type", "application/octet-stream")
+                return Response(content=content, media_type=content_type)
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=str(e))
 
 
 @app.get("/health")

@@ -134,6 +134,7 @@ h1{text-align:center;color:#7c83ff;margin-bottom:24px;font-size:1.6em}
 <div class="main-tab active" data-main="video">视频生成</div>
 <div class="main-tab" data-main="image">图片生成</div>
 <div class="main-tab" data-main="workflow">高级工作流</div>
+<div class="main-tab" data-main="wf-history">Workflow 历史</div>
 <div class="main-tab" data-main="favorites">我的收藏</div>
 <div class="main-tab" data-main="annotate">资源管理</div>
 <div class="main-tab" data-main="poses">姿势管理</div>
@@ -1117,6 +1118,11 @@ h1{text-align:center;color:#7c83ff;margin-bottom:24px;font-size:1.6em}
 <iframe src="/advanced_workflow_v2.html" style="width:100%;height:calc(100vh - 200px);border:none;border-radius:8px;"></iframe>
 </div><!-- end section-workflow -->
 
+<!-- Workflow History Section -->
+<div class="main-section" id="section-wf-history">
+<iframe src="/static/workflow_history.html" style="width:100%;height:calc(100vh - 200px);border:none;border-radius:8px;"></iframe>
+</div><!-- end section-wf-history -->
+
 <!-- Favorites Section -->
 <div class="main-section" id="section-favorites">
 <iframe src="/static/my_favorites.html" style="width:100%;height:calc(100vh - 200px);border:none;border-radius:8px;background:#0a0a23"></iframe>
@@ -1199,6 +1205,11 @@ h1{text-align:center;color:#7c83ff;margin-bottom:24px;font-size:1.6em}
 <script>
 const BASE = window.location.origin;
 const getKey = () => document.getElementById('apiKey').value;
+// Restore API key from localStorage on page load
+(function() {
+  const saved = localStorage.getItem('wan22_api_key');
+  if (saved) document.getElementById('apiKey').value = saved;
+})();
 let allLoras = [];
 let activeTasks = {};
 
@@ -1245,6 +1256,19 @@ function toLocalUrl(url) {
     if (u.hostname.includes('.cos.')) {
       const filename = u.pathname.split('/').pop();
       return '/api/v1/results/' + filename;
+    }
+  } catch(e) {}
+  return url;
+}
+
+// Route external media through backend proxy to avoid Chrome PNA CORS issues
+const PROXY_HOSTS = ['image.civitai.com', 'cdn.imagime.co', 'imagime.co'];
+function toProxyUrl(url) {
+  if (!url || url.startsWith('/')) return url;
+  try {
+    const u = new URL(url);
+    if (PROXY_HOSTS.some(h => u.hostname === h || u.hostname.endsWith('.' + h))) {
+      return '/api/v1/proxy-media?url=' + encodeURIComponent(url);
     }
   } catch(e) {}
   return url;
@@ -2355,11 +2379,12 @@ function renderLoras(cid) {
     let previewHtml = '';
     if (l.preview_url) {
       const isVideo = /\.(mp4|webm)$/i.test(l.preview_url);
+      const proxyUrl = toProxyUrl(l.preview_url);
       if (isVideo) {
         const playIcon = `<svg viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>`;
-        previewHtml = `<div class="lora-preview-wrap" onclick="event.stopPropagation();var v=this.querySelector('video');if(v.paused){v.play();this.classList.add('playing')}else{v.pause();this.classList.remove('playing')}" ondblclick="event.stopPropagation();openPreviewModal('${l.preview_url}',true)"><video class="lora-preview" src="${l.preview_url}" muted loop playsinline preload="metadata" referrerpolicy="no-referrer"></video><div class="lora-play-btn">${playIcon}</div></div>`;
+        previewHtml = `<div class="lora-preview-wrap" onclick="event.stopPropagation();var v=this.querySelector('video');if(v.paused){v.play();this.classList.add('playing')}else{v.pause();this.classList.remove('playing')}" ondblclick="event.stopPropagation();openPreviewModal('${l.preview_url}',true)"><video class="lora-preview" src="${proxyUrl}" muted loop playsinline preload="metadata"></video><div class="lora-play-btn">${playIcon}</div></div>`;
       } else {
-        previewHtml = `<img class="lora-preview" src="${l.preview_url}" alt="" referrerpolicy="no-referrer" onclick="openPreviewModal('${l.preview_url}', false)">`;
+        previewHtml = `<img class="lora-preview" src="${proxyUrl}" alt="" onclick="openPreviewModal('${l.preview_url}', false)">`;
       }
     } else {
       previewHtml = '<div class="lora-placeholder">LoRA</div>';
