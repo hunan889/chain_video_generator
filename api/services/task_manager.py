@@ -32,13 +32,15 @@ class TaskManager:
     async def start(self):
         self.redis = aioredis.from_url(REDIS_URL, decode_responses=True)
         self._worker_redis = aioredis.from_url(REDIS_URL, decode_responses=True)
-        for model_key, url in COMFYUI_URLS.items():
-            self.clients[model_key] = ComfyUIClient(url)
+        for worker_key, url in COMFYUI_URLS.items():
+            self.clients[worker_key] = ComfyUIClient(url)
         # Recover orphan running tasks (from previous crash/restart)
         await self._recover_orphan_tasks()
-        # Start worker tasks for each model
-        for model_key in COMFYUI_URLS:
-            task = asyncio.create_task(self._worker_loop(model_key))
+        # Start one worker per ComfyUI instance; workers of the same model share one queue
+        for worker_key in COMFYUI_URLS:
+            model_prefix = worker_key.split("#")[0]  # "a14b#0" -> "a14b"
+            queue_name = f"queue:{model_prefix}"
+            task = asyncio.create_task(self._worker_loop(worker_key, queue_name))
             self._workers.append(task)
         logger.info("TaskManager started with workers: %s", list(COMFYUI_URLS.keys()))
 
@@ -212,7 +214,14 @@ class TaskManager:
                     task_id = key.split(":", 1)[1]
                     prompt_id = await self.redis.hget(key, "prompt_id")
                     model_key = await self.redis.hget(key, "model")
-                    client = self.clients.get(model_key) if model_key else None
+                    # model_key is the logical model name ("a14b", "5b");
+                    # clients are keyed by worker_key ("a14b#0", etc.) — pick the first available
+                    client = None
+                    if model_key:
+                        client = next(
+                            (c for k, c in self.clients.items() if k.startswith(model_key + "#")),
+                            None,
+                        )
 
                     if not prompt_id or not client:
                         await self.redis.hset(key, mapping={
@@ -303,10 +312,9 @@ class TaskManager:
                 "error": f"Resume failed: {e}",
             })
 
-    async def _worker_loop(self, model_key: str):
-        queue_name = f"queue:{model_key}"
-        client = self.clients[model_key]
-        logger.info("Worker for %s started", model_key)
+    async def _worker_loop(self, worker_key: str, queue_name: str):
+        client = self.clients[worker_key]
+        logger.info("Worker for %s started, listening on %s", worker_key, queue_name)
         while True:
             try:
                 result = await self._worker_redis.blpop(queue_name, timeout=5)
@@ -317,7 +325,7 @@ class TaskManager:
             except asyncio.CancelledError:
                 break
             except Exception as e:
-                logger.exception("Worker %s error: %s", model_key, e)
+                logger.exception("Worker %s error: %s", worker_key, e)
                 await asyncio.sleep(2)
 
     async def _process_task(self, task_id: str, client: ComfyUIClient):

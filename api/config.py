@@ -17,8 +17,6 @@ def _resolve_path(env_var: str, default: str) -> Path:
 
 
 COMFYUI_PATH = _resolve_path("COMFYUI_PATH", "./ComfyUI")
-COMFYUI_A14B_URL = os.getenv("COMFYUI_A14B_URL", "http://127.0.0.1:8188")
-COMFYUI_5B_URL = os.getenv("COMFYUI_5B_URL", "http://127.0.0.1:8189")
 FORGE_URL = os.getenv("FORGE_URL", "http://127.0.0.1:7860")
 REDIS_URL = os.getenv("REDIS_URL", "redis://127.0.0.1:6379/0")
 API_HOST = os.getenv("API_HOST", "0.0.0.0")
@@ -33,12 +31,38 @@ UPLOADS_DIR = STORAGE_PATH / "uploads"
 RESULTS_DIR = UPLOADS_DIR  # Alias: /api/v1/results/ serves files from UPLOADS_DIR for images
 WORKFLOWS_DIR = PROJECT_ROOT / "workflows"
 
-_ALL_COMFYUI_URLS = {
-    "a14b": COMFYUI_A14B_URL,
-    "5b": COMFYUI_5B_URL,
-}
-_enabled = os.getenv("ENABLED_WORKERS", "a14b,5b").split(",")
-COMFYUI_URLS = {k: v for k, v in _ALL_COMFYUI_URLS.items() if k.strip() in [w.strip() for w in _enabled]}
+
+def _parse_urls(env_var: str, default: str) -> list[str]:
+    """Parse comma-separated URLs from env var."""
+    raw = os.getenv(env_var, default)
+    return [u.strip() for u in raw.split(",") if u.strip()]
+
+
+def _expand_comfyui_urls() -> dict[str, str]:
+    """Expand model URL arrays into worker keys: a14b#0, a14b#1, 5b#0, etc."""
+    model_defaults = {
+        "a14b": "http://127.0.0.1:8188",
+        "5b": "http://127.0.0.1:8189",
+    }
+    # Support both old single-URL and new multi-URL env vars
+    # New: COMFYUI_A14B_URLS=url1,url2  Old: COMFYUI_A14B_URL=url1
+    env_vars = {
+        "a14b": ("COMFYUI_A14B_URLS", os.getenv("COMFYUI_A14B_URL", model_defaults["a14b"])),
+        "5b": ("COMFYUI_5B_URLS", os.getenv("COMFYUI_5B_URL", model_defaults["5b"])),
+    }
+    enabled = [w.strip() for w in os.getenv("ENABLED_WORKERS", "a14b,5b").split(",")]
+    result = {}
+    for model, (env_key, fallback) in env_vars.items():
+        if model not in enabled:
+            continue
+        urls = _parse_urls(env_key, fallback)
+        for i, url in enumerate(urls):
+            result[f"{model}#{i}"] = url
+    return result
+
+
+# COMFYUI_URLS maps worker_key -> url, e.g. {"a14b#0": "...", "a14b#1": "...", "5b#0": "..."}
+COMFYUI_URLS = _expand_comfyui_urls()
 
 # Task expiry in seconds (24 hours)
 TASK_EXPIRY = 86400
