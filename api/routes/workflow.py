@@ -492,9 +492,14 @@ class SeeDreamEditRequest(BaseModel):
     """SeeDream image editing request"""
     scene_image: str = Field(..., description="Scene image (base64 or URL)")
     reference_face: Optional[str] = Field(None, description="Reference face image (base64 or URL)")
-    mode: Literal["face_only", "face_wearings", "full_body"] = Field(
-        ..., description="Edit mode"
+    mode: Optional[Literal["face_only", "face_wearings", "full_body"]] = Field(
+        None, description="Edit mode (legacy, use swap_* toggles instead)"
     )
+    # Fine-grained toggle controls
+    swap_face: Optional[bool] = Field(None, description="Swap face identity from reference")
+    swap_accessories: Optional[bool] = Field(None, description="Swap accessories (jewelry, glasses, hair accessories) from reference")
+    swap_expression: Optional[bool] = Field(None, description="Swap facial expression from reference")
+    swap_clothing: Optional[bool] = Field(None, description="Swap clothing from reference")
     enable_face_swap: bool = Field(default=True, description="Enable Reactor face swap before SeeDream")
     prompt: Optional[str] = Field(None, description="Custom prompt for SeeDream")
     size: str = Field(default="1024x1024", description="Output size")
@@ -513,6 +518,29 @@ class SeeDreamEditResponse(BaseModel):
     api_status: Optional[str] = None  # 'success' or 'failed'
     fallback_used: Optional[bool] = None  # Whether fallback was used
     fallback_reason: Optional[str] = None  # Reason for fallback
+
+
+def _build_seedream_prompt(swap_face: bool, swap_accessories: bool, swap_expression: bool, swap_clothing: bool) -> str:
+    """Build SeeDream prompt dynamically based on toggle switches."""
+    parts = ["edit image 2, keep the position and pose of image 2"]
+    if swap_face:
+        parts.append("swap face to image 1, change face identity to match image 1, change hairstyle to match image 1")
+    else:
+        parts.append("keep face identity the same as image 2")
+    if swap_accessories:
+        parts.append("change accessories (jewelry, glasses, hair accessories) to match image 1")
+    else:
+        parts.append("keep accessories the same as image 2")
+    if swap_expression:
+        parts.append("change facial expression to match image 1")
+    else:
+        parts.append("preserve the facial expression from image 2")
+    if swap_clothing:
+        parts.append("change clothing to match image 1")
+    else:
+        parts.append("keep clothing the same as image 2")
+    parts.append("keep background the same as image 2")
+    return ", ".join(parts)
 
 
 @router.post("/workflow/seedream-edit", response_model=SeeDreamEditResponse)
@@ -534,7 +562,7 @@ async def seedream_edit(req: SeeDreamEditRequest, _=Depends(verify_api_key)):
 
         # Import SeeDream helper from image.py
         from api.routes.image import (
-            _crop_and_resize, _save_result_image, _call_byteplus,
+            _crop_and_resize, _save_result_image, _call_byteplus_async, _async_post,
             _parse_size, FORGE_URL, SEEDREAM_MODEL, SCENE_SWAP_DEFAULT_PROMPT
         )
 
@@ -543,7 +571,7 @@ async def seedream_edit(req: SeeDreamEditRequest, _=Depends(verify_api_key)):
             scene_b64 = req.scene_image.split(',')[1]
             scene_data = base64.b64decode(scene_b64)
         elif req.scene_image.startswith('http://') or req.scene_image.startswith('https://'):
-            resp = http_requests.get(req.scene_image, timeout=30)
+            resp = await asyncio.to_thread(http_requests.get, req.scene_image, timeout=30)
             if resp.status_code != 200:
                 raise HTTPException(400, f"Failed to fetch scene image: {resp.status_code}")
             scene_data = resp.content
@@ -617,7 +645,7 @@ async def seedream_edit(req: SeeDreamEditRequest, _=Depends(verify_api_key)):
                 face_b64 = req.reference_face.split(',')[1]
                 face_data = base64.b64decode(face_b64)
             elif req.reference_face.startswith('http://') or req.reference_face.startswith('https://'):
-                resp = http_requests.get(req.reference_face, timeout=30)
+                resp = await asyncio.to_thread(http_requests.get, req.reference_face, timeout=30)
                 if resp.status_code != 200:
                     logger.warning(f"Failed to fetch reference face: {resp.status_code}")
                     face_data = None
@@ -676,7 +704,7 @@ async def seedream_edit(req: SeeDreamEditRequest, _=Depends(verify_api_key)):
 
                     logger.info(f"SeeDream Edit: Reactor face swap ({target_w}x{target_h})...")
                     try:
-                        reactor_resp = http_requests.post(
+                        reactor_resp = await _async_post(
                             f"{FORGE_URL}/reactor/image", json=reactor_payload, timeout=120
                         )
 
@@ -690,16 +718,26 @@ async def seedream_edit(req: SeeDreamEditRequest, _=Depends(verify_api_key)):
                     except Exception as e:
                         logger.warning(f"Reactor error: {e}, using original")
 
-        # Step 2: SeeDream editing with mode-specific prompts
+        # Step 2: SeeDream editing with toggle-based prompts
         swapped_b64_out = base64.b64encode(swapped_data).decode()
 
-        # Build prompt based on mode
+        # Build prompt based on toggles or legacy mode
         if req.prompt:
             full_prompt = req.prompt
+        elif req.swap_face is not None:
+            # New toggle-based prompt building
+            full_prompt = _build_seedream_prompt(
+                swap_face=req.swap_face,
+                swap_accessories=req.swap_accessories or False,
+                swap_expression=req.swap_expression or False,
+                swap_clothing=req.swap_clothing or False
+            )
         else:
-            if req.mode == "face_wearings":
+            # Legacy mode-based prompt
+            mode = req.mode or "face_wearings"
+            if mode == "face_wearings":
                 full_prompt = "edit image 2, keep the position and pose of image 2, swap face to image 1, change face identity to match image 1, change hairstyle to match image 1, change accessories (jewelry, glasses, hair accessories) to match image 1, keep clothing and background the same"
-            elif req.mode == "full_body":
+            elif mode == "full_body":
                 full_prompt = "edit image 2, keep the position and pose of image 2, swap face to image 1, change face, accessories, and clothing to match image 1, keep background the same"
             else:
                 full_prompt = SCENE_SWAP_DEFAULT_PROMPT
@@ -730,16 +768,26 @@ async def seedream_edit(req: SeeDreamEditRequest, _=Depends(verify_api_key)):
         if req.seed is not None:
             payload["seed"] = req.seed
 
-        logger.info(f"SeeDream Edit: mode={req.mode}, prompt={full_prompt[:100]}")
+        # Derive edit_mode label for logging/response
+        if req.mode:
+            edit_mode_label = req.mode
+        elif req.swap_face is not None:
+            # Derive from toggles
+            toggles = [req.swap_face, req.swap_accessories or False, req.swap_expression or False, req.swap_clothing or False]
+            edit_mode_label = f"custom(face={toggles[0]},acc={toggles[1]},expr={toggles[2]},cloth={toggles[3]})"
+        else:
+            edit_mode_label = "face_wearings"
+
+        logger.info(f"SeeDream Edit: mode={edit_mode_label}, prompt={full_prompt[:100]}")
         logger.info(f"SeeDream payload: model={model_name}, size={size}, num_images={len(image_list)}, seed={req.seed}")
 
         try:
-            url = _call_byteplus(payload)
+            url = await _call_byteplus_async(payload)
             logger.info(f"SeeDream edit completed: {url[:120]}")
 
             return SeeDreamEditResponse(
                 url=url,
-                edit_mode=req.mode,
+                edit_mode=edit_mode_label,
                 face_swapped=face_swapped,
                 size=size,
                 seed=req.seed,
@@ -754,7 +802,7 @@ async def seedream_edit(req: SeeDreamEditRequest, _=Depends(verify_api_key)):
                 url = _save_result_image(swapped_b64_out)
                 return SeeDreamEditResponse(
                     url=url,
-                    edit_mode=req.mode,
+                    edit_mode=edit_mode_label,
                     face_swapped=face_swapped,
                     size=f"{target_w}x{target_h}",
                     seed=req.seed,
@@ -770,7 +818,7 @@ async def seedream_edit(req: SeeDreamEditRequest, _=Depends(verify_api_key)):
                 url = _save_result_image(scene_b64)
                 return SeeDreamEditResponse(
                     url=url,
-                    edit_mode=req.mode,
+                    edit_mode=edit_mode_label,
                     face_swapped=False,
                     size=f"{target_w}x{target_h}",
                     seed=req.seed,
@@ -902,30 +950,7 @@ async def generate_advanced_workflow(req: WorkflowGenerateRequest, _=Depends(ver
         import uuid
         import asyncio
         from api.main import task_manager
-        from api.routes.workflow_executor import _execute_workflow, _get_config
-
-        # Validate SeeDream edit_mode based on workflow mode
-        # IMPORTANT: Use _get_config() to read from internal_config first, then seedream_params
-        # This ensures we validate the actual value that will be used during execution
-        edit_mode = _get_config(req, "stage3_seedream", "mode", "face_wearings")
-
-        # Only validate if SeeDream is enabled
-        stage3_enabled = _get_config(req, "stage3_seedream", "enabled", False)
-        if stage3_enabled:
-            if req.mode == "face_reference":
-                # face_reference mode: only allow face_wearings
-                if edit_mode != "face_wearings":
-                    raise HTTPException(
-                        status_code=400,
-                        detail=f"Invalid SeeDream edit_mode '{edit_mode}' for face_reference mode. Only 'face_wearings' is allowed."
-                    )
-            elif req.mode == "full_body_reference":
-                # full_body_reference mode: only allow face_wearings or full_body
-                if edit_mode not in ["face_wearings", "full_body"]:
-                    raise HTTPException(
-                        status_code=400,
-                        detail=f"Invalid SeeDream edit_mode '{edit_mode}' for full_body_reference mode. Only 'face_wearings' or 'full_body' are allowed."
-                    )
+        from api.routes.workflow_executor import _execute_workflow
 
         # Generate workflow ID
         workflow_id = f"wf_{uuid.uuid4().hex[:12]}"
@@ -1078,8 +1103,16 @@ async def get_workflow_status(workflow_id: str, _=Depends(verify_api_key)):
                     chain_data = await task_manager.redis.hgetall(f"chain:{chain_id}")
                     logger.info(f"[{workflow_id}] Chain hgetall took {(time.time()-t2)*1000:.2f}ms")
                     if chain_data:
-                        # Get task progress
-                        current_task_id = chain_data.get("current_task_id")
+                        # Get current task ID from segment_task_ids + current_segment
+                        # (current_task_id is not stored directly in the chain hash)
+                        current_task_id = None
+                        try:
+                            task_ids = json.loads(chain_data.get("segment_task_ids", "[]"))
+                            current_seg = int(chain_data.get("current_segment", 0))
+                            if task_ids and current_seg < len(task_ids):
+                                current_task_id = task_ids[current_seg]
+                        except (json.JSONDecodeError, ValueError):
+                            pass
                         if current_task_id:
                             t3 = time.time()
                             task_data = await task_manager.redis.hgetall(f"task:{current_task_id}")

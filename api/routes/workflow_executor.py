@@ -100,21 +100,31 @@ def _get_config(req, stage: str, key: str, default: Any = None) -> Any:
     return result
 
 
-def get_default_seedream_prompt(mode: str) -> str:
+def get_default_seedream_prompt(mode: str = None, *, swap_face: bool = True, swap_accessories: bool = True, swap_expression: bool = False, swap_clothing: bool = False) -> str:
     """
-    Get default SeeDream prompt based on edit mode.
+    Get default SeeDream prompt based on toggle switches or legacy mode.
 
     Args:
-        mode: Edit mode (face_wearings, full_body)
+        mode: Legacy edit mode (face_wearings, full_body). If provided, maps to toggles.
+        swap_face: Swap face identity from reference
+        swap_accessories: Swap accessories from reference
+        swap_expression: Swap facial expression from reference
+        swap_clothing: Swap clothing from reference
 
     Returns:
         Default prompt string
     """
-    prompts = {
-        "face_wearings": "edit image 2, keep the position and pose of image 2, swap face to image 1, change face identity to match image 1, change hairstyle to match image 1, change accessories (jewelry, glasses, hair accessories) to match image 1, preserve the facial expression from image 2, keep clothing the same as image 2, keep background the same as image 2",
-        "full_body": "edit image 2, keep the position and pose of image 2, swap face to image 1, change face identity to match image 1, change hairstyle to match image 1, change clothing to match image 1, change accessories to match image 1, preserve the facial expression from image 2, keep background the same as image 2"
-    }
-    return prompts.get(mode, prompts["face_wearings"])
+    # If legacy mode is provided and no explicit toggles were set, map to toggles
+    if mode and mode != "custom":
+        if mode == "face_only":
+            swap_face, swap_accessories, swap_expression, swap_clothing = True, False, False, False
+        elif mode == "face_wearings":
+            swap_face, swap_accessories, swap_expression, swap_clothing = True, True, False, False
+        elif mode == "full_body":
+            swap_face, swap_accessories, swap_expression, swap_clothing = True, True, False, True
+
+    from api.routes.workflow import _build_seedream_prompt
+    return _build_seedream_prompt(swap_face, swap_accessories, swap_expression, swap_clothing)
 
 
 async def _apply_face_swap_to_frame(
@@ -211,7 +221,8 @@ async def _apply_face_swap_to_frame(
         }
 
         logger.info(f"Applying face swap to frame with strength={strength}")
-        reactor_resp = http_requests.post(
+        from api.routes.image import _async_post
+        reactor_resp = await _async_post(
             f"{FORGE_URL}/reactor/image", json=reactor_payload, timeout=120
         )
 
@@ -287,7 +298,7 @@ async def _execute_workflow(workflow_id: str, req, task_manager):
 
         if auto_analyze:
             analysis_result = await _analyze_prompt(req, task_manager)
-            if analysis_result:
+            if analysis_result and "_error" not in analysis_result:
                 await task_manager.redis.hset(f"workflow:{workflow_id}", mapping={
                     "analysis_result": json.dumps(analysis_result)
                 })
@@ -304,11 +315,14 @@ async def _execute_workflow(workflow_id: str, req, task_manager):
 
                 await _update_stage(task_manager, workflow_id, "prompt_analysis", "completed", details_dict=details_dict)
             else:
-                await _update_stage(task_manager, workflow_id, "prompt_analysis", "completed", details_dict={"error": "分析失败"})
+                error_msg = analysis_result.get("_error", "未知错误") if analysis_result else "返回空结果"
+                logger.warning(f"[{workflow_id}] Prompt analysis failed: {error_msg}")
+                await _update_stage(task_manager, workflow_id, "prompt_analysis", "completed", details_dict={
+                    "error": f"分析失败: {error_msg}",
+                    "original_prompt": req.user_prompt
+                })
         else:
             await _update_stage(task_manager, workflow_id, "prompt_analysis", "completed", details_dict={"skipped": True, "reason": "未启用"})
-
-        await _update_stage(task_manager, workflow_id, "prompt_analysis", "completed")
 
         # Stage 2: First Frame Acquisition
         await _update_stage(task_manager, workflow_id, "first_frame_acquisition", "running")
@@ -433,6 +447,10 @@ async def _execute_workflow(workflow_id: str, req, task_manager):
                 detected_size = "832x1216"
 
             # 保存 SeeDream 参数（在开始时就显示）
+            swap_face = _get_config(req, "stage3_seedream", "swap_face", None)
+            swap_accessories = _get_config(req, "stage3_seedream", "swap_accessories", None)
+            swap_expression = _get_config(req, "stage3_seedream", "swap_expression", None)
+            swap_clothing = _get_config(req, "stage3_seedream", "swap_clothing", None)
             edit_mode = _get_config(req, "stage3_seedream", "mode", "face_wearings")
             enable_reactor = _get_config(req, "stage3_seedream", "enable_reactor", True)
             custom_prompt = _get_config(req, "stage3_seedream", "prompt", None)
@@ -441,11 +459,28 @@ async def _execute_workflow(workflow_id: str, req, task_manager):
             # 优先使用配置的尺寸，如果没有配置则使用检测到的尺寸
             size = _get_config(req, "stage3_seedream", "size", detected_size)
 
+            # Build display prompt
+            if swap_face is not None:
+                display_prompt = custom_prompt or get_default_seedream_prompt(
+                    swap_face=swap_face, swap_accessories=swap_accessories or False,
+                    swap_expression=swap_expression or False, swap_clothing=swap_clothing or False
+                )
+                mode_label = f"custom(face={swap_face},acc={swap_accessories},expr={swap_expression},cloth={swap_clothing})"
+            else:
+                display_prompt = custom_prompt or get_default_seedream_prompt(mode=edit_mode)
+                mode_label = edit_mode
+            if req.user_prompt:
+                display_prompt = f"{display_prompt}. {req.user_prompt}"
+
             # 在 running 状态时就保存参数
             running_details = {
-                "mode": edit_mode,
+                "mode": mode_label,
+                "swap_face": swap_face,
+                "swap_accessories": swap_accessories,
+                "swap_expression": swap_expression,
+                "swap_clothing": swap_clothing,
                 "enable_reactor": enable_reactor,
-                "prompt": (custom_prompt or get_default_seedream_prompt(edit_mode)) + (f". {req.user_prompt}" if req.user_prompt else ""),
+                "prompt": display_prompt,
                 "strength": strength,
                 "seed": seed,
                 "size": size,
@@ -535,6 +570,17 @@ async def _execute_workflow(workflow_id: str, req, task_manager):
             from api.services.workflow_builder import _inject_trigger_words as _itw
             _lora_objs = [_LoraInput(name=l["name"], strength=l["strength"], trigger_words=l.get("trigger_words") or [], trigger_prompt=l.get("trigger_prompt")) for l in loras_info]
             running_details["prompt"] = _itw(running_details["prompt"], _lora_objs)
+
+        if not final_video_url:
+            # Video generation failed — mark stage and workflow as failed
+            running_details["error"] = "视频生成失败，未返回视频URL"
+            await _update_stage(task_manager, workflow_id, "video_generation", "failed", details_dict=running_details)
+            await task_manager.redis.hset(f"workflow:{workflow_id}", mapping={
+                "status": "failed",
+                "error": running_details["error"]
+            })
+            logger.error(f"Workflow {workflow_id} failed: no video URL returned")
+            return
 
         await _update_stage(task_manager, workflow_id, "video_generation", "completed", details_dict=running_details)
 
@@ -646,7 +692,7 @@ async def _analyze_prompt(req, task_manager) -> Optional[dict]:
 
     except Exception as e:
         logger.error(f"Prompt analysis failed: {e}", exc_info=True)
-        return None
+        return {"_error": str(e)}
 
 
 async def _acquire_first_frame(workflow_id: str, req, analysis_result: Optional[dict], task_manager) -> Optional[str]:
@@ -958,15 +1004,30 @@ async def _edit_first_frame(workflow_id: str, req, first_frame_url: str, size: s
         from api.routes.workflow import seedream_edit, SeeDreamEditRequest
 
         # Get SeeDream parameters from internal_config or legacy params
-        edit_mode = _get_config(req, "stage3_seedream", "mode", "face_wearings")
         enable_reactor = _get_config(req, "stage3_seedream", "enable_reactor", True)
         custom_prompt = _get_config(req, "stage3_seedream", "prompt", None)
         strength = _get_config(req, "stage3_seedream", "strength", 0.8)
         seed = _get_config(req, "stage3_seedream", "seed", None)
-        # Use the passed size parameter (already detected from first frame)
 
-        # Use custom prompt or default prompt, always append user prompt if available
-        prompt = custom_prompt or get_default_seedream_prompt(edit_mode)
+        # Get toggle values (new) or fall back to legacy mode
+        swap_face = _get_config(req, "stage3_seedream", "swap_face", None)
+        swap_accessories = _get_config(req, "stage3_seedream", "swap_accessories", None)
+        swap_expression = _get_config(req, "stage3_seedream", "swap_expression", None)
+        swap_clothing = _get_config(req, "stage3_seedream", "swap_clothing", None)
+
+        if swap_face is not None:
+            # New toggle-based mode
+            prompt = custom_prompt or get_default_seedream_prompt(
+                swap_face=swap_face,
+                swap_accessories=swap_accessories or False,
+                swap_expression=swap_expression or False,
+                swap_clothing=swap_clothing or False
+            )
+        else:
+            # Legacy mode-based
+            edit_mode = _get_config(req, "stage3_seedream", "mode", "face_wearings")
+            prompt = custom_prompt or get_default_seedream_prompt(mode=edit_mode)
+
         if req.user_prompt:
             prompt = f"{prompt}. {req.user_prompt}"
 
@@ -974,7 +1035,10 @@ async def _edit_first_frame(workflow_id: str, req, first_frame_url: str, size: s
         edit_req = SeeDreamEditRequest(
             scene_image=first_frame_url,
             reference_face=req.reference_image,
-            mode=edit_mode,
+            swap_face=swap_face,
+            swap_accessories=swap_accessories,
+            swap_expression=swap_expression,
+            swap_clothing=swap_clothing,
             enable_face_swap=enable_reactor,
             prompt=prompt,
             size=size,
@@ -1385,6 +1449,8 @@ async def _generate_video(workflow_id: str, req, first_frame_url: str, analysis_
         # Poll for completion
         chain_id = result.chain_id
         logger.info(f"[{workflow_id}] Chain created: {chain_id}")
+        # Save chain_id immediately so workflow status can track Stage 4 progress
+        await task_manager.redis.hset(f"workflow:{workflow_id}", "chain_id", chain_id)
         final_video_url = None
 
         import asyncio

@@ -40,6 +40,9 @@ _ALL_COMFYUI_URLS = {
 _enabled = os.getenv("ENABLED_WORKERS", "a14b,5b").split(",")
 COMFYUI_URLS = {k: v for k, v in _ALL_COMFYUI_URLS.items() if k.strip() in [w.strip() for w in _enabled]}
 
+# Support multiple Forge instances: FORGE_URLS=url1,url2 (falls back to FORGE_URL)
+FORGE_URLS = [u.strip() for u in os.getenv("FORGE_URLS", FORGE_URL).split(",") if u.strip()]
+
 # Task expiry in seconds (24 hours)
 TASK_EXPIRY = 86400
 

@@ -699,6 +699,17 @@
     </div>
   </div>
 
+  <!-- 参考图缩略图弹窗 -->
+  <div id="ref-images-modal" class="modal" onclick="if(event.target.id==='ref-images-modal')closeRefImagesModal()">
+    <div class="modal-content" style="max-width:600px;">
+      <div class="modal-header">
+        <div class="modal-title" id="ref-images-modal-title">参考图</div>
+        <button class="close-btn" onclick="closeRefImagesModal()">×</button>
+      </div>
+      <div id="ref-images-modal-body" style="padding-top:4px;"></div>
+    </div>
+  </div>
+
   <div id="create-modal" class="modal">
     <div class="modal-content">
       <div class="modal-header">
@@ -985,13 +996,13 @@
         html += `<div class="pose-preview-grid">${displayImages.map((img) => {
           const isVideo = img.image_url && (img.image_url.endsWith('.mp4') || img.image_url.endsWith('.webm'));
           return isVideo ? `<div class="pose-preview-item" ondblclick="openImageZoom('${img.image_url}', true)" onmouseenter="playPreviewVideo(this)" onmouseleave="pausePreviewVideo(this)"><video src="${img.image_url}" muted loop playsinline></video><span class="pose-preview-badge">视频</span><span class="pose-preview-delete" onclick="event.stopPropagation(); deleteReferenceImage(${poseId}, ${img.id})">×</span></div>` : `<div class="pose-preview-item" ondblclick="openImageZoom('${img.image_url}', false)"><img src="${img.image_url}" loading="lazy"><span class="pose-preview-delete" onclick="event.stopPropagation(); deleteReferenceImage(${poseId}, ${img.id})">×</span></div>`;
-        }).join('')}${remaining > 0 ? `<div class="pose-preview-item" onclick="viewConfig(${poseId})"><div class="pose-preview-more">+${remaining}</div></div>` : ''}</div>`;
+        }).join('')}${remaining > 0 ? `<div class="pose-preview-item" onclick="showAllReferenceImages(${poseId})"><div class="pose-preview-more">+${remaining}</div></div>` : ''}</div>`;
       } else {
         html += `<div class="pose-preview-empty">暂无参考图<br><button class="btn btn-secondary" onclick="openResourceSelector(${poseId})" style="padding:4px 12px;font-size:11px;">添加参考图</button></div>`;
       }
       html += `</div>`;
 
-      html += `<div class="pose-preview-section"><div class="pose-preview-title">🎬 视频LORA (${data.video_loras?.length || 0})</div>`;
+      html += `<div class="pose-preview-section"><div class="pose-preview-title">🎬 视频LORA (${data.video_loras?.length || 0})<button class="btn btn-secondary" onclick="openLoraSelector(${poseId}, 'video')" style="margin-left:auto;padding:2px 8px;font-size:10px;">+ 添加</button></div>`;
       if (data.video_loras && data.video_loras.length > 0) {
         const expanded = document.getElementById(`video-loras-${poseId}`)?.classList.contains('expanded');
         const displayLoras = expanded ? data.video_loras : data.video_loras.slice(0, 3);
@@ -1012,7 +1023,7 @@
       }
       html += `</div>`;
 
-      html += `<div class="pose-preview-section"><div class="pose-preview-title">🖼️ 图片LORA (${data.image_loras?.length || 0})</div>`;
+      html += `<div class="pose-preview-section"><div class="pose-preview-title">🖼️ 图片LORA (${data.image_loras?.length || 0})<button class="btn btn-secondary" onclick="openLoraSelector(${poseId}, 'image')" style="margin-left:auto;padding:2px 8px;font-size:10px;">+ 添加</button></div>`;
       if (data.image_loras && data.image_loras.length > 0) {
         const expanded = document.getElementById(`image-loras-${poseId}`)?.classList.contains('expanded');
         const displayLoras = expanded ? data.image_loras : data.image_loras.slice(0, 3);
@@ -1119,7 +1130,7 @@
                 }
               }).join('')}
               ${remaining > 0 ? `
-                <div class="pose-preview-item" onclick="viewConfig(${poseId})">
+                <div class="pose-preview-item" onclick="showAllReferenceImages(${poseId})">
                   <div class="pose-preview-more">+${remaining}</div>
                 </div>
               ` : ''}
@@ -1139,7 +1150,7 @@
         // 视频 LORA（始终显示）
         html += `
           <div class="pose-preview-section">
-            <div class="pose-preview-title">🎬 视频LORA (${data.video_loras?.length || 0})</div>
+            <div class="pose-preview-title">🎬 视频LORA (${data.video_loras?.length || 0})<button class="btn btn-secondary" onclick="openLoraSelector(${poseId}, 'video')" style="margin-left:auto;padding:2px 8px;font-size:10px;">+ 添加</button></div>
         `;
 
         if (data.video_loras && data.video_loras.length > 0) {
@@ -1201,7 +1212,7 @@
         // 图片 LORA（始终显示）
         html += `
           <div class="pose-preview-section">
-            <div class="pose-preview-title">🖼️ 图片LORA (${data.image_loras?.length || 0})</div>
+            <div class="pose-preview-title">🖼️ 图片LORA (${data.image_loras?.length || 0})<button class="btn btn-secondary" onclick="openLoraSelector(${poseId}, 'image')" style="margin-left:auto;padding:2px 8px;font-size:10px;">+ 添加</button></div>
         `;
 
         if (data.image_loras && data.image_loras.length > 0) {
@@ -1667,6 +1678,61 @@
         const video = modal.querySelector('video');
         if (video) video.pause();
         modal.remove();
+      }
+    }
+
+    // 展示所有参考图缩略图弹窗
+    async function showAllReferenceImages(poseId) {
+      try {
+        const response = await fetch(`/api/v1/poses/${poseId}/config`);
+        const data = await response.json();
+        const images = data.reference_images || [];
+        const title = `参考图 (${images.length})`;
+        document.getElementById('ref-images-modal-title').textContent = title;
+
+        if (images.length === 0) {
+          document.getElementById('ref-images-modal-body').innerHTML =
+            '<div class="pose-preview-empty">暂无参考图</div>';
+        } else {
+          const items = images.map(img => {
+            const isVideo = img.image_url && (img.image_url.endsWith('.mp4') || img.image_url.endsWith('.webm'));
+            const delBtn = `<button onclick="event.stopPropagation();deleteReferenceImageFromModal(${poseId},${img.id})" style="position:absolute;top:2px;left:2px;background:rgba(220,38,38,0.9);color:#fff;border:none;border-radius:3px;font-size:11px;padding:2px 5px;cursor:pointer;z-index:3;">×</button>`;
+            if (isVideo) {
+              return `<div style="position:relative;width:90px;height:90px;border-radius:6px;overflow:hidden;background:#0a0a23;flex-shrink:0;" ondblclick="openImageZoom('${img.image_url}',true)" onmouseenter="playPreviewVideo(this)" onmouseleave="pausePreviewVideo(this)"><video src="${img.image_url}" muted loop playsinline style="width:100%;height:100%;object-fit:cover;pointer-events:none;"></video><span class="pose-preview-badge">视频</span>${delBtn}</div>`;
+            } else {
+              return `<div style="position:relative;width:90px;height:90px;border-radius:6px;overflow:hidden;background:#0a0a23;flex-shrink:0;" ondblclick="openImageZoom('${img.image_url}',false)"><img src="${img.image_url}" loading="lazy" style="width:100%;height:100%;object-fit:cover;">${delBtn}</div>`;
+            }
+          }).join('');
+          document.getElementById('ref-images-modal-body').innerHTML = `<div style="display:flex;flex-wrap:wrap;gap:8px;padding:4px 0;">${items}</div>`;
+        }
+        document.getElementById('ref-images-modal').classList.add('active');
+      } catch (error) {
+        console.error('加载参考图失败:', error);
+        alert('加载参考图失败');
+      }
+    }
+
+    function closeRefImagesModal() {
+      document.getElementById('ref-images-modal').classList.remove('active');
+    }
+
+    async function deleteReferenceImageFromModal(poseId, imageId) {
+      if (!confirm('确定要删除这张参考图吗？')) return;
+      try {
+        const response = await fetch(`/api/v1/admin/poses/reference-images/${imageId}`, {
+          method: 'DELETE',
+          headers: { 'X-API-Key': 'wan22-default-key-change-me' }
+        });
+        if (!response.ok) {
+          const error = await response.json();
+          throw new Error(error.detail || '删除失败');
+        }
+        await loadPoseDetails(poseId);
+        // 刷新弹窗
+        await showAllReferenceImages(poseId);
+      } catch (error) {
+        console.error('删除参考图失败:', error);
+        alert('删除失败: ' + error.message);
       }
     }
 

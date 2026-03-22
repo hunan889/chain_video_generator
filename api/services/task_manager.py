@@ -52,6 +52,10 @@ class TaskManager:
         if self._worker_redis:
             await self._worker_redis.close()
 
+    def _get_client(self, model_key: str) -> "ComfyUIClient | None":
+        """Get ComfyUI client by model key."""
+        return self.clients.get(model_key)
+
     async def redis_alive(self) -> bool:
         try:
             return await self.redis.ping()
@@ -128,7 +132,7 @@ class TaskManager:
         elif status == TaskStatus.RUNNING.value:
             prompt_id = data.get("prompt_id")
             model = data.get("model", "")
-            client = self.clients.get(model)
+            client = self._get_client(model)
             if client and prompt_id:
                 await client.interrupt()
                 await client.cancel_prompt(prompt_id)
@@ -212,7 +216,7 @@ class TaskManager:
                     task_id = key.split(":", 1)[1]
                     prompt_id = await self.redis.hget(key, "prompt_id")
                     model_key = await self.redis.hget(key, "model")
-                    client = self.clients.get(model_key) if model_key else None
+                    client = self._get_client(model_key) if model_key else None
 
                     if not prompt_id or not client:
                         await self.redis.hset(key, mapping={
@@ -626,7 +630,7 @@ class TaskManager:
                 })
 
                 model = ModelType(seg["model"])
-                client = self.clients.get(model.value)
+                client = self._get_client(model.value)
                 if not client:
                     raise RuntimeError(f"ComfyUI {model.value} not available")
 
@@ -827,7 +831,7 @@ class TaskManager:
         seg0 = segments[0]
         total = len(segments)
         model = ModelType(seg0["model"])
-        client = self.clients.get(model.value)
+        client = self._get_client(model.value)
         if not client:
             raise RuntimeError(f"ComfyUI {model.value} not available")
 

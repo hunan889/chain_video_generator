@@ -1,5 +1,6 @@
 """SeedDream image generation via BytePlus API."""
 
+import asyncio
 import base64
 import json
 import logging
@@ -148,6 +149,16 @@ def _call_byteplus(payload: dict) -> str:
         raise HTTPException(502, f"Unexpected API response format: {e}")
 
 
+async def _call_byteplus_async(payload: dict) -> str:
+    """Non-blocking wrapper for _call_byteplus. Use from async endpoints."""
+    return await asyncio.to_thread(_call_byteplus, payload)
+
+
+async def _async_post(url: str, **kwargs):
+    """Non-blocking wrapper for requests.post. Use from async endpoints."""
+    return await asyncio.to_thread(http_requests.post, url, **kwargs)
+
+
 # --- Text-to-Image ---
 
 class ImageRequest(BaseModel):
@@ -181,7 +192,7 @@ async def generate_image(req: ImageRequest, _user=Depends(verify_api_key)):
         payload["seed"] = req.seed
 
     logger.info("SeedDream T2I: model=%s size=%s seed=%s prompt=%.80s", model, size, req.seed, req.prompt)
-    url = _call_byteplus(payload)
+    url = await _call_byteplus_async(payload)
     logger.info("SeedDream image generated: %s", url[:120])
 
     # Save to history
@@ -233,7 +244,7 @@ async def edit_image(
         payload["seed"] = seed
 
     logger.info("SeedDream I2I: model=%s size=%s seed=%s prompt=%.80s", model_name, size, seed, prompt)
-    url = _call_byteplus(payload)
+    url = await _call_byteplus_async(payload)
     logger.info("SeedDream edit generated: %s", url[:120])
     return ImageResponse(url=url, size=size, seed=seed)
 
@@ -318,7 +329,7 @@ async def multiref_image(
 
     logger.info("SeedDream MultiRef: model=%s %d images, size=%s seed=%s prompt=%.80s",
                 model_name, len(image_list), size, seed, prompt)
-    url = _call_byteplus(payload)
+    url = await _call_byteplus_async(payload)
     logger.info("SeedDream multiref generated: %s", url[:120])
     return ImageResponse(url=url, size=size, seed=seed, cropped_inputs=cropped_urls)
 
@@ -604,7 +615,7 @@ async def scene_swap(
 
         logger.info("SceneSwap Step 1: Reactor face swap (%dx%d)...", target_w, target_h)
         try:
-            reactor_resp = http_requests.post(
+            reactor_resp = await _async_post(
                 f"{FORGE_URL}/reactor/image", json=reactor_payload, timeout=120
             )
         except http_requests.RequestException as e:
@@ -673,7 +684,7 @@ async def scene_swap(
 
     logger.info("SceneSwap Step 2: SeedDream multiref, prompt=%.120s", full_prompt)
     try:
-        url = _call_byteplus(payload)
+        url = await _call_byteplus_async(payload)
         logger.info("SceneSwap completed: %s", url[:120])
         return ImageResponse(url=url, size=size, seed=seed, cropped_inputs=cropped_urls)
     except HTTPException as e:
@@ -833,7 +844,7 @@ async def faceswap_image(
         logger.info("Forge Couple regions: %s", _build_couple_regions(n))
 
         try:
-            resp = http_requests.post(f"{FORGE_URL}/sdapi/v1/txt2img", json=payload, timeout=300)
+            resp = await _async_post(f"{FORGE_URL}/sdapi/v1/txt2img", json=payload, timeout=300)
         except http_requests.RequestException as e:
             raise HTTPException(502, f"Forge API request failed: {e}")
 
@@ -869,7 +880,7 @@ async def faceswap_image(
                 "det_maxnum": 0,
             }
             try:
-                reactor_resp = http_requests.post(
+                reactor_resp = await _async_post(
                     f"{FORGE_URL}/reactor/image", json=reactor_payload, timeout=120
                 )
                 if reactor_resp.status_code == 200:
@@ -904,7 +915,7 @@ async def faceswap_image(
                 width, height, steps, face_weight, prompt[:200])
 
     try:
-        resp = http_requests.post(f"{FORGE_URL}/sdapi/v1/txt2img", json=payload, timeout=300)
+        resp = await _async_post(f"{FORGE_URL}/sdapi/v1/txt2img", json=payload, timeout=300)
     except http_requests.RequestException as e:
         raise HTTPException(502, f"Forge API request failed: {e}")
 
@@ -1098,7 +1109,7 @@ async def transfer_image(
                 width, height, "+".join(features), prompt[:200])
 
     try:
-        resp = http_requests.post(f"{FORGE_URL}/sdapi/v1/txt2img", json=payload, timeout=300)
+        resp = await _async_post(f"{FORGE_URL}/sdapi/v1/txt2img", json=payload, timeout=300)
     except http_requests.RequestException as e:
         raise HTTPException(502, f"Forge API request failed: {e}")
 
@@ -1133,7 +1144,7 @@ async def transfer_image(
             "det_maxnum": 0,
         }
         try:
-            reactor_resp = http_requests.post(
+            reactor_resp = await _async_post(
                 f"{FORGE_URL}/reactor/image", json=reactor_payload, timeout=120
             )
             if reactor_resp.status_code == 200:
@@ -1235,7 +1246,7 @@ async def zimage_edit(
 
     # Upload image to ComfyUI
     ext = (image.filename or "upload.png").rsplit(".", 1)[-1].lower()
-    upload_name = _upload_image_to_comfyui(image_data, f"zimage_input.{ext}")
+    upload_name = await asyncio.to_thread(_upload_image_to_comfyui, image_data, f"zimage_input.{ext}")
 
     # Build workflow
     import json, random
@@ -1288,10 +1299,10 @@ async def zimage_edit(
     logger.info("Z-Image I2I: denoise=%.2f steps=%d seed=%d cn=%.2f prompt=%.80s",
                 denoise, steps, actual_seed, controlnet_strength, prompt)
 
-    # Queue and wait
-    prompt_id = _queue_comfyui_prompt(workflow)
-    result_filename = _poll_comfyui_result(prompt_id)
-    img_b64 = _get_comfyui_image_b64(result_filename)
+    # Queue and wait (run sync ComfyUI calls in thread to avoid blocking event loop)
+    prompt_id = await asyncio.to_thread(_queue_comfyui_prompt, workflow)
+    result_filename = await asyncio.to_thread(_poll_comfyui_result, prompt_id)
+    img_b64 = await asyncio.to_thread(_get_comfyui_image_b64, result_filename)
     url = _save_result_image(img_b64)
 
     logger.info("Z-Image I2I completed: %s", url)
@@ -1339,7 +1350,7 @@ async def character_consistency(
 
     # Upload image to ComfyUI
     ext = (face_image.filename or "face.png").rsplit(".", 1)[-1].lower()
-    upload_name = _upload_image_to_comfyui(face_data, f"character_face.{ext}")
+    upload_name = await asyncio.to_thread(_upload_image_to_comfyui, face_data, f"character_face.{ext}")
 
     # Load workflow
     import json, random
@@ -1366,10 +1377,10 @@ async def character_consistency(
     logger.info("Character Consistency: instantid=%.2f faceid=%.2f ipadapter=%.2f steps=%d seed=%d prompt=%.80s",
                 instantid_weight, faceid_weight, ipadapter_weight, steps, actual_seed, prompt)
 
-    # Queue and wait
-    prompt_id = _queue_comfyui_prompt(workflow)
-    result_filename = _poll_comfyui_result(prompt_id)
-    img_b64 = _get_comfyui_image_b64(result_filename)
+    # Queue and wait (run sync ComfyUI calls in thread to avoid blocking event loop)
+    prompt_id = await asyncio.to_thread(_queue_comfyui_prompt, workflow)
+    result_filename = await asyncio.to_thread(_poll_comfyui_result, prompt_id)
+    img_b64 = await asyncio.to_thread(_get_comfyui_image_b64, result_filename)
     url = _save_result_image(img_b64)
 
     logger.info("Character Consistency completed: %s", url)

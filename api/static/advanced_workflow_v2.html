@@ -255,12 +255,14 @@ h2{color:#7c83ff;margin-bottom:20px;font-size:1.4em}
 <div id="s3_params" style="display:none">
 <div class="row">
 <div class="field">
-<label>编辑模式</label>
-<select id="s3_mode" onchange="updateSeeDreamPrompt()">
-<option value="face_wearings">面部+配饰</option>
-<option value="face_only">仅面部</option>
-<option value="full_body">全身</option>
-</select>
+<label>编辑内容选择</label>
+<div class="hint">选择需要从参考图替换的内容，未选中的将保持场景原样</div>
+<div style="display:flex; flex-wrap:wrap; gap:12px; margin-top:6px">
+<label style="display:flex;align-items:center;gap:4px;cursor:pointer"><input type="checkbox" id="s3_swapFace" checked onchange="updateSeeDreamPrompt(true)"> 人脸</label>
+<label style="display:flex;align-items:center;gap:4px;cursor:pointer"><input type="checkbox" id="s3_swapAccessories" checked onchange="updateSeeDreamPrompt(true)"> 首饰/配饰</label>
+<label style="display:flex;align-items:center;gap:4px;cursor:pointer"><input type="checkbox" id="s3_swapExpression" onchange="updateSeeDreamPrompt(true)"> 表情</label>
+<label style="display:flex;align-items:center;gap:4px;cursor:pointer"><input type="checkbox" id="s3_swapClothing" onchange="updateSeeDreamPrompt(true)"> 服装</label>
+</div>
 </div>
 <div class="field">
 <label><input type="checkbox" id="s3_enableReactor" checked> 编辑前 Reactor 换脸</label>
@@ -271,7 +273,7 @@ h2{color:#7c83ff;margin-bottom:20px;font-size:1.4em}
 <div class="field">
 <label>SeeDream Prompt（可自定义）</label>
 <textarea id="s3_prompt" rows="3"></textarea>
-<div class="hint">留空则使用默认 prompt，根据编辑模式自动生成</div>
+<div class="hint">留空则使用默认 prompt，根据开关自动生成；手动编辑后不再自动更新</div>
 </div>
 
 <div class="row">
@@ -435,11 +437,38 @@ function toProxyUrl(url) {
   return url;
 }
 
-// 默认 SeeDream Prompt 映射
+// 根据开关动态生成 SeeDream Prompt
+function buildSeeDreamPrompt(swapFace, swapAccessories, swapExpression, swapClothing) {
+    const parts = ["edit image 2, keep the position and pose of image 2"];
+    if (swapFace) {
+        parts.push("swap face to image 1, change face identity to match image 1, change hairstyle to match image 1");
+    } else {
+        parts.push("keep face identity the same as image 2");
+    }
+    if (swapAccessories) {
+        parts.push("change accessories (jewelry, glasses, hair accessories) to match image 1");
+    } else {
+        parts.push("keep accessories the same as image 2");
+    }
+    if (swapExpression) {
+        parts.push("change facial expression to match image 1");
+    } else {
+        parts.push("preserve the facial expression from image 2");
+    }
+    if (swapClothing) {
+        parts.push("change clothing to match image 1");
+    } else {
+        parts.push("keep clothing the same as image 2");
+    }
+    parts.push("keep background the same as image 2");
+    return parts.join(", ");
+}
+
+// 向后兼容：mode 名称映射
 const DEFAULT_SEEDREAM_PROMPTS = {
-    face_only: "edit image 2, keep the position and pose of image 2, swap face to image 1, only change the face identity, preserve the facial expression from image 2, keep clothing the same as image 2, keep accessories the same as image 2, keep background the same as image 2",
-    face_wearings: "edit image 2, keep the position and pose of image 2, swap face to image 1, change face identity to match image 1, change accessories (jewelry, glasses, hair accessories) to match image 1, preserve the facial expression from image 2, keep clothing the same as image 2, keep background the same as image 2",
-    full_body: "edit image 2, keep the position and pose of image 2, swap face to image 1, change face identity to match image 1, change clothing to match image 1, change accessories to match image 1, preserve the facial expression from image 2, keep background the same as image 2"
+    face_only: buildSeeDreamPrompt(true, false, false, false),
+    face_wearings: buildSeeDreamPrompt(true, true, false, false),
+    full_body: buildSeeDreamPrompt(true, true, false, true)
 };
 
 // 全局变量
@@ -640,12 +669,28 @@ function toggleCollapsible(element) {
     }
 }
 
-// 更新 SeeDream Prompt
-function updateSeeDreamPrompt() {
-    const mode = document.getElementById('s3_mode').value;
+// 更新 SeeDream Prompt（根据开关状态动态生成）
+let s3PromptManuallyEdited = false;
+function updateSeeDreamPrompt(fromToggle) {
     const promptTextarea = document.getElementById('s3_prompt');
-    promptTextarea.value = DEFAULT_SEEDREAM_PROMPTS[mode] || '';
+    // 切换开关时重置手动编辑标记，因为用户明确要求通过开关控制
+    if (fromToggle) s3PromptManuallyEdited = false;
+    // 如果用户手动编辑过 prompt，不自动覆盖
+    if (s3PromptManuallyEdited) return;
+    const swapFace = document.getElementById('s3_swapFace').checked;
+    const swapAccessories = document.getElementById('s3_swapAccessories').checked;
+    const swapExpression = document.getElementById('s3_swapExpression').checked;
+    const swapClothing = document.getElementById('s3_swapClothing').checked;
+    promptTextarea.value = buildSeeDreamPrompt(swapFace, swapAccessories, swapExpression, swapClothing);
 }
+
+// 监听 prompt 手动编辑
+document.addEventListener('DOMContentLoaded', function() {
+    const promptEl = document.getElementById('s3_prompt');
+    if (promptEl) {
+        promptEl.addEventListener('input', function() { s3PromptManuallyEdited = true; });
+    }
+});
 
 // 保存参数到 localStorage
 function saveFormParams() {
@@ -669,7 +714,10 @@ function saveFormParams() {
         s2_faceSwapEnabled: document.getElementById('s2_faceSwapEnabled').checked,
         s2_faceSwapStrength: document.getElementById('s2_faceSwapStrength').value,
         s3_enabled: document.getElementById('s3_enabled').checked,
-        s3_mode: document.getElementById('s3_mode').value,
+        s3_swapFace: document.getElementById('s3_swapFace').checked,
+        s3_swapAccessories: document.getElementById('s3_swapAccessories').checked,
+        s3_swapExpression: document.getElementById('s3_swapExpression').checked,
+        s3_swapClothing: document.getElementById('s3_swapClothing').checked,
         s3_prompt: document.getElementById('s3_prompt').value,
         s3_enableReactor: document.getElementById('s3_enableReactor').checked,
         s3_strength: document.getElementById('s3_strength').value,
@@ -749,10 +797,17 @@ function loadFormParams() {
         // Stage 3
         const s3EnabledEl = document.getElementById('s3_enabled');
         if (s3EnabledEl && params.s3_enabled !== undefined) s3EnabledEl.checked = params.s3_enabled;
-        // Note: s3_mode will be restored but may be corrected by updateModeRelatedUI() if incompatible
-        if (params.s3_mode) {
-            const s3ModeEl = document.getElementById('s3_mode');
-            if (s3ModeEl) s3ModeEl.value = params.s3_mode;
+        // Restore toggle states
+        if (params.s3_swapFace !== undefined) document.getElementById('s3_swapFace').checked = params.s3_swapFace;
+        if (params.s3_swapAccessories !== undefined) document.getElementById('s3_swapAccessories').checked = params.s3_swapAccessories;
+        if (params.s3_swapExpression !== undefined) document.getElementById('s3_swapExpression').checked = params.s3_swapExpression;
+        if (params.s3_swapClothing !== undefined) document.getElementById('s3_swapClothing').checked = params.s3_swapClothing;
+        // Backward compatibility: restore from legacy s3_mode
+        if (params.s3_mode && params.s3_swapFace === undefined) {
+            document.getElementById('s3_swapFace').checked = true;
+            document.getElementById('s3_swapAccessories').checked = params.s3_mode !== 'face_only';
+            document.getElementById('s3_swapExpression').checked = false;
+            document.getElementById('s3_swapClothing').checked = params.s3_mode === 'full_body';
         }
         if (params.s3_prompt) {
             const s3PromptEl = document.getElementById('s3_prompt');
@@ -826,7 +881,6 @@ function updateModeRelatedUI() {
     const s3EnabledCheckbox = document.getElementById('s3_enabled');
     const s3EnabledHint = document.getElementById('s3_enabledHint');
     const s3Header = document.getElementById('s3_header');
-    const s3ModeSelect = document.getElementById('s3_mode');
 
     // Stage 2 face swap: 仅在非 first_frame 模式下显示
     if (mode === 'first_frame') {
@@ -841,45 +895,21 @@ function updateModeRelatedUI() {
         s3Header.style.display = 'none';
         document.getElementById('s3_content').style.display = 'none';
     } else if (mode === 'full_body_reference') {
-        // full_body_reference 模式：必选，只能选择 face_wearings 或 full_body
+        // full_body_reference 模式：必选
         s3Header.style.display = 'flex';
         s3EnabledCheckbox.checked = true;
         s3EnabledCheckbox.disabled = true;
         s3EnabledHint.textContent = 'full_body_reference 模式必须启用 SeeDream';
         s3EnabledHint.style.color = '#f87171';
-        // 限制 SeeDream 编辑模式：只允许 face_wearings 和 full_body
-        Array.from(s3ModeSelect.options).forEach(option => {
-            if (option.value === 'face_only') {
-                option.disabled = true;
-                // 如果当前选中的是 face_only，切换到 face_wearings
-                if (s3ModeSelect.value === 'face_only') {
-                    s3ModeSelect.value = 'face_wearings';
-                    updateSeeDreamPrompt();
-                }
-            } else {
-                option.disabled = false;
-            }
-        });
+        // 确保至少 face 开关打开
+        document.getElementById('s3_swapFace').checked = true;
         updateStage3Visibility();
     } else if (mode === 'face_reference') {
-        // face_reference 模式：可选，只能选择 face_only
+        // face_reference 模式：可选
         s3Header.style.display = 'flex';
         s3EnabledCheckbox.disabled = false;
         s3EnabledHint.textContent = 'face_reference 模式至少需要启用 Stage 2 换脸或 Stage 3 SeeDream 之一';
         s3EnabledHint.style.color = '#7c83ff';
-        // 限制 SeeDream 编辑模式：只允许 face_only
-        Array.from(s3ModeSelect.options).forEach(option => {
-            if (option.value === 'face_only') {
-                option.disabled = false;
-            } else {
-                option.disabled = true;
-                // 如果当前选中的不是 face_only，切换到 face_only
-                if (s3ModeSelect.value !== 'face_only') {
-                    s3ModeSelect.value = 'face_only';
-                    updateSeeDreamPrompt();
-                }
-            }
-        });
         updateStage3Visibility();
     }
 }
@@ -1147,7 +1177,10 @@ function buildRequestData() {
         },
         stage3_seedream: {
             enabled: document.getElementById('s3_enabled').checked,
-            mode: document.getElementById('s3_mode').value,
+            swap_face: document.getElementById('s3_swapFace').checked,
+            swap_accessories: document.getElementById('s3_swapAccessories').checked,
+            swap_expression: document.getElementById('s3_swapExpression').checked,
+            swap_clothing: document.getElementById('s3_swapClothing').checked,
             prompt: document.getElementById('s3_prompt').value.trim() || null,
             enable_reactor: document.getElementById('s3_enableReactor').checked,
             strength: parseFloat(document.getElementById('s3_strength').value),
@@ -1203,6 +1236,8 @@ function buildRequestData() {
 
 // 开始轮询任务状态
 function startPolling() {
+    _prevStageData = {};
+    _prevOverallKey = '';
     if (pollInterval) {
         clearInterval(pollInterval);
     }
@@ -1237,25 +1272,248 @@ function startPolling() {
     }, 2000);
 }
 
-// 更新进度显示
+// 进度面板状态追踪
+let _prevStageData = {};
+let _prevOverallKey = '';
+
+// Stage name mapping (shared)
+const _stageConfig = {
+    'prompt_analysis': { title: '📝 Stage 1: Prompt 分析' },
+    'first_frame_acquisition': { title: '🖼️ Stage 2: 首帧获取' },
+    'seedream_edit': { title: '✨ Stage 3: SeeDream 编辑' },
+    'video_generation': { title: '🎬 Stage 4: 视频生成' }
+};
+
+// Render overall status section
+function renderOverallStatus(status) {
+    const overallStatusText = status.status === 'completed' ? '✅ 完成' :
+                         status.status === 'running' ? '⏳ 处理中...' :
+                         status.status === 'failed' ? '❌ 失败' : status.status;
+
+    const pct = (status.progress !== undefined && status.progress !== null) ? (status.progress * 100).toFixed(1) : null;
+    const overallProgress = pct !== null ?
+        `<div style="margin-top:16px">
+            <div style="color:#888;font-size:12px;margin-bottom:4px">整体进度</div>
+            <div style="background:#333;border-radius:4px;height:24px;overflow:hidden">
+                <div id="overallProgressBar" style="background:#7c83ff;height:100%;width:${pct}%;transition:width 0.3s;display:flex;align-items:center;justify-content:center;color:#fff;font-size:12px;font-weight:600">
+                    <span id="overallProgressText">${pct}%</span>
+                </div>
+            </div>
+        </div>` : '';
+
+    return `
+        <div id="overallStatus" style="background:#1a1a1a;border-radius:8px;padding:16px;margin-bottom:16px;text-align:center">
+            <div id="overallStatusText" style="font-size:18px;font-weight:600;color:#7c83ff;margin-bottom:8px">${overallStatusText}</div>
+            <div id="overallStageText" style="font-size:14px;color:#aaa">当前阶段: ${status.current_stage || '未知'}</div>
+            ${overallProgress}
+        </div>
+    `;
+}
+
+// Render a single stage's HTML
+function renderStageHtml(stageInfo, stageName, status) {
+    const statusClass = stageInfo.status === 'completed' ? 'completed' :
+                       stageInfo.status === 'running' ? 'running' :
+                       stageInfo.status === 'failed' ? 'failed' : 'pending';
+
+    const statusText = stageInfo.status === 'completed' ? '✅ 完成' :
+                      stageInfo.status === 'running' ? '⏳ 进行中' :
+                      stageInfo.status === 'failed' ? '❌ 失败' : '⏸️ 等待中';
+
+    let detailsHtml = '';
+
+    // Show details if available
+    if (stageInfo.details) {
+        const details = stageInfo.details;
+        detailsHtml = '<div style="margin-top:12px;padding-top:12px;border-top:1px solid #333">';
+
+        // Display different details based on stage
+        if (stageInfo.title.includes('Stage 1')) {
+            if (details.error) detailsHtml += `<div style="margin-bottom:8px;color:#ff6b6b"><span style="color:#888">⚠️ 错误:</span> ${details.error}</div>`;
+            if (details.skipped) detailsHtml += `<div style="margin-bottom:8px"><span style="color:#888">状态:</span> ${details.reason || '已跳过'}</div>`;
+            if (details.original_prompt) detailsHtml += `<div style="margin-bottom:8px"><span style="color:#888">原始 Prompt:</span> ${details.original_prompt}</div>`;
+            if (details.optimized_prompt) detailsHtml += `<div style="margin-bottom:8px"><span style="color:#888">优化后 Prompt:</span> ${details.optimized_prompt}</div>`;
+            if (details.pose_keys && Array.isArray(details.pose_keys) && details.pose_keys.length > 0) {
+                detailsHtml += `<div style="margin-bottom:8px"><span style="color:#888">推荐姿势:</span> ${details.pose_keys.join(', ')}</div>`;
+            }
+            if (details.image_loras && Array.isArray(details.image_loras) && details.image_loras.length > 0) {
+                detailsHtml += `<div style="margin-bottom:8px"><span style="color:#888">Image LoRAs (${details.image_loras.length}):</span></div>`;
+                details.image_loras.forEach(lora => {
+                    const name = lora.name || lora.lora_id || 'Unknown';
+                    detailsHtml += `<div style="background:#16213e;padding:6px;margin:4px 0;border-radius:4px;font-size:11px">${name}</div>`;
+                });
+            }
+            if (details.video_loras && Array.isArray(details.video_loras) && details.video_loras.length > 0) {
+                detailsHtml += `<div style="margin-bottom:8px"><span style="color:#888">Video LoRAs (${details.video_loras.length}):</span></div>`;
+                detailsHtml += `<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px">`;
+                details.video_loras.forEach(lora => {
+                    const name = lora.name || lora.lora_id || 'Unknown';
+                    const previewUrl = lora.preview_url;
+                    console.log('LoRA:', name, 'Preview URL:', previewUrl);
+                    detailsHtml += `<div style="position:relative;width:120px">`;
+                    if (previewUrl) {
+                        const proxied = toProxyUrl(previewUrl);
+                        if (previewUrl.endsWith('.mp4') || previewUrl.includes('video')) {
+                            detailsHtml += `<video src="${proxied}" style="width:120px;height:120px;object-fit:cover;border-radius:6px;border:1px solid #444" muted loop autoplay></video>`;
+                        } else {
+                            detailsHtml += `<img src="${proxied}" style="width:120px;height:120px;object-fit:cover;border-radius:6px;border:1px solid #444">`;
+                        }
+                    } else {
+                        detailsHtml += `<div style="width:120px;height:120px;background:#16213e;border-radius:6px;border:1px solid #444;display:flex;align-items:center;justify-content:center;font-size:10px;color:#666">No Preview</div>`;
+                    }
+                    detailsHtml += `<div style="margin-top:4px;font-size:10px;color:#aaa;text-align:center;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${name}</div>`;
+                    detailsHtml += `</div>`;
+                });
+                detailsHtml += `</div>`;
+            }
+            if (details.images && Array.isArray(details.images) && details.images.length > 0) {
+                detailsHtml += `<div style="margin-bottom:8px;margin-top:12px"><span style="color:#888">推荐图片 (${details.images.length}):</span></div>`;
+                detailsHtml += `<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px">`;
+                details.images.slice(0, 5).forEach(img => {
+                    const similarity = img.similarity ? (img.similarity * 100).toFixed(1) + '%' : '';
+                    const url = img.url;
+                    const urlProxied = toProxyUrl(url);
+                    detailsHtml += `<div style="position:relative">`;
+                    if (url && (url.endsWith('.mp4') || url.includes('video') || url.includes('.mp4'))) {
+                        detailsHtml += `<video src="${urlProxied}" style="width:120px;height:120px;object-fit:cover;border-radius:6px;border:1px solid #444" muted loop autoplay></video>`;
+                    } else {
+                        detailsHtml += `<img src="${urlProxied}" style="width:120px;height:120px;object-fit:cover;border-radius:6px;border:1px solid #444">`;
+                    }
+                    detailsHtml += `<div style="position:absolute;bottom:4px;right:4px;background:rgba(0,0,0,0.7);padding:2px 6px;border-radius:4px;font-size:10px;color:#4ade80">${similarity}</div>`;
+                    detailsHtml += `</div>`;
+                });
+                detailsHtml += `</div>`;
+            }
+        } else if (stageInfo.title.includes('Stage 2')) {
+            if (details.source) detailsHtml += `<div style="margin-bottom:8px"><span style="color:#888">首帧来源:</span> ${details.source}</div>`;
+            if (details.url || status.first_frame_url) {
+                const imgUrl = details.url || status.first_frame_url;
+                detailsHtml += `<div style="margin-bottom:8px"><span style="color:#888">首帧图片:</span><br><img src="${imgUrl}" style="max-width:200px;border-radius:8px;margin-top:8px"></div>`;
+            }
+            if (details.face_swapped !== undefined) {
+                detailsHtml += `<div style="margin-bottom:8px"><span style="color:#888">是否换脸:</span> ${details.face_swapped ? '✅ 是' : '❌ 否'}</div>`;
+            }
+            if (details.face_swap_skipped) {
+                detailsHtml += `<div style="margin-bottom:8px;color:#fbbf24"><span style="color:#888">⚠️ 换脸跳过:</span> ${details.face_swap_skip_reason || '未知原因'}</div>`;
+            }
+        } else if (stageInfo.title.includes('Stage 3')) {
+            if (details.skipped) {
+                detailsHtml += `<div style="margin-bottom:8px"><span style="color:#888">状态:</span> ${details.reason || '已跳过'}</div>`;
+            } else {
+                if (details.mode) detailsHtml += `<div style="margin-bottom:8px"><span style="color:#888">编辑模式:</span> ${details.mode}</div>`;
+                if (details.model) detailsHtml += `<div style="margin-bottom:8px"><span style="color:#888">使用模型:</span> <code style="background:#1a1a1a;padding:2px 6px;border-radius:4px">${details.model}</code></div>`;
+                if (details.size) detailsHtml += `<div style="margin-bottom:8px"><span style="color:#888">图片尺寸:</span> ${details.size}</div>`;
+                if (details.enable_reactor !== undefined) detailsHtml += `<div style="margin-bottom:8px"><span style="color:#888">启用 ReActor:</span> ${details.enable_reactor ? '✅ 是' : '❌ 否'}</div>`;
+                if (details.face_swapped !== undefined) detailsHtml += `<div style="margin-bottom:8px"><span style="color:#888">ReActor 换脸结果:</span> ${details.face_swapped ? '✅ 成功' : '❌ 未执行/失败'}</div>`;
+                if (details.strength !== undefined) detailsHtml += `<div style="margin-bottom:8px"><span style="color:#888">强度:</span> ${details.strength}</div>`;
+                if (details.seed !== undefined && details.seed !== null) detailsHtml += `<div style="margin-bottom:8px"><span style="color:#888">种子:</span> ${details.seed}</div>`;
+                if (details.prompt) detailsHtml += `<div style="margin-bottom:8px"><span style="color:#888">Prompt:</span> ${details.prompt}</div>`;
+                if (details.api_status) detailsHtml += `<div style="margin-bottom:8px"><span style="color:#888">API 调用:</span> <span style="color:${details.api_status === 'success' ? '#4ade80' : '#ff6b6b'}">${details.api_status === 'success' ? '✅ 成功' : '❌ 失败'}</span></div>`;
+                if (details.fallback_used) detailsHtml += `<div style="margin-bottom:8px;color:#fbbf24"><span style="color:#888">⚠️ Fallback:</span> ${details.fallback_reason || '使用了原图作为结果'}</div>`;
+                if (details.reference_image) detailsHtml += `<div style="margin-bottom:8px"><span style="color:#888">参考图:</span><br><img src="${details.reference_image}" style="max-width:150px;border-radius:8px;margin-top:8px"></div>`;
+                if (details.first_frame_url) detailsHtml += `<div style="margin-bottom:8px"><span style="color:#888">输入图:</span><br><img src="${details.first_frame_url}" style="max-width:150px;border-radius:8px;margin-top:8px"></div>`;
+                if (details.url || status.edited_frame_url) {
+                    const imgUrl = details.url || status.edited_frame_url;
+                    detailsHtml += `<div style="margin-bottom:8px"><span style="color:#888">编辑后图片:</span><br><img src="${imgUrl}" style="max-width:200px;border-radius:8px;margin-top:8px"></div>`;
+                }
+                if (details.error) detailsHtml += `<div style="margin-bottom:8px;color:#ff6b6b"><span style="color:#888">错误:</span> ${details.error}</div>`;
+            }
+        } else if (stageInfo.title.includes('Stage 4')) {
+            if (details.model) detailsHtml += `<div style="margin-bottom:8px"><span style="color:#888">视频模型:</span> ${details.model}</div>`;
+            if (details.resolution) detailsHtml += `<div style="margin-bottom:8px"><span style="color:#888">分辨率:</span> ${details.resolution}</div>`;
+            if (details.duration) detailsHtml += `<div style="margin-bottom:8px"><span style="color:#888">时长:</span> ${details.duration}</div>`;
+            if (details.prompt) detailsHtml += `<div style="margin-bottom:8px"><span style="color:#888">Prompt:</span><div style="margin-top:4px;padding:8px;background:#1a1a1a;border-radius:4px;white-space:pre-wrap;font-size:12px;color:#e0e0e0;max-height:200px;overflow-y:auto">${details.prompt.replace(/</g,'&lt;').replace(/>/g,'&gt;')}</div></div>`;
+            if (details.loras && details.loras.length > 0) {
+                const lorasText = details.loras.map(l => `${l.name} (${l.strength})`).join(', ');
+                detailsHtml += `<div style="margin-bottom:8px"><span style="color:#888">LoRAs:</span> ${lorasText}</div>`;
+            }
+            if (details.face_swap_enabled !== undefined) detailsHtml += `<div style="margin-bottom:8px"><span style="color:#888">视频换脸:</span> ${details.face_swap_enabled ? '✅ 启用' : '❌ 禁用'}</div>`;
+            if (details.upscale_enabled !== undefined) detailsHtml += `<div style="margin-bottom:8px"><span style="color:#888">超分:</span> ${details.upscale_enabled ? '✅ 启用' : '❌ 禁用'}</div>`;
+            if (details.interpolation_enabled !== undefined) detailsHtml += `<div style="margin-bottom:8px"><span style="color:#888">插帧:</span> ${details.interpolation_enabled ? '✅ 启用' : '❌ 禁用'}</div>`;
+            if (details.first_frame_url) detailsHtml += `<div style="margin-bottom:8px"><span style="color:#888">首帧:</span><br><img src="${details.first_frame_url}" style="max-width:150px;border-radius:8px;margin-top:8px"></div>`;
+            if (details.chain_id) detailsHtml += `<div style="margin-bottom:8px"><span style="color:#888">Chain ID:</span> ${details.chain_id}</div>`;
+
+            // Show progress bar and step info with IDs for fast-path updates
+            if (status.video_progress !== undefined && status.video_progress !== null) {
+                const progressPercent = (status.video_progress * 100).toFixed(1);
+                detailsHtml += `<div style="margin-bottom:8px"><span style="color:#888">生成进度:</span>
+                    <div style="background:#333;border-radius:4px;height:20px;margin-top:8px;overflow:hidden">
+                        <div id="videoProgressBar" style="background:#7c83ff;height:100%;width:${progressPercent}%;transition:width 0.3s"></div>
+                    </div>
+                    <div id="videoProgressText" style="text-align:center;margin-top:4px;font-size:12px;color:#aaa">${progressPercent}%</div>
+                </div>`;
+            }
+
+            // Show detailed step info
+            if (status.current_step !== undefined && status.current_step !== null) {
+                let stepInfo = `当前: ${status.current_step}/${status.max_step || '?'}`;
+                if (status.total_steps !== undefined && status.total_steps !== null) {
+                    stepInfo += ` (总计: ${status.completed_steps || 0}+${status.current_step}/${status.total_steps})`;
+                }
+                detailsHtml += `<div id="videoStepInfo" style="margin-bottom:8px"><span style="color:#888">当前步骤:</span> ${stepInfo}</div>`;
+            }
+        }
+
+        detailsHtml += '</div>';
+    }
+
+    // Show error if any
+    let errorHtml = '';
+    if (stageInfo.error) {
+        errorHtml = `<div style="margin-top:12px;padding:12px;background:#3d1a1a;border-radius:6px;color:#ff6b6b">
+            <strong>错误:</strong> ${stageInfo.error}
+        </div>`;
+    }
+
+    return `
+        <div id="stage-${stageName}" style="background:#1a1a1a;border-radius:8px;padding:16px;margin-bottom:16px;border-left:4px solid ${statusClass === 'completed' ? '#4caf50' : statusClass === 'running' ? '#7c83ff' : statusClass === 'failed' ? '#f44336' : '#666'}">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+                <div style="font-weight:600;color:#7c83ff">${stageInfo.title}</div>
+                <div style="font-size:14px;color:#aaa">${statusText}</div>
+            </div>
+            ${detailsHtml}
+            ${errorHtml}
+        </div>
+    `;
+}
+
+// Fast path: update video progress bar and overall progress without DOM rebuild
+function updateVideoProgress(status) {
+    const bar = document.getElementById('videoProgressBar');
+    const text = document.getElementById('videoProgressText');
+    const stepEl = document.getElementById('videoStepInfo');
+    if (bar && status.video_progress != null) {
+        const pct = (status.video_progress * 100).toFixed(1);
+        bar.style.width = pct + '%';
+        if (text) text.textContent = pct + '%';
+    }
+    if (stepEl && status.current_step != null) {
+        let info = `当前: ${status.current_step}/${status.max_step || '?'}`;
+        if (status.total_steps != null) info += ` (总计: ${status.completed_steps||0}+${status.current_step}/${status.total_steps})`;
+        stepEl.innerHTML = `<span style="color:#888">当前步骤:</span> ${info}`;
+    }
+    // Also update overall progress bar
+    const overall = document.getElementById('overallProgressBar');
+    const overallText = document.getElementById('overallProgressText');
+    if (overall && status.progress != null) {
+        const pct = (status.progress * 100).toFixed(1);
+        overall.style.width = pct + '%';
+        if (overallText) overallText.textContent = pct + '%';
+    }
+}
+
+// 更新进度显示 (incremental updates to avoid media reload)
 function updateProgress(status) {
     const container = document.getElementById('stagesContainer');
 
     // 从后端 stages 数组构建显示信息
     const displayStages = [];
-
-    // Stage name mapping
-    const stageConfig = {
-        'prompt_analysis': { title: '📝 Stage 1: Prompt 分析' },
-        'first_frame_acquisition': { title: '🖼️ Stage 2: 首帧获取' },
-        'seedream_edit': { title: '✨ Stage 3: SeeDream 编辑' },
-        'video_generation': { title: '🎬 Stage 4: 视频生成' }
-    };
+    const stageNames = [];
 
     // Process each stage from backend
     if (status.stages && Array.isArray(status.stages)) {
         status.stages.forEach(stage => {
-            const config = stageConfig[stage.name];
+            const config = _stageConfig[stage.name];
             if (!config) return;
 
             let details = null;
@@ -1267,6 +1525,7 @@ function updateProgress(status) {
                 }
             }
 
+            stageNames.push(stage.name);
             displayStages.push({
                 title: config.title,
                 status: stage.status,
@@ -1276,193 +1535,52 @@ function updateProgress(status) {
         });
     }
 
-    // 渲染阶段
-    const stagesHtml = displayStages.map(stageInfo => {
-        const statusClass = stageInfo.status === 'completed' ? 'completed' :
-                           stageInfo.status === 'running' ? 'running' :
-                           stageInfo.status === 'failed' ? 'failed' : 'pending';
+    // First render: create all containers with IDs
+    if (!container.querySelector('#overallStatus')) {
+        container.innerHTML = renderOverallStatus(status) +
+            displayStages.map((s, i) => renderStageHtml(s, stageNames[i], status)).join('');
+        // Store fingerprints
+        if (status.stages) {
+            status.stages.forEach(stage => {
+                _prevStageData[stage.name] = stage.status + '|' + (stage.sub_stage || '');
+            });
+        }
+        _prevOverallKey = status.status + '|' + (status.current_stage || '');
+        return;
+    }
 
-        const statusText = stageInfo.status === 'completed' ? '✅ 完成' :
-                          stageInfo.status === 'running' ? '⏳ 进行中' :
-                          stageInfo.status === 'failed' ? '❌ 失败' : '⏸️ 等待中';
+    // Incremental: update overall status if status/stage changed
+    const overallKey = status.status + '|' + (status.current_stage || '');
+    if (_prevOverallKey !== overallKey) {
+        const el = document.getElementById('overallStatus');
+        if (el) el.outerHTML = renderOverallStatus(status);
+        _prevOverallKey = overallKey;
+    }
 
-        let detailsHtml = '';
+    // Incremental: update each stage only if its data changed
+    displayStages.forEach((stageInfo, i) => {
+        const stageName = stageNames[i];
+        const stage = status.stages[i];
+        const fingerprint = stage.status + '|' + (stage.sub_stage || '');
 
-        // Show details if available
-        if (stageInfo.details) {
-            const details = stageInfo.details;
-            detailsHtml = '<div style="margin-top:12px;padding-top:12px;border-top:1px solid #333">';
-
-            // Display different details based on stage
-            if (stageInfo.title.includes('Stage 1')) {
-                if (details.original_prompt) detailsHtml += `<div style="margin-bottom:8px"><span style="color:#888">原始 Prompt:</span> ${details.original_prompt}</div>`;
-                if (details.optimized_prompt) detailsHtml += `<div style="margin-bottom:8px"><span style="color:#888">优化后 Prompt:</span> ${details.optimized_prompt}</div>`;
-                if (details.pose_keys && Array.isArray(details.pose_keys) && details.pose_keys.length > 0) {
-                    detailsHtml += `<div style="margin-bottom:8px"><span style="color:#888">推荐姿势:</span> ${details.pose_keys.join(', ')}</div>`;
-                }
-                if (details.image_loras && Array.isArray(details.image_loras) && details.image_loras.length > 0) {
-                    detailsHtml += `<div style="margin-bottom:8px"><span style="color:#888">Image LoRAs (${details.image_loras.length}):</span></div>`;
-                    details.image_loras.forEach(lora => {
-                        const name = lora.name || lora.lora_id || 'Unknown';
-                        detailsHtml += `<div style="background:#16213e;padding:6px;margin:4px 0;border-radius:4px;font-size:11px">${name}</div>`;
-                    });
-                }
-                if (details.video_loras && Array.isArray(details.video_loras) && details.video_loras.length > 0) {
-                    detailsHtml += `<div style="margin-bottom:8px"><span style="color:#888">Video LoRAs (${details.video_loras.length}):</span></div>`;
-                    detailsHtml += `<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px">`;
-                    details.video_loras.forEach(lora => {
-                        const name = lora.name || lora.lora_id || 'Unknown';
-                        const previewUrl = lora.preview_url;
-                        console.log('LoRA:', name, 'Preview URL:', previewUrl);
-                        detailsHtml += `<div style="position:relative;width:120px">`;
-                        if (previewUrl) {
-                            const proxied = toProxyUrl(previewUrl);
-                            if (previewUrl.endsWith('.mp4') || previewUrl.includes('video')) {
-                                detailsHtml += `<video src="${proxied}" style="width:120px;height:120px;object-fit:cover;border-radius:6px;border:1px solid #444" muted loop autoplay></video>`;
-                            } else {
-                                detailsHtml += `<img src="${proxied}" style="width:120px;height:120px;object-fit:cover;border-radius:6px;border:1px solid #444">`;
-                            }
-                        } else {
-                            detailsHtml += `<div style="width:120px;height:120px;background:#16213e;border-radius:6px;border:1px solid #444;display:flex;align-items:center;justify-content:center;font-size:10px;color:#666">No Preview</div>`;
-                        }
-                        detailsHtml += `<div style="margin-top:4px;font-size:10px;color:#aaa;text-align:center;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${name}</div>`;
-                        detailsHtml += `</div>`;
-                    });
-                    detailsHtml += `</div>`;
-                }
-                if (details.images && Array.isArray(details.images) && details.images.length > 0) {
-                    detailsHtml += `<div style="margin-bottom:8px;margin-top:12px"><span style="color:#888">推荐图片 (${details.images.length}):</span></div>`;
-                    detailsHtml += `<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px">`;
-                    details.images.slice(0, 5).forEach(img => {
-                        const similarity = img.similarity ? (img.similarity * 100).toFixed(1) + '%' : '';
-                        const url = img.url;
-                        const urlProxied = toProxyUrl(url);
-                        detailsHtml += `<div style="position:relative">`;
-                        if (url && (url.endsWith('.mp4') || url.includes('video') || url.includes('.mp4'))) {
-                            detailsHtml += `<video src="${urlProxied}" style="width:120px;height:120px;object-fit:cover;border-radius:6px;border:1px solid #444" muted loop autoplay></video>`;
-                        } else {
-                            detailsHtml += `<img src="${urlProxied}" style="width:120px;height:120px;object-fit:cover;border-radius:6px;border:1px solid #444">`;
-                        }
-                        detailsHtml += `<div style="position:absolute;bottom:4px;right:4px;background:rgba(0,0,0,0.7);padding:2px 6px;border-radius:4px;font-size:10px;color:#4ade80">${similarity}</div>`;
-                        detailsHtml += `</div>`;
-                    });
-                    detailsHtml += `</div>`;
-                }
-            } else if (stageInfo.title.includes('Stage 2')) {
-                if (details.source) detailsHtml += `<div style="margin-bottom:8px"><span style="color:#888">首帧来源:</span> ${details.source}</div>`;
-                if (details.url || status.first_frame_url) {
-                    const imgUrl = details.url || status.first_frame_url;
-                    detailsHtml += `<div style="margin-bottom:8px"><span style="color:#888">首帧图片:</span><br><img src="${imgUrl}" style="max-width:200px;border-radius:8px;margin-top:8px"></div>`;
-                }
-                if (details.face_swapped !== undefined) {
-                    detailsHtml += `<div style="margin-bottom:8px"><span style="color:#888">是否换脸:</span> ${details.face_swapped ? '✅ 是' : '❌ 否'}</div>`;
-                }
-                if (details.face_swap_skipped) {
-                    detailsHtml += `<div style="margin-bottom:8px;color:#fbbf24"><span style="color:#888">⚠️ 换脸跳过:</span> ${details.face_swap_skip_reason || '未知原因'}</div>`;
-                }
-            } else if (stageInfo.title.includes('Stage 3')) {
-                if (details.skipped) {
-                    detailsHtml += `<div style="margin-bottom:8px"><span style="color:#888">状态:</span> ${details.reason || '已跳过'}</div>`;
-                } else {
-                    if (details.mode) detailsHtml += `<div style="margin-bottom:8px"><span style="color:#888">编辑模式:</span> ${details.mode}</div>`;
-                    if (details.model) detailsHtml += `<div style="margin-bottom:8px"><span style="color:#888">使用模型:</span> <code style="background:#1a1a1a;padding:2px 6px;border-radius:4px">${details.model}</code></div>`;
-                    if (details.size) detailsHtml += `<div style="margin-bottom:8px"><span style="color:#888">图片尺寸:</span> ${details.size}</div>`;
-                    if (details.enable_reactor !== undefined) detailsHtml += `<div style="margin-bottom:8px"><span style="color:#888">启用 ReActor:</span> ${details.enable_reactor ? '✅ 是' : '❌ 否'}</div>`;
-                    if (details.face_swapped !== undefined) detailsHtml += `<div style="margin-bottom:8px"><span style="color:#888">ReActor 换脸结果:</span> ${details.face_swapped ? '✅ 成功' : '❌ 未执行/失败'}</div>`;
-                    if (details.strength !== undefined) detailsHtml += `<div style="margin-bottom:8px"><span style="color:#888">强度:</span> ${details.strength}</div>`;
-                    if (details.seed !== undefined && details.seed !== null) detailsHtml += `<div style="margin-bottom:8px"><span style="color:#888">种子:</span> ${details.seed}</div>`;
-                    if (details.prompt) detailsHtml += `<div style="margin-bottom:8px"><span style="color:#888">Prompt:</span> ${details.prompt}</div>`;
-                    if (details.api_status) detailsHtml += `<div style="margin-bottom:8px"><span style="color:#888">API 调用:</span> <span style="color:${details.api_status === 'success' ? '#4ade80' : '#ff6b6b'}">${details.api_status === 'success' ? '✅ 成功' : '❌ 失败'}</span></div>`;
-                    if (details.fallback_used) detailsHtml += `<div style="margin-bottom:8px;color:#fbbf24"><span style="color:#888">⚠️ Fallback:</span> ${details.fallback_reason || '使用了原图作为结果'}</div>`;
-                    if (details.reference_image) detailsHtml += `<div style="margin-bottom:8px"><span style="color:#888">参考图:</span><br><img src="${details.reference_image}" style="max-width:150px;border-radius:8px;margin-top:8px"></div>`;
-                    if (details.first_frame_url) detailsHtml += `<div style="margin-bottom:8px"><span style="color:#888">输入图:</span><br><img src="${details.first_frame_url}" style="max-width:150px;border-radius:8px;margin-top:8px"></div>`;
-                    if (details.url || status.edited_frame_url) {
-                        const imgUrl = details.url || status.edited_frame_url;
-                        detailsHtml += `<div style="margin-bottom:8px"><span style="color:#888">编辑后图片:</span><br><img src="${imgUrl}" style="max-width:200px;border-radius:8px;margin-top:8px"></div>`;
-                    }
-                    if (details.error) detailsHtml += `<div style="margin-bottom:8px;color:#ff6b6b"><span style="color:#888">错误:</span> ${details.error}</div>`;
-                }
-            } else if (stageInfo.title.includes('Stage 4')) {
-                if (details.model) detailsHtml += `<div style="margin-bottom:8px"><span style="color:#888">视频模型:</span> ${details.model}</div>`;
-                if (details.resolution) detailsHtml += `<div style="margin-bottom:8px"><span style="color:#888">分辨率:</span> ${details.resolution}</div>`;
-                if (details.duration) detailsHtml += `<div style="margin-bottom:8px"><span style="color:#888">时长:</span> ${details.duration}</div>`;
-                if (details.prompt) detailsHtml += `<div style="margin-bottom:8px"><span style="color:#888">Prompt:</span><div style="margin-top:4px;padding:8px;background:#1a1a1a;border-radius:4px;white-space:pre-wrap;font-size:12px;color:#e0e0e0;max-height:200px;overflow-y:auto">${details.prompt.replace(/</g,'&lt;').replace(/>/g,'&gt;')}</div></div>`;
-                if (details.loras && details.loras.length > 0) {
-                    const lorasText = details.loras.map(l => `${l.name} (${l.strength})`).join(', ');
-                    detailsHtml += `<div style="margin-bottom:8px"><span style="color:#888">LoRAs:</span> ${lorasText}</div>`;
-                }
-                if (details.face_swap_enabled !== undefined) detailsHtml += `<div style="margin-bottom:8px"><span style="color:#888">视频换脸:</span> ${details.face_swap_enabled ? '✅ 启用' : '❌ 禁用'}</div>`;
-                if (details.upscale_enabled !== undefined) detailsHtml += `<div style="margin-bottom:8px"><span style="color:#888">超分:</span> ${details.upscale_enabled ? '✅ 启用' : '❌ 禁用'}</div>`;
-                if (details.interpolation_enabled !== undefined) detailsHtml += `<div style="margin-bottom:8px"><span style="color:#888">插帧:</span> ${details.interpolation_enabled ? '✅ 启用' : '❌ 禁用'}</div>`;
-                if (details.first_frame_url) detailsHtml += `<div style="margin-bottom:8px"><span style="color:#888">首帧:</span><br><img src="${details.first_frame_url}" style="max-width:150px;border-radius:8px;margin-top:8px"></div>`;
-                if (details.chain_id) detailsHtml += `<div style="margin-bottom:8px"><span style="color:#888">Chain ID:</span> ${details.chain_id}</div>`;
-
-                // Show progress bar and step info
-                if (status.video_progress !== undefined && status.video_progress !== null) {
-                    const progressPercent = (status.video_progress * 100).toFixed(1);
-                    detailsHtml += `<div style="margin-bottom:8px"><span style="color:#888">生成进度:</span>
-                        <div style="background:#333;border-radius:4px;height:20px;margin-top:8px;overflow:hidden">
-                            <div style="background:#7c83ff;height:100%;width:${progressPercent}%;transition:width 0.3s"></div>
-                        </div>
-                        <div style="text-align:center;margin-top:4px;font-size:12px;color:#aaa">${progressPercent}%</div>
-                    </div>`;
-                }
-
-                // Show detailed step info
-                if (status.current_step !== undefined && status.current_step !== null) {
-                    let stepInfo = `当前: ${status.current_step}/${status.max_step || '?'}`;
-                    if (status.total_steps !== undefined && status.total_steps !== null) {
-                        stepInfo += ` (总计: ${status.completed_steps || 0}+${status.current_step}/${status.total_steps})`;
-                    }
-                    detailsHtml += `<div style="margin-bottom:8px"><span style="color:#888">当前步骤:</span> ${stepInfo}</div>`;
-                }
+        if (_prevStageData[stageName] === fingerprint) {
+            // Fast path: only update progress numbers for running Stage 4
+            if (stageName === 'video_generation' && stage.status === 'running') {
+                updateVideoProgress(status);
             }
-
-            detailsHtml += '</div>';
+            return; // skip full re-render
         }
 
-        // Show error if any
-        let errorHtml = '';
-        if (stageInfo.error) {
-            errorHtml = `<div style="margin-top:12px;padding:12px;background:#3d1a1a;border-radius:6px;color:#ff6b6b">
-                <strong>错误:</strong> ${stageInfo.error}
-            </div>`;
+        // Re-render this stage
+        const el = document.getElementById('stage-' + stageName);
+        if (el) {
+            el.outerHTML = renderStageHtml(stageInfo, stageName, status);
         }
+        _prevStageData[stageName] = fingerprint;
+    });
 
-        return `
-            <div style="background:#1a1a1a;border-radius:8px;padding:16px;margin-bottom:16px;border-left:4px solid ${statusClass === 'completed' ? '#4caf50' : statusClass === 'running' ? '#7c83ff' : statusClass === 'failed' ? '#f44336' : '#666'}">
-                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
-                    <div style="font-weight:600;color:#7c83ff">${stageInfo.title}</div>
-                    <div style="font-size:14px;color:#aaa">${statusText}</div>
-                </div>
-                ${detailsHtml}
-                ${errorHtml}
-            </div>
-        `;
-    }).join('');
-
-    // 显示整体状态
-    const overallStatus = status.status === 'completed' ? '✅ 完成' :
-                         status.status === 'running' ? '⏳ 处理中...' :
-                         status.status === 'failed' ? '❌ 失败' : status.status;
-
-    const overallProgress = status.progress !== undefined && status.progress !== null ?
-        `<div style="margin-top:16px">
-            <div style="color:#888;font-size:12px;margin-bottom:4px">整体进度</div>
-            <div style="background:#333;border-radius:4px;height:24px;overflow:hidden">
-                <div style="background:#7c83ff;height:100%;width:${(status.progress * 100).toFixed(1)}%;transition:width 0.3s;display:flex;align-items:center;justify-content:center;color:#fff;font-size:12px;font-weight:600">
-                    ${(status.progress * 100).toFixed(1)}%
-                </div>
-            </div>
-        </div>` : '';
-
-    container.innerHTML = `
-        <div style="background:#1a1a1a;border-radius:8px;padding:16px;margin-bottom:16px;text-align:center">
-            <div style="font-size:18px;font-weight:600;color:#7c83ff;margin-bottom:8px">${overallStatus}</div>
-            <div style="font-size:14px;color:#aaa">当前阶段: ${status.current_stage || '未知'}</div>
-            ${overallProgress}
-        </div>
-    ` + stagesHtml;
+    // Always update progress bars (fast path, no DOM rebuild)
+    updateVideoProgress(status);
 }
 
 // 显示结果
@@ -1505,6 +1623,8 @@ function showResult(status) {
         let detailsHtml = '<div style="margin-top:12px;padding:12px;background:#0a0a23;border-radius:6px">';
 
         if (stageNum === 1) {
+            if (details.error) detailsHtml += `<div style="margin-bottom:8px;color:#ff6b6b"><span style="color:#888">⚠️ 错误:</span> ${details.error}</div>`;
+            if (details.skipped) detailsHtml += `<div style="margin-bottom:8px"><span style="color:#888">状态:</span> ${details.reason || '已跳过'}</div>`;
             if (details.original_prompt) detailsHtml += `<div style="margin-bottom:8px"><span style="color:#888">原始 Prompt:</span> ${details.original_prompt}</div>`;
             if (details.optimized_prompt) detailsHtml += `<div style="margin-bottom:8px"><span style="color:#888">优化后 Prompt:</span> ${details.optimized_prompt}</div>`;
             if (details.pose_keys && Array.isArray(details.pose_keys) && details.pose_keys.length > 0) {
@@ -1569,14 +1689,29 @@ function showResult(status) {
                 detailsHtml += `<div style="margin-bottom:8px"><span style="color:#888">状态:</span> ${details.reason || '已跳过'}</div>`;
             } else {
                 if (details.mode) detailsHtml += `<div style="margin-bottom:8px"><span style="color:#888">编辑模式:</span> ${details.mode}</div>`;
+                if (details.model) detailsHtml += `<div style="margin-bottom:8px"><span style="color:#888">使用模型:</span> <code style="background:#1a1a1a;padding:2px 6px;border-radius:4px">${details.model}</code></div>`;
                 if (details.size) detailsHtml += `<div style="margin-bottom:8px"><span style="color:#888">图片尺寸:</span> ${details.size}</div>`;
                 if (details.enable_reactor !== undefined) detailsHtml += `<div style="margin-bottom:8px"><span style="color:#888">启用 ReActor:</span> ${details.enable_reactor ? '✅ 是' : '❌ 否'}</div>`;
+                if (details.face_swapped !== undefined) detailsHtml += `<div style="margin-bottom:8px"><span style="color:#888">ReActor 换脸结果:</span> ${details.face_swapped ? '✅ 成功' : '❌ 未执行/失败'}</div>`;
                 if (details.strength !== undefined) detailsHtml += `<div style="margin-bottom:8px"><span style="color:#888">强度:</span> ${details.strength}</div>`;
                 if (details.seed !== undefined && details.seed !== null) detailsHtml += `<div style="margin-bottom:8px"><span style="color:#888">种子:</span> ${details.seed}</div>`;
                 if (details.prompt) detailsHtml += `<div style="margin-bottom:8px"><span style="color:#888">Prompt:</span> ${details.prompt}</div>`;
-                if (details.url || status.edited_frame_url) {
-                    const imgUrl = details.url || status.edited_frame_url;
-                    detailsHtml += `<div style="margin-bottom:8px"><span style="color:#888">编辑后图片:</span><br><img src="${imgUrl}" style="max-width:300px;border-radius:8px;margin-top:8px"></div>`;
+                if (details.api_status) detailsHtml += `<div style="margin-bottom:8px"><span style="color:#888">API 调用:</span> <span style="color:${details.api_status === 'success' ? '#4ade80' : '#ff6b6b'}">${details.api_status === 'success' ? '✅ 成功' : '❌ 失败'}</span></div>`;
+                if (details.fallback_used) detailsHtml += `<div style="margin-bottom:8px;color:#fbbf24"><span style="color:#888">⚠️ Fallback:</span> ${details.fallback_reason || '使用了原图作为结果'}</div>`;
+                if (details.error) detailsHtml += `<div style="margin-bottom:8px;color:#ff6b6b"><span style="color:#888">错误:</span> ${details.error}</div>`;
+                if (details.reference_image || details.first_frame_url || details.url || status.edited_frame_url) {
+                    detailsHtml += `<div style="display:flex;gap:16px;flex-wrap:wrap;margin-top:12px">`;
+                    if (details.reference_image) {
+                        detailsHtml += `<div><span style="color:#888;font-size:12px">参考图</span><br><img src="${details.reference_image}" style="max-width:200px;border-radius:8px;margin-top:4px"></div>`;
+                    }
+                    if (details.first_frame_url) {
+                        detailsHtml += `<div><span style="color:#888;font-size:12px">编辑前</span><br><img src="${details.first_frame_url}" style="max-width:200px;border-radius:8px;margin-top:4px"></div>`;
+                    }
+                    if (details.url || status.edited_frame_url) {
+                        const imgUrl = details.url || status.edited_frame_url;
+                        detailsHtml += `<div><span style="color:#888;font-size:12px">编辑后</span><br><img src="${imgUrl}" style="max-width:200px;border-radius:8px;margin-top:4px"></div>`;
+                    }
+                    detailsHtml += `</div>`;
                 }
             }
         } else if (stageNum === 4) {
