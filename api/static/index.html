@@ -693,6 +693,33 @@ h1{text-align:center;color:#7c83ff;margin-bottom:24px;font-size:1.6em}
 <div style="text-align:right;margin-top:8px"><button class="btn btn-sm" onclick="ppUpscale()">开始超分</button></div>
 </div>
 
+<!-- Image Upscale -->
+<div style="background:#0a0a23;border:1px solid #333;border-radius:8px;padding:16px">
+<div style="color:#7c83ff;font-weight:600;margin-bottom:12px">图片高清放大</div>
+<div class="row">
+<div class="field">
+<label>上传图片</label>
+<div class="upload-area" id="pp-img-upload-area" style="min-height:60px;padding:12px">
+<span id="pp-img-upload-text" style="color:#888;font-size:13px">点击或拖拽上传图片</span>
+<input type="file" id="pp-img-file" accept="image/*">
+</div>
+</div>
+</div>
+<div class="row">
+<div class="field"><label>超分模型</label>
+<select id="pp-img-model">
+<option value="RealESRGAN_x2plus.pth">RealESRGAN x2 (通用)</option>
+<option value="RealESRGAN_x4plus.pth">RealESRGAN x4 (通用)</option>
+<option value="RealESRGAN_x4plus_anime_6B.pth">RealESRGAN x4 (动漫)</option>
+</select>
+</div>
+</div>
+<div id="pp-img-preview" style="display:none;margin:8px 0">
+<img id="pp-img-result" style="max-width:100%;border-radius:6px;border:1px solid #333" />
+</div>
+<div style="text-align:right;margin-top:8px"><button class="btn btn-sm" onclick="ppUpscaleImage()">开始放大</button></div>
+</div>
+
 <!-- AI Audio -->
 <div style="background:#0a0a23;border:1px solid #333;border-radius:8px;padding:16px">
 <div style="color:#7c83ff;font-weight:600;margin-bottom:12px">MMAudio AI 配音</div>
@@ -5586,6 +5613,50 @@ function ppAudio() {
     cfg: document.getElementById('pp-audio-cfg').value,
     fps: document.getElementById('pp-audio-fps').value,
   }, 'AI配音');
+}
+
+let ppImgSelectedFile = null;
+(function() {
+  const area = document.getElementById('pp-img-upload-area');
+  const fileInput = document.getElementById('pp-img-file');
+  if (!area) return;
+  area.addEventListener('click', () => fileInput.click());
+  area.addEventListener('dragover', e => { e.preventDefault(); area.style.borderColor='#7c83ff'; });
+  area.addEventListener('dragleave', () => { area.style.borderColor=''; });
+  area.addEventListener('drop', e => {
+    e.preventDefault(); area.style.borderColor='';
+    const f = e.dataTransfer.files[0];
+    if (f && f.type.startsWith('image/')) { ppImgSelectedFile = f; document.getElementById('pp-img-upload-text').textContent = f.name; }
+  });
+  fileInput.addEventListener('change', () => {
+    const f = fileInput.files[0];
+    if (f) { ppImgSelectedFile = f; document.getElementById('pp-img-upload-text').textContent = f.name; }
+  });
+})();
+
+async function ppUpscaleImage() {
+  if (!ppImgSelectedFile) { alert('请先上传图片'); return; }
+  const statusEl = document.getElementById('pp-status');
+  statusEl.innerHTML = '<div style="color:#f0c040;font-size:13px">图片放大处理中，请稍候...</div>';
+  document.getElementById('pp-img-preview').style.display = 'none';
+  try {
+    const fd = new FormData();
+    fd.append('image', ppImgSelectedFile);
+    fd.append('model', document.getElementById('pp-img-model').value);
+    const r = await fetch(BASE + '/api/v1/postprocess/upscale-image', {
+      method: 'POST',
+      headers: {'X-API-Key': getKey()},
+      body: fd,
+    });
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.detail || JSON.stringify(d));
+    const imgEl = document.getElementById('pp-img-result');
+    imgEl.src = d.url + '?t=' + Date.now();
+    document.getElementById('pp-img-preview').style.display = 'block';
+    statusEl.innerHTML = '<div style="color:#4ade80;font-size:13px">图片放大完成！<a href="' + d.url + '" download style="color:#7c83ff;margin-left:8px">下载</a></div>';
+  } catch(e) {
+    statusEl.innerHTML = '<div style="color:#f87171;font-size:13px">图片放大失败: ' + e.message + '</div>';
+  }
 }
 
 // --- Chat ---

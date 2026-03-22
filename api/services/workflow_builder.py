@@ -2234,6 +2234,43 @@ def build_upscale_workflow(
     return workflow
 
 
+def build_image_upscale_workflow(
+    image_filename: str,
+    model: str = "RealESRGAN_x2plus.pth",
+) -> dict:
+    """Build a ComfyUI workflow for single image upscaling via RealESRGAN."""
+    workflow = {
+        "load_image": {
+            "class_type": "LoadImage",
+            "inputs": {"image": image_filename},
+            "_meta": {"title": "Load Image"},
+        },
+        "upscale_loader": {
+            "class_type": "UpscaleModelLoader",
+            "inputs": {"model_name": model},
+            "_meta": {"title": "Load Upscale Model"},
+        },
+        "upscale": {
+            "class_type": "ImageUpscaleWithModel",
+            "inputs": {
+                "upscale_model": ["upscale_loader", 0],
+                "image": ["load_image", 0],
+            },
+            "_meta": {"title": "Upscale Image"},
+        },
+        "save_image": {
+            "class_type": "SaveImage",
+            "inputs": {
+                "images": ["upscale", 0],
+                "filename_prefix": "upscaled",
+            },
+            "_meta": {"title": "Save Image"},
+        },
+    }
+    logger.info(f"Built image upscale workflow: {image_filename}, model={model}")
+    return workflow
+
+
 def build_audio_workflow(
     video_path: str,
     fps: float = 16.0,

@@ -697,10 +697,8 @@ async def seedream_edit(req: SeeDreamEditRequest, _=Depends(verify_api_key)):
         if req.prompt:
             full_prompt = req.prompt
         else:
-            if req.mode == "face_only":
-                full_prompt = "edit image 2, keep the position and pose of image 2, swap face to image 1, only change the face, keep everything else exactly the same including clothing, accessories, background"
-            elif req.mode == "face_wearings":
-                full_prompt = "edit image 2, keep the position and pose of image 2, swap face to image 1, change face and accessories (jewelry, glasses, hair accessories) to match image 1, keep clothing and background the same"
+            if req.mode == "face_wearings":
+                full_prompt = "edit image 2, keep the position and pose of image 2, swap face to image 1, change face identity to match image 1, change hairstyle to match image 1, change accessories (jewelry, glasses, hair accessories) to match image 1, keep clothing and background the same"
             elif req.mode == "full_body":
                 full_prompt = "edit image 2, keep the position and pose of image 2, swap face to image 1, change face, accessories, and clothing to match image 1, keep background the same"
             else:
@@ -915,11 +913,11 @@ async def generate_advanced_workflow(req: WorkflowGenerateRequest, _=Depends(ver
         stage3_enabled = _get_config(req, "stage3_seedream", "enabled", False)
         if stage3_enabled:
             if req.mode == "face_reference":
-                # face_reference mode: only allow face_only
-                if edit_mode != "face_only":
+                # face_reference mode: only allow face_wearings
+                if edit_mode != "face_wearings":
                     raise HTTPException(
                         status_code=400,
-                        detail=f"Invalid SeeDream edit_mode '{edit_mode}' for face_reference mode. Only 'face_only' is allowed."
+                        detail=f"Invalid SeeDream edit_mode '{edit_mode}' for face_reference mode. Only 'face_wearings' is allowed."
                     )
             elif req.mode == "full_body_reference":
                 # full_body_reference mode: only allow face_wearings or full_body

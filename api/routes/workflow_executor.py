@@ -105,15 +105,14 @@ def get_default_seedream_prompt(mode: str) -> str:
     Get default SeeDream prompt based on edit mode.
 
     Args:
-        mode: Edit mode (face_only, face_wearings, full_body)
+        mode: Edit mode (face_wearings, full_body)
 
     Returns:
         Default prompt string
     """
     prompts = {
-        "face_only": "edit image 2, keep the position and pose of image 2, swap face to image 1, only change the face identity, preserve the facial expression from image 2, keep clothing the same as image 2, keep accessories the same as image 2, keep background the same as image 2",
-        "face_wearings": "edit image 2, keep the position and pose of image 2, swap face to image 1, change face identity to match image 1, change accessories (jewelry, glasses, hair accessories) to match image 1, preserve the facial expression from image 2, keep clothing the same as image 2, keep background the same as image 2",
-        "full_body": "edit image 2, keep the position and pose of image 2, swap face to image 1, change face identity to match image 1, change clothing to match image 1, change accessories to match image 1, preserve the facial expression from image 2, keep background the same as image 2"
+        "face_wearings": "edit image 2, keep the position and pose of image 2, swap face to image 1, change face identity to match image 1, change hairstyle to match image 1, change accessories (jewelry, glasses, hair accessories) to match image 1, preserve the facial expression from image 2, keep clothing the same as image 2, keep background the same as image 2",
+        "full_body": "edit image 2, keep the position and pose of image 2, swap face to image 1, change face identity to match image 1, change hairstyle to match image 1, change clothing to match image 1, change accessories to match image 1, preserve the facial expression from image 2, keep background the same as image 2"
     }
     return prompts.get(mode, prompts["face_wearings"])
 

@@ -124,6 +124,86 @@ async def upscale_video(
     return {"task_id": new_task_id, "message": "Post-processing task created"}
 
 
+@router.post("/postprocess/upscale-image")
+async def upscale_image(
+    image: UploadFile = File(...),
+    model: str = Form("RealESRGAN_x2plus.pth"),
+    _=Depends(verify_api_key),
+):
+    """Upscale a single image using RealESRGAN. Returns the upscaled image URL."""
+    import uuid
+    import asyncio
+    from api.config import COMFYUI_A14B_URL, UPLOADS_DIR
+    from api.services.comfyui_client import ComfyUIClient
+    from api.services.workflow_builder import build_image_upscale_workflow
+
+    image_data = await image.read()
+    if not image_data:
+        raise HTTPException(400, "Uploaded image is empty")
+
+    ext = Path(image.filename).suffix.lower() if image.filename else ".jpg"
+    if ext not in (".jpg", ".jpeg", ".png", ".webp"):
+        ext = ".jpg"
+    filename = f"upscale_in_{uuid.uuid4().hex[:12]}{ext}"
+
+    client = ComfyUIClient(COMFYUI_A14B_URL)
+    try:
+        # Upload image to ComfyUI
+        upload_result = await client.upload_image(image_data, filename)
+        comfyui_filename = upload_result.get("name", filename)
+
+        # Build and queue workflow
+        workflow = build_image_upscale_workflow(comfyui_filename, model=model)
+        prompt_id = await client.queue_prompt(workflow)
+        logger.info("Image upscale queued: prompt_id=%s, file=%s", prompt_id, comfyui_filename)
+
+        # Wait for completion (up to 120s)
+        deadline = asyncio.get_event_loop().time() + 120
+        history = None
+        while asyncio.get_event_loop().time() < deadline:
+            history = await client.get_history(prompt_id)
+            if history and (history.get("status", {}).get("completed") or history.get("outputs")):
+                break
+            await asyncio.sleep(2)
+
+        if not history:
+            raise HTTPException(504, "Image upscale timed out")
+
+        # Find output image
+        outputs = history.get("outputs", {})
+        out_image = None
+        for node_output in outputs.values():
+            imgs = node_output.get("images", [])
+            if imgs:
+                out_image = imgs[0]
+                break
+
+        if not out_image:
+            raise HTTPException(500, "No output image from upscale workflow")
+
+        # Download upscaled image from ComfyUI
+        out_data = await client.download_file(
+            out_image["filename"],
+            subfolder=out_image.get("subfolder", ""),
+            file_type=out_image.get("type", "output"),
+        )
+
+        # Save to uploads dir
+        UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
+        out_filename = f"upscaled_{uuid.uuid4().hex[:12]}.png"
+        out_path = UPLOADS_DIR / out_filename
+        out_path.write_bytes(out_data)
+        logger.info("Upscaled image saved: %s (%d bytes)", out_path, len(out_data))
+
+        return {
+            "url": f"/api/v1/results/{out_filename}",
+            "filename": out_filename,
+            "model": model,
+        }
+    finally:
+        await client.close()
+
+
 @router.post("/postprocess/audio")
 async def add_audio(
     video: UploadFile = File(None),
