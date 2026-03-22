@@ -152,7 +152,7 @@ async def _apply_face_swap_to_frame(
         import uuid
 
         # Normalize frame_url to full URL if it's a relative path
-        if frame_url.startswith('/api/v1/'):
+        if frame_url.startswith('/') and not frame_url.startswith('//'):
             frame_url = f"http://{API_HOST}:{API_PORT}{frame_url}"
             logger.info(f"Normalized relative frame URL to: {frame_url}")
 
@@ -452,7 +452,8 @@ async def _execute_workflow(workflow_id: str, req, task_manager):
             swap_expression = _get_config(req, "stage3_seedream", "swap_expression", None)
             swap_clothing = _get_config(req, "stage3_seedream", "swap_clothing", None)
             edit_mode = _get_config(req, "stage3_seedream", "mode", "face_wearings")
-            enable_reactor = _get_config(req, "stage3_seedream", "enable_reactor", True)
+            # Stage 3 reactor is always disabled — face swap is handled in Stage 2 only
+            enable_reactor = False
             custom_prompt = _get_config(req, "stage3_seedream", "prompt", None)
             strength = _get_config(req, "stage3_seedream", "strength", 0.8)
             seed = _get_config(req, "stage3_seedream", "seed", None)
@@ -585,14 +586,20 @@ async def _execute_workflow(workflow_id: str, req, task_manager):
         await _update_stage(task_manager, workflow_id, "video_generation", "completed", details_dict=running_details)
 
         # Mark workflow as completed
-        await task_manager.redis.hset(f"workflow:{workflow_id}", "status", "completed")
+        import time as _time
+        await task_manager.redis.hset(f"workflow:{workflow_id}", mapping={
+            "status": "completed",
+            "completed_at": str(int(_time.time()))
+        })
         logger.info(f"Workflow {workflow_id} completed successfully")
 
     except Exception as e:
         logger.error(f"Workflow {workflow_id} failed: {e}", exc_info=True)
+        import time as _time
         await task_manager.redis.hset(f"workflow:{workflow_id}", mapping={
             "status": "failed",
-            "error": str(e)
+            "error": str(e),
+            "completed_at": str(int(_time.time()))
         })
 
 
@@ -1003,8 +1010,8 @@ async def _edit_first_frame(workflow_id: str, req, first_frame_url: str, size: s
     try:
         from api.routes.workflow import seedream_edit, SeeDreamEditRequest
 
-        # Get SeeDream parameters from internal_config or legacy params
-        enable_reactor = _get_config(req, "stage3_seedream", "enable_reactor", True)
+        # Stage 3 reactor is always disabled — face swap is handled in Stage 2 only
+        enable_reactor = False
         custom_prompt = _get_config(req, "stage3_seedream", "prompt", None)
         strength = _get_config(req, "stage3_seedream", "strength", 0.8)
         seed = _get_config(req, "stage3_seedream", "seed", None)
@@ -1039,7 +1046,7 @@ async def _edit_first_frame(workflow_id: str, req, first_frame_url: str, size: s
             swap_accessories=swap_accessories,
             swap_expression=swap_expression,
             swap_clothing=swap_clothing,
-            enable_face_swap=enable_reactor,
+            enable_face_swap=False,  # Stage 3 never does reactor; face swap is Stage 2 only
             prompt=prompt,
             size=size,
             seed=seed
@@ -1417,13 +1424,18 @@ async def _generate_video(workflow_id: str, req, first_frame_url: str, analysis_
                 chain_req.upscale_model = _upscale_model_map.get(raw_model, raw_model)
                 if chain_req.upscale_model != raw_model:
                     logger.warning(f"[VIDEO_PARAMS] {workflow_id} - upscale model '{raw_model}' remapped to '{chain_req.upscale_model}'")
-                # Always use 1.5x upscale: generate at target/1.5, then upscale back to target
-                chain_req.upscale_resize = "1.5x"
-                gen_width = max(16, int(round(width / 1.5 / 16)) * 16)
-                gen_height = max(16, int(round(height / 1.5 / 16)) * 16)
+                # Read resize factor from config (supports float like 2.0 or string like "2x")
+                raw_resize = upscale_config.get("resize", 1.5)
+                if isinstance(raw_resize, str):
+                    resize_factor = float(raw_resize.lower().rstrip('x'))
+                else:
+                    resize_factor = float(raw_resize)
+                chain_req.upscale_resize = f"{resize_factor}x"
+                gen_width = max(16, int(round(width / resize_factor / 16)) * 16)
+                gen_height = max(16, int(round(height / resize_factor / 16)) * 16)
                 chain_req.width = gen_width
                 chain_req.height = gen_height
-                logger.info(f"[VIDEO_PARAMS] {workflow_id} - upscale enabled: model={chain_req.upscale_model}, resize=1.5x, gen={gen_width}x{gen_height} -> target={width}x{height}")
+                logger.info(f"[VIDEO_PARAMS] {workflow_id} - upscale enabled: model={chain_req.upscale_model}, resize={chain_req.upscale_resize}, gen={gen_width}x{gen_height} -> target={width}x{height}")
 
             # Interpolation
             interp_config = postprocess_config.get("interpolation", {})

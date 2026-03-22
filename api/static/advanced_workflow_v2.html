@@ -56,6 +56,9 @@ h2{color:#7c83ff;margin-bottom:20px;font-size:1.4em}
 @keyframes spin{0%{transform:rotate(0deg)}100%{transform:rotate(360deg)}}
 .spinner{display:inline-block;width:14px;height:14px;border:2px solid #333;border-top-color:#7c83ff;border-radius:50%;animation:spin 0.6s linear infinite;margin-left:8px}
 .hint{font-size:11px;color:#666;margin-top:4px;font-style:italic}
+.params-disabled input,.params-disabled select,.params-disabled textarea{opacity:0.5;pointer-events:none}
+.params-disabled .collapsible{opacity:0.5;pointer-events:none}
+.turbo-toggle{display:none;margin-left:16px}
 </style>
 </head>
 <body>
@@ -130,7 +133,19 @@ h2{color:#7c83ff;margin-bottom:20px;font-size:1.4em}
 </div>
 </div>
 
+<!-- 默认参数 / Turbo 开关 -->
+<div class="section" style="padding:12px 20px;display:flex;align-items:center;gap:16px;flex-wrap:wrap">
+<label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:14px;font-weight:600;color:#7c83ff">
+<input type="checkbox" id="useDefaultParams" onchange="toggleDefaultParams()"> 使用默认参数
+</label>
+<label class="turbo-toggle" id="turboToggleLabel" style="display:none;align-items:center;gap:6px;cursor:pointer;font-size:14px;font-weight:600;color:#f59e0b">
+<input type="checkbox" id="turboMode" onchange="onTurboToggle()"> Turbo 模式
+</label>
+<span id="defaultParamsHint" style="font-size:12px;color:#888;display:none">后端将根据模式自动选择最佳参数</span>
+</div>
+
 <!-- 高级参数（按阶段折叠） -->
+<div id="advancedParamsWrapper">
 <div class="collapsible" onclick="toggleCollapsible(this)">
 <span>⚙️ 高级内部参数配置（按执行阶段组织）</span>
 <span>▼</span>
@@ -264,9 +279,9 @@ h2{color:#7c83ff;margin-bottom:20px;font-size:1.4em}
 <label style="display:flex;align-items:center;gap:4px;cursor:pointer"><input type="checkbox" id="s3_swapClothing" onchange="updateSeeDreamPrompt(true)"> 服装</label>
 </div>
 </div>
-<div class="field">
-<label><input type="checkbox" id="s3_enableReactor" checked> 编辑前 Reactor 换脸</label>
-<div class="hint">在 SeeDream 编辑前先用 Reactor 换脸</div>
+<div class="field" style="display:none">
+<label><input type="checkbox" id="s3_enableReactor"> 编辑前 Reactor 换脸（已弃用）</label>
+<div class="hint">Reactor 换脸已移至 Stage 2，此选项不再生效</div>
 </div>
 </div>
 
@@ -393,6 +408,7 @@ h2{color:#7c83ff;margin-bottom:20px;font-size:1.4em}
 </div>
 
 </div>
+</div><!-- /advancedParamsWrapper -->
 
 <div class="btn-row">
 <button class="btn" id="analyzeBtn" onclick="analyzeOnly()" style="background:#0f3460;margin-right:10px">🔍 仅分析推荐</button>
@@ -470,6 +486,116 @@ const DEFAULT_SEEDREAM_PROMPTS = {
     face_wearings: buildSeeDreamPrompt(true, true, false, false),
     full_body: buildSeeDreamPrompt(true, true, false, true)
 };
+
+// ============ 默认参数 / Turbo 模式逻辑 ============
+
+function getDefaultConfig(mode, turbo) {
+    // Mirror backend _build_default_internal_config
+    const stage1 = { auto_analyze: true, auto_lora: true, auto_prompt: true, inject_trigger_prompt: true, inject_trigger_words: true };
+
+    let stage2FaceSwap;
+    if (mode === 'face_reference') {
+        stage2FaceSwap = { enabled: true, strength: 1.0 };
+    } else if (mode === 'full_body_reference') {
+        stage2FaceSwap = turbo ? { enabled: false, strength: 1.0 } : { enabled: true, strength: 1.0 };
+    } else {
+        stage2FaceSwap = { enabled: false, strength: 1.0 };
+    }
+    const stage2 = { first_frame_source: 'select_existing', face_swap: stage2FaceSwap };
+
+    let stage3;
+    if (mode === 'first_frame') {
+        stage3 = { enabled: false };
+    } else if (mode === 'face_reference') {
+        stage3 = turbo ? { enabled: false } : { enabled: true, swap_face: true, swap_accessories: true, swap_expression: false, swap_clothing: false };
+    } else if (mode === 'full_body_reference') {
+        stage3 = { enabled: true, swap_face: true, swap_accessories: true, swap_expression: false, swap_clothing: true };
+    } else {
+        stage3 = { enabled: false };
+    }
+
+    let generation, postprocess;
+    if (turbo) {
+        generation = { steps: 4, cfg: 1, scheduler: 'euler', shift: 5.0, model_preset: 'nsfw_v2' };
+        postprocess = { upscale: { enabled: true, model: '4x-UltraSharp', resize: 2.0 }, interpolation: { enabled: false } };
+    } else {
+        generation = { steps: 5, cfg: 2, scheduler: 'euler', shift: 5.0, model_preset: 'nsfw_v2' };
+        postprocess = { upscale: { enabled: true, model: '4x-UltraSharp', resize: 1.5 }, interpolation: { enabled: true, multiplier: 2, profile: 'fast' } };
+    }
+
+    return {
+        stage1_prompt_analysis: stage1,
+        stage2_first_frame: stage2,
+        stage3_seedream: stage3,
+        stage4_video: { generation, postprocess }
+    };
+}
+
+function toggleDefaultParams() {
+    const useDefault = document.getElementById('useDefaultParams').checked;
+    const wrapper = document.getElementById('advancedParamsWrapper');
+    const turboLabel = document.getElementById('turboToggleLabel');
+    const hint = document.getElementById('defaultParamsHint');
+
+    if (useDefault) {
+        wrapper.classList.add('params-disabled');
+        turboLabel.style.display = 'flex';
+        hint.style.display = 'inline';
+        applyDefaultsToForm();
+    } else {
+        wrapper.classList.remove('params-disabled');
+        turboLabel.style.display = 'none';
+        hint.style.display = 'none';
+    }
+    saveFormParams();
+}
+
+function applyDefaultsToForm() {
+    const mode = document.getElementById('imageRole').value;
+    const turbo = document.getElementById('turboMode').checked;
+    const cfg = getDefaultConfig(mode, turbo);
+
+    // Stage 1
+    document.getElementById('s1_autoAnalyze').checked = cfg.stage1_prompt_analysis.auto_analyze;
+    document.getElementById('s1_autoLora').checked = cfg.stage1_prompt_analysis.auto_lora;
+    document.getElementById('s1_autoPrompt').checked = cfg.stage1_prompt_analysis.auto_prompt;
+
+    // Stage 2
+    document.getElementById('s2_firstFrameSource').value = cfg.stage2_first_frame.first_frame_source;
+    document.getElementById('s2_faceSwapEnabled').checked = cfg.stage2_first_frame.face_swap.enabled;
+
+    // Stage 3
+    document.getElementById('s3_enabled').checked = cfg.stage3_seedream.enabled;
+    if (cfg.stage3_seedream.swap_face !== undefined) {
+        document.getElementById('s3_swapFace').checked = cfg.stage3_seedream.swap_face;
+        document.getElementById('s3_swapAccessories').checked = cfg.stage3_seedream.swap_accessories || false;
+        document.getElementById('s3_swapExpression').checked = cfg.stage3_seedream.swap_expression || false;
+        document.getElementById('s3_swapClothing').checked = cfg.stage3_seedream.swap_clothing || false;
+    }
+    updateStage3Visibility();
+
+    // Stage 4
+    const gen = cfg.stage4_video.generation;
+    document.getElementById('s4_steps').value = gen.steps;
+    document.getElementById('s4_cfg').value = gen.cfg;
+    document.getElementById('s4_scheduler').value = gen.scheduler;
+    document.getElementById('s4_shift').value = gen.shift;
+    document.getElementById('s4_modelPreset').value = gen.model_preset;
+
+    const pp = cfg.stage4_video.postprocess;
+    document.getElementById('s4_upscaleEnabled').checked = pp.upscale.enabled;
+    document.getElementById('s4_upscaleResize').value = pp.upscale.resize;
+    document.getElementById('s4_interpEnabled').checked = pp.interpolation.enabled;
+    if (pp.interpolation.multiplier) document.getElementById('s4_interpMultiplier').value = pp.interpolation.multiplier;
+    if (pp.interpolation.profile) document.getElementById('s4_interpProfile').value = pp.interpolation.profile;
+}
+
+function onTurboToggle() {
+    if (document.getElementById('useDefaultParams').checked) {
+        applyDefaultsToForm();
+    }
+    saveFormParams();
+}
 
 // 全局变量
 let uploadedImageBase64 = null;
@@ -695,6 +821,8 @@ document.addEventListener('DOMContentLoaded', function() {
 // 保存参数到 localStorage
 function saveFormParams() {
     const params = {
+        useDefaultParams: document.getElementById('useDefaultParams').checked,
+        turboMode: document.getElementById('turboMode').checked,
         prompt: document.getElementById('prompt').value,
         imageRole: document.getElementById('imageRole').value,
         resolution: document.getElementById('resolution').value,
@@ -747,6 +875,10 @@ function loadFormParams() {
 
     try {
         const params = JSON.parse(stored);
+
+        // 恢复默认参数/Turbo开关
+        if (params.useDefaultParams !== undefined) document.getElementById('useDefaultParams').checked = params.useDefaultParams;
+        if (params.turboMode !== undefined) document.getElementById('turboMode').checked = params.turboMode;
 
         // 恢复基础参数
         if (params.prompt) document.getElementById('prompt').value = params.prompt;
@@ -912,6 +1044,11 @@ function updateModeRelatedUI() {
         s3EnabledHint.style.color = '#7c83ff';
         updateStage3Visibility();
     }
+
+    // 如果使用默认参数，刷新默认值
+    if (document.getElementById('useDefaultParams').checked) {
+        applyDefaultsToForm();
+    }
 }
 
 // 页面加载时初始化默认 prompt
@@ -921,6 +1058,8 @@ window.addEventListener('DOMContentLoaded', function() {
     // incompatible mode/edit_mode combinations (e.g., face_reference + face_wearings)
     updateModeRelatedUI();
     updateSeeDreamPrompt();
+    // Restore default params toggle state
+    toggleDefaultParams();
 
     // 监听模式变化
     document.getElementById('imageRole').addEventListener('change', function() {
@@ -1052,21 +1191,24 @@ async function generateVideo() {
         return;
     }
 
-    // 验证模式相关的配置
-    if (imageRole === 'face_reference') {
-        const s2FaceSwapEnabled = document.getElementById('s2_faceSwapEnabled').checked;
-        const s3Enabled = document.getElementById('s3_enabled').checked;
+    // 验证模式相关的配置（仅在自定义参数模式下检查）
+    const useDefault = document.getElementById('useDefaultParams').checked;
+    if (!useDefault) {
+        if (imageRole === 'face_reference') {
+            const s2FaceSwapEnabled = document.getElementById('s2_faceSwapEnabled').checked;
+            const s3Enabled = document.getElementById('s3_enabled').checked;
 
-        if (!s2FaceSwapEnabled && !s3Enabled) {
-            alert('face_reference 模式至少需要启用 Stage 2 换脸或 Stage 3 SeeDream 之一');
-            return;
-        }
-    } else if (imageRole === 'full_body_reference') {
-        const s3Enabled = document.getElementById('s3_enabled').checked;
+            if (!s2FaceSwapEnabled && !s3Enabled) {
+                alert('face_reference 模式至少需要启用 Stage 2 换脸或 Stage 3 SeeDream 之一');
+                return;
+            }
+        } else if (imageRole === 'full_body_reference') {
+            const s3Enabled = document.getElementById('s3_enabled').checked;
 
-        if (!s3Enabled) {
-            alert('full_body_reference 模式必须启用 Stage 3 SeeDream');
-            return;
+            if (!s3Enabled) {
+                alert('full_body_reference 模式必须启用 Stage 3 SeeDream');
+                return;
+            }
         }
     }
 
@@ -1213,14 +1355,21 @@ function buildRequestData() {
     };
 
     // 构建请求
+    const useDefault = document.getElementById('useDefaultParams').checked;
     const requestData = {
         mode: imageRole,
         user_prompt: document.getElementById('prompt').value.trim(),
         resolution: resolution,
         aspect_ratio: aspectRatio,
         duration: duration,
-        internal_config: internalConfig
     };
+
+    if (useDefault) {
+        // 使用默认参数：不传 internal_config，后端自动构建
+        requestData.turbo = document.getElementById('turboMode').checked;
+    } else {
+        requestData.internal_config = internalConfig;
+    }
 
     // 根据模式设置图片字段
     if (imageRole === 'first_frame') {
@@ -1285,10 +1434,20 @@ const _stageConfig = {
 };
 
 // Render overall status section
+function formatElapsed(seconds) {
+    if (seconds == null) return '';
+    const m = Math.floor(seconds / 60);
+    const s = Math.round(seconds % 60);
+    return m > 0 ? `${m}分${s}秒` : `${s}秒`;
+}
+
 function renderOverallStatus(status) {
     const overallStatusText = status.status === 'completed' ? '✅ 完成' :
                          status.status === 'running' ? '⏳ 处理中...' :
                          status.status === 'failed' ? '❌ 失败' : status.status;
+
+    const elapsedStr = status.elapsed_time != null ? formatElapsed(status.elapsed_time) : '';
+    const elapsedHtml = elapsedStr ? `<div id="overallElapsed" style="font-size:13px;color:#4ade80;margin-top:4px">⏱ ${elapsedStr}</div>` : '<div id="overallElapsed" style="font-size:13px;color:#4ade80;margin-top:4px"></div>';
 
     const pct = (status.progress !== undefined && status.progress !== null) ? (status.progress * 100).toFixed(1) : null;
     const overallProgress = pct !== null ?
@@ -1305,6 +1464,7 @@ function renderOverallStatus(status) {
         <div id="overallStatus" style="background:#1a1a1a;border-radius:8px;padding:16px;margin-bottom:16px;text-align:center">
             <div id="overallStatusText" style="font-size:18px;font-weight:600;color:#7c83ff;margin-bottom:8px">${overallStatusText}</div>
             <div id="overallStageText" style="font-size:14px;color:#aaa">当前阶段: ${status.current_stage || '未知'}</div>
+            ${elapsedHtml}
             ${overallProgress}
         </div>
     `;
@@ -1499,6 +1659,11 @@ function updateVideoProgress(status) {
         const pct = (status.progress * 100).toFixed(1);
         overall.style.width = pct + '%';
         if (overallText) overallText.textContent = pct + '%';
+    }
+    // Update elapsed time
+    const elapsedEl = document.getElementById('overallElapsed');
+    if (elapsedEl && status.elapsed_time != null) {
+        elapsedEl.textContent = '⏱ ' + formatElapsed(status.elapsed_time);
     }
 }
 

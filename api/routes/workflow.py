@@ -904,6 +904,9 @@ class WorkflowGenerateRequest(BaseModel):
         description="Internal configuration parameters (debug only)"
     )
 
+    # Turbo mode (used with default params)
+    turbo: Optional[bool] = Field(default=False, description="Turbo mode: faster generation with fewer steps")
+
 
 class WorkflowStage(BaseModel):
     """Workflow stage status"""
@@ -931,6 +934,140 @@ class WorkflowGenerateResponse(BaseModel):
     max_step: Optional[int] = Field(default=None, description="Total steps in current stage")
     total_steps: Optional[int] = Field(default=None, description="Total steps across all stages")
     completed_steps: Optional[int] = Field(default=None, description="Completed steps from previous stages")
+    elapsed_time: Optional[float] = Field(default=None, description="Elapsed time in seconds")
+
+
+def _build_default_internal_config(mode: str, turbo: bool = False) -> dict:
+    """
+    Build default internal_config based on mode and turbo flag.
+
+    Args:
+        mode: Workflow mode (first_frame, face_reference, full_body_reference)
+        turbo: Whether to use turbo (fewer steps, no interpolation)
+
+    Returns:
+        Complete internal_config dict
+    """
+    # Stage 1: always the same
+    stage1 = {
+        "auto_analyze": True,
+        "auto_lora": True,
+        "auto_prompt": True,
+        "inject_trigger_prompt": True,
+        "inject_trigger_words": True,
+    }
+
+    # Stage 2: face_swap depends on mode
+    if mode == "face_reference":
+        # face_reference: enable reactor face swap in stage 2
+        stage2_face_swap = {"enabled": True, "strength": 1.0}
+    elif mode == "full_body_reference":
+        if turbo:
+            # turbo full_body: skip reactor in stage 2 (seedream handles it)
+            stage2_face_swap = {"enabled": False, "strength": 1.0}
+        else:
+            # non-turbo full_body: reactor first, then seedream
+            stage2_face_swap = {"enabled": True, "strength": 1.0}
+    else:
+        # first_frame: no face swap
+        stage2_face_swap = {"enabled": False, "strength": 1.0}
+
+    stage2 = {
+        "first_frame_source": "select_existing",
+        "face_swap": stage2_face_swap,
+    }
+
+    # Stage 3: SeeDream config depends on mode
+    if mode == "first_frame":
+        stage3 = {"enabled": False}
+    elif mode == "face_reference":
+        if turbo:
+            # turbo face_reference: skip seedream
+            stage3 = {"enabled": False}
+        else:
+            # non-turbo face_reference: seedream with face+accessories
+            stage3 = {
+                "enabled": True,
+                "swap_face": True,
+                "swap_accessories": True,
+                "swap_expression": False,
+                "swap_clothing": False,
+            }
+    elif mode == "full_body_reference":
+        # full_body always uses seedream with face+accessories+clothing
+        stage3 = {
+            "enabled": True,
+            "swap_face": True,
+            "swap_accessories": True,
+            "swap_expression": False,
+            "swap_clothing": True,
+        }
+    else:
+        stage3 = {"enabled": False}
+
+    # Stage 4: video generation params
+    if turbo:
+        generation = {
+            "steps": 4,
+            "cfg": 1,
+            "scheduler": "euler",
+            "shift": 5.0,
+            "model_preset": "nsfw_v2",
+        }
+        postprocess = {
+            "upscale": {
+                "enabled": True,
+                "model": "4x-UltraSharp",
+                "resize": 2.0,
+            },
+            "interpolation": {
+                "enabled": False,
+            },
+        }
+    else:
+        generation = {
+            "steps": 5,
+            "cfg": 2,
+            "scheduler": "euler",
+            "shift": 5.0,
+            "model_preset": "nsfw_v2",
+        }
+        postprocess = {
+            "upscale": {
+                "enabled": True,
+                "model": "4x-UltraSharp",
+                "resize": 1.5,
+            },
+            "interpolation": {
+                "enabled": True,
+                "multiplier": 2,
+                "profile": "fast",
+            },
+        }
+
+    stage4 = {
+        "generation": generation,
+        "postprocess": postprocess,
+    }
+
+    return {
+        "stage1_prompt_analysis": stage1,
+        "stage2_first_frame": stage2,
+        "stage3_seedream": stage3,
+        "stage4_video": stage4,
+    }
+
+
+@router.get("/workflow/default-config")
+async def get_default_config(
+    mode: str = Query(..., description="Workflow mode"),
+    turbo: bool = Query(False, description="Turbo mode"),
+    _=Depends(verify_api_key)
+):
+    """Return the computed default internal_config for a given mode and turbo setting."""
+    if mode not in ("first_frame", "face_reference", "full_body_reference"):
+        raise HTTPException(400, f"Invalid mode: {mode}")
+    return _build_default_internal_config(mode, turbo)
 
 
 @router.post("/workflow/generate-advanced", response_model=WorkflowGenerateResponse)
@@ -948,6 +1085,7 @@ async def generate_advanced_workflow(req: WorkflowGenerateRequest, _=Depends(ver
     """
     try:
         import uuid
+        import time
         import asyncio
         from api.main import task_manager
         from api.routes.workflow_executor import _execute_workflow
@@ -975,6 +1113,11 @@ async def generate_advanced_workflow(req: WorkflowGenerateRequest, _=Depends(ver
             logger.info(f"[WORKFLOW_PARAMS] {workflow_id} - video_params: {json.dumps(req.video_params, ensure_ascii=False)}")
         if req.internal_config:
             logger.info(f"[WORKFLOW_PARAMS] {workflow_id} - internal_config: {json.dumps(req.internal_config, ensure_ascii=False)}")
+
+        # Build default internal_config if not provided
+        if req.internal_config is None:
+            req.internal_config = _build_default_internal_config(req.mode, req.turbo or False)
+            logger.info(f"[WORKFLOW_PARAMS] {workflow_id} - Built default internal_config: turbo={req.turbo}")
 
         # Process top-level resolution/aspect_ratio/duration fields (from v2 frontend)
         # Merge them into internal_config.stage4_video.generation
@@ -1014,7 +1157,7 @@ async def generate_advanced_workflow(req: WorkflowGenerateRequest, _=Depends(ver
             "user_prompt": req.user_prompt,
             "first_frame_source": req.first_frame_source.value if req.first_frame_source else "",
             "reference_image": req.reference_image or "",
-            "created_at": str(int(asyncio.get_event_loop().time())),
+            "created_at": str(int(time.time())),
             "internal_config": json.dumps(req.internal_config) if req.internal_config else "{}"
         })
 
@@ -1086,14 +1229,22 @@ async def get_workflow_status(workflow_id: str, _=Depends(verify_api_key)):
         total_steps = None
         completed_steps = None
 
+        # Weighted stage progress: Stages 1-3 are fast, Stage 4 is the heavy lifting
+        stage_weights = {
+            "prompt_analysis": 0.02,
+            "first_frame_acquisition": 0.08,
+            "seedream_edit": 0.05,
+            "video_generation": 0.85,
+        }
+
         if status == "completed":
             progress = 1.0
             video_progress = 1.0
         elif status == "running":
-            # Calculate progress based on completed stages
-            completed_count = sum(1 for s in stages if s.status == "completed")
-            total_stages = len(stages)
-            stage_progress = completed_count / total_stages
+            # Calculate weighted progress based on completed stages
+            base_progress = sum(
+                stage_weights.get(s.name, 0) for s in stages if s.status == "completed"
+            )
 
             # If in video_generation stage, get detailed progress from chain/task
             if current_stage == "video_generation":
@@ -1103,8 +1254,6 @@ async def get_workflow_status(workflow_id: str, _=Depends(verify_api_key)):
                     chain_data = await task_manager.redis.hgetall(f"chain:{chain_id}")
                     logger.info(f"[{workflow_id}] Chain hgetall took {(time.time()-t2)*1000:.2f}ms")
                     if chain_data:
-                        # Get current task ID from segment_task_ids + current_segment
-                        # (current_task_id is not stored directly in the chain hash)
                         current_task_id = None
                         try:
                             task_ids = json.loads(chain_data.get("segment_task_ids", "[]"))
@@ -1120,23 +1269,39 @@ async def get_workflow_status(workflow_id: str, _=Depends(verify_api_key)):
                             if task_data:
                                 task_progress = float(task_data.get("progress", 0))
                                 video_progress = task_progress
-                                # Get detailed step info
                                 current_step = int(task_data.get("current_step", 0)) if task_data.get("current_step") else None
                                 max_step = int(task_data.get("max_step", 0)) if task_data.get("max_step") else None
                                 total_steps = int(task_data.get("total_steps", 0)) if task_data.get("total_steps") else None
                                 completed_steps = int(task_data.get("completed_steps", 0)) if task_data.get("completed_steps") else None
-                                # Overall progress = stage progress + current stage progress
-                                progress = (completed_count + task_progress) / total_stages
+                                # Weighted: base (stages 1-3) + stage4 weight * task_progress
+                                progress = base_progress + stage_weights["video_generation"] * task_progress
                             else:
-                                progress = stage_progress
+                                progress = base_progress
                         else:
-                            progress = stage_progress
+                            progress = base_progress
                     else:
-                        progress = stage_progress
+                        progress = base_progress
                 else:
-                    progress = stage_progress
+                    progress = base_progress
             else:
-                progress = stage_progress
+                progress = base_progress
+
+        # Calculate elapsed time
+        elapsed_time = None
+        created_at_str = workflow_data.get("created_at")
+        if created_at_str:
+            try:
+                created_at_ts = int(created_at_str)
+                if status == "completed" or status == "failed":
+                    completed_at_str = workflow_data.get("completed_at")
+                    if completed_at_str:
+                        elapsed_time = round(int(completed_at_str) - created_at_ts, 1)
+                    else:
+                        elapsed_time = round(time.time() - created_at_ts, 1)
+                else:
+                    elapsed_time = round(time.time() - created_at_ts, 1)
+            except (ValueError, TypeError):
+                pass
 
         return WorkflowGenerateResponse(
             workflow_id=workflow_id,
@@ -1153,7 +1318,8 @@ async def get_workflow_status(workflow_id: str, _=Depends(verify_api_key)):
             current_step=current_step,
             max_step=max_step,
             total_steps=total_steps,
-            completed_steps=completed_steps
+            completed_steps=completed_steps,
+            elapsed_time=elapsed_time
         )
 
     except HTTPException:
@@ -1476,7 +1642,13 @@ async def list_workflow_history(
     keys = await task_manager.redis.keys("workflow:wf_*")
     results = []
     for key in keys:
-        data = await task_manager.redis.hgetall(key)
+        # Skip non-hash keys (e.g. workflow:wf_xxx:req)
+        if key.count(":") > 1:
+            continue
+        try:
+            data = await task_manager.redis.hgetall(key)
+        except Exception:
+            continue
         if not data:
             continue
         wf_id = key.split(":", 1)[1] if ":" in key else key
@@ -1485,7 +1657,7 @@ async def list_workflow_history(
             "status": data.get("status"),
             "mode": data.get("mode"),
             "user_prompt": data.get("user_prompt"),
-            "created_at": int(data.get("created_at", 0)),
+            "created_at": int(float(data.get("created_at", 0))),
             "first_frame_url": data.get("first_frame_url"),
             "edited_frame_url": data.get("edited_frame_url"),
             "final_video_url": data.get("final_video_url"),
