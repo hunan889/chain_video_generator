@@ -1498,7 +1498,7 @@ async def faceswap_video(
     face_filename, _ = await storage.save_upload(face_data, face_image.filename or "face.png")
 
     # Upload to ComfyUI
-    client = task_manager.clients.get("a14b")
+    client = next((c for k, c in task_manager.clients.items() if k.startswith("a14b#")), None)
     if not client or not await client.is_alive():
         raise HTTPException(503, "ComfyUI service unavailable")
 

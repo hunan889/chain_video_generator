@@ -64,6 +64,9 @@ def _expand_comfyui_urls() -> dict[str, str]:
 # COMFYUI_URLS maps worker_key -> url, e.g. {"a14b#0": "...", "a14b#1": "...", "5b#0": "..."}
 COMFYUI_URLS = _expand_comfyui_urls()
 
+# Support multiple Forge instances: FORGE_URLS=url1,url2 (falls back to FORGE_URL)
+FORGE_URLS = _parse_urls("FORGE_URLS", FORGE_URL)
+
 # Task expiry in seconds (24 hours)
 TASK_EXPIRY = 86400
 

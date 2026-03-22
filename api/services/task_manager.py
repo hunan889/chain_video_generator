@@ -5,7 +5,7 @@ import time
 import uuid
 from typing import Optional
 import redis.asyncio as aioredis
-from api.config import REDIS_URL, COMFYUI_URLS, VIDEO_BASE_URL, TASK_EXPIRY, COS_ENABLED
+from api.config import REDIS_URL, COMFYUI_URLS, FORGE_URLS, VIDEO_BASE_URL, TASK_EXPIRY, COS_ENABLED
 from api.models.enums import TaskStatus, ModelType, GenerateMode
 from api.models.schemas import GenerateRequest, GenerateI2VRequest
 from api.services.comfyui_client import ComfyUIClient
@@ -42,7 +42,11 @@ class TaskManager:
             queue_name = f"queue:{model_prefix}"
             task = asyncio.create_task(self._worker_loop(worker_key, queue_name))
             self._workers.append(task)
-        logger.info("TaskManager started with workers: %s", list(COMFYUI_URLS.keys()))
+        # Start one forge worker per Forge instance; all share queue:workflow
+        for i, forge_url in enumerate(FORGE_URLS):
+            task = asyncio.create_task(self._forge_worker_loop(f"forge#{i}", forge_url))
+            self._workers.append(task)
+        logger.info("TaskManager started with workers: %s, forge workers: %d", list(COMFYUI_URLS.keys()), len(FORGE_URLS))
 
     async def stop(self):
         for w in self._workers:
@@ -130,7 +134,7 @@ class TaskManager:
         elif status == TaskStatus.RUNNING.value:
             prompt_id = data.get("prompt_id")
             model = data.get("model", "")
-            client = self.clients.get(model)
+            client = next((c for k, c in self.clients.items() if k.startswith(model + "#")), None)
             if client and prompt_id:
                 await client.interrupt()
                 await client.cancel_prompt(prompt_id)
@@ -311,6 +315,36 @@ class TaskManager:
                 "status": TaskStatus.FAILED.value,
                 "error": f"Resume failed: {e}",
             })
+
+    async def submit_workflow(self, workflow_id: str, req_json: str):
+        """Push a workflow request into the shared Forge queue."""
+        await self.redis.set(f"workflow:{workflow_id}:req", req_json, ex=TASK_EXPIRY)
+        await self.redis.rpush("queue:workflow", workflow_id)
+        logger.info("Workflow %s submitted to queue:workflow", workflow_id)
+
+    async def _forge_worker_loop(self, worker_name: str, forge_url: str):
+        """One worker per Forge instance; all compete on the shared queue:workflow queue."""
+        from api.routes.workflow_executor import _execute_workflow
+        logger.info("Forge worker %s started (url=%s), listening on queue:workflow", worker_name, forge_url)
+        while True:
+            try:
+                result = await self._worker_redis.blpop("queue:workflow", timeout=5)
+                if result is None:
+                    continue
+                _, workflow_id = result
+                req_json = await self.redis.get(f"workflow:{workflow_id}:req")
+                if not req_json:
+                    logger.warning("Forge worker %s: no req found for workflow %s, skipping", worker_name, workflow_id)
+                    continue
+                from api.routes.workflow import WorkflowGenerateRequest
+                req = WorkflowGenerateRequest.model_validate_json(req_json)
+                logger.info("Forge worker %s executing workflow %s", worker_name, workflow_id)
+                await _execute_workflow(workflow_id, req, self, forge_url)
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                logger.exception("Forge worker %s error: %s", worker_name, e)
+                await asyncio.sleep(2)
 
     async def _worker_loop(self, worker_key: str, queue_name: str):
         client = self.clients[worker_key]
@@ -634,7 +668,7 @@ class TaskManager:
                 })
 
                 model = ModelType(seg["model"])
-                client = self.clients.get(model.value)
+                client = next((c for k, c in self.clients.items() if k.startswith(model.value + "#")), None)
                 if not client:
                     raise RuntimeError(f"ComfyUI {model.value} not available")
 
@@ -835,7 +869,7 @@ class TaskManager:
         seg0 = segments[0]
         total = len(segments)
         model = ModelType(seg0["model"])
-        client = self.clients.get(model.value)
+        client = next((c for k, c in self.clients.items() if k.startswith(model.value + "#")), None)
         if not client:
             raise RuntimeError(f"ComfyUI {model.value} not available")
 

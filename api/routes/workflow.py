@@ -893,7 +893,7 @@ async def generate_advanced_workflow(req: WorkflowGenerateRequest, _=Depends(ver
         import uuid
         import asyncio
         from api.main import task_manager
-        from api.routes.workflow_executor import _execute_workflow, _get_config
+        from api.routes.workflow_executor import _get_config
 
         # Validate SeeDream edit_mode based on workflow mode
         # IMPORTANT: Use _get_config() to read from internal_config first, then seedream_params
@@ -986,8 +986,8 @@ async def generate_advanced_workflow(req: WorkflowGenerateRequest, _=Depends(ver
 
         logger.info(f"Advanced workflow {workflow_id} created: mode={req.mode}, source={req.first_frame_source}")
 
-        # Start async orchestration
-        asyncio.create_task(_execute_workflow(workflow_id, req, task_manager))
+        # Enqueue workflow into Forge worker queue
+        await task_manager.submit_workflow(workflow_id, req.model_dump_json())
 
         return WorkflowGenerateResponse(
             workflow_id=workflow_id,
@@ -1202,7 +1202,7 @@ async def run_custom_workflow(
         raise HTTPException(400, f"Invalid model: {model}")
 
     # Check if ComfyUI instance is alive
-    client = task_manager.clients.get(model_type.value)
+    client = next((c for k, c in task_manager.clients.items() if k.startswith(model_type.value + "#")), None)
     if not client or not await client.is_alive():
         raise HTTPException(503, f"ComfyUI {model_type.value} instance is not available")
 
@@ -1402,7 +1402,7 @@ async def run_workflow_with_image(
             except ValueError:
                 raise HTTPException(400, f"Invalid model: {model_type_val}")
 
-            client = task_manager.clients.get(mt.value)
+            client = next((c for k, c in task_manager.clients.items() if k.startswith(mt.value + "#")), None)
             if not client or not await client.is_alive():
                 raise HTTPException(503, f"ComfyUI {mt.value} instance is not available")
 

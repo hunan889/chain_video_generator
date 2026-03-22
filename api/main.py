@@ -124,8 +124,8 @@ app.mount("/api/v1/uploads", StaticFiles(directory=str(UPLOADS_DIR)), name="api_
 @app.get("/health")
 async def health():
     from api.models.schemas import HealthResponse
-    a14b_ok = await task_manager.clients.get("a14b", _Stub()).is_alive()
-    five_b_ok = await task_manager.clients.get("5b", _Stub()).is_alive()
+    a14b_ok = await next((c for k, c in task_manager.clients.items() if k.startswith("a14b#")), _Stub()).is_alive()
+    five_b_ok = await next((c for k, c in task_manager.clients.items() if k.startswith("5b#")), _Stub()).is_alive()
     redis_ok = await task_manager.redis_alive()
     return HealthResponse(status="ok", comfyui_a14b=a14b_ok, comfyui_5b=five_b_ok, redis=redis_ok)
 

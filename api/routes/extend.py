@@ -66,7 +66,7 @@ async def extend_video(req: ExtendRequest, _=Depends(verify_api_key)):
     frame_data = frame_path.read_bytes()
 
     # Upload frame to ComfyUI
-    client = task_manager.clients.get(model.value)
+    client = next((c for k, c in task_manager.clients.items() if k.startswith(model.value + "#")), None)
     if not client or not await client.is_alive():
         raise HTTPException(503, f"ComfyUI {model.value} instance is not available")
 
@@ -151,7 +151,7 @@ async def generate_chain(
         image_data = await image.read()
         if image_data:
             local_name, _ = await storage.save_upload(image_data, image.filename or "upload.png")
-            client = task_manager.clients.get(req.model.value)
+            client = next((c for k, c in task_manager.clients.items() if k.startswith(req.model.value + "#")), None)
             if client and await client.is_alive():
                 upload_result = await client.upload_image(image_data, local_name)
                 image_filename = upload_result.get("name", local_name)
@@ -160,7 +160,7 @@ async def generate_chain(
         face_data = await face_image.read()
         if face_data:
             local_name, _ = await storage.save_upload(face_data, face_image.filename or "face.png")
-            client = task_manager.clients.get(req.model.value)
+            client = next((c for k, c in task_manager.clients.items() if k.startswith(req.model.value + "#")), None)
             if client and await client.is_alive():
                 upload_result = await client.upload_image(face_data, local_name)
                 face_image_filename = upload_result.get("name", local_name)
@@ -191,7 +191,7 @@ async def generate_chain(
         fps = req.fps if req.fps else 16
         short_video_path = await extract_last_n_frames_video(parent_video_path, motion_frames, fps)
 
-        client = task_manager.clients.get(req.model.value)
+        client = next((c for k, c in task_manager.clients.items() if k.startswith(req.model.value + "#")), None)
         if client and await client.is_alive():
             video_data = short_video_path.read_bytes()
             upload_result = await client.upload_video(video_data, short_video_path.name)
@@ -222,7 +222,7 @@ async def generate_chain(
         initial_ref_data = await initial_reference_image.read()
         if initial_ref_data:
             local_name, _ = await storage.save_upload(initial_ref_data, initial_reference_image.filename or "initial_ref.png")
-            client = task_manager.clients.get(req.model.value)
+            client = next((c for k, c in task_manager.clients.items() if k.startswith(req.model.value + "#")), None)
             if client and await client.is_alive():
                 upload_result = await client.upload_image(initial_ref_data, local_name)
                 initial_ref_filename = upload_result.get("name", local_name)

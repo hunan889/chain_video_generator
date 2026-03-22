@@ -122,7 +122,8 @@ async def _apply_face_swap_to_frame(
     frame_url: str,
     reference_face: str,
     strength: float = 1.0,
-    task_manager = None
+    task_manager = None,
+    forge_url: str = None
 ) -> Optional[str]:
     """
     Apply face swap to a single frame using Reactor.
@@ -137,10 +138,10 @@ async def _apply_face_swap_to_frame(
         URL of the face-swapped image, or None if failed
     """
     try:
-        import requests as http_requests
-        from api.config import FORGE_URL, API_HOST, API_PORT
+        from api.config import FORGE_URL as _DEFAULT_FORGE_URL, API_HOST, API_PORT
         from api.services import storage
         import uuid
+        _forge_url = forge_url or _DEFAULT_FORGE_URL
 
         # Normalize frame_url to full URL if it's a relative path
         if frame_url.startswith('/api/v1/'):
@@ -212,38 +213,40 @@ async def _apply_face_swap_to_frame(
         }
 
         logger.info(f"Applying face swap to frame with strength={strength}")
-        reactor_resp = http_requests.post(
-            f"{FORGE_URL}/reactor/image", json=reactor_payload, timeout=120
-        )
+        async with aiohttp.ClientSession() as session:
+            async with session.post(
+                f"{_forge_url}/reactor/image",
+                json=reactor_payload,
+                timeout=aiohttp.ClientTimeout(total=120)
+            ) as reactor_resp:
+                if reactor_resp.status != 200:
+                    logger.error(f"Reactor failed: {reactor_resp.status}")
+                    return None
+                resp_json = await reactor_resp.json()
 
-        if reactor_resp.status_code == 200:
-            resp_json = reactor_resp.json()
-            swapped_b64 = resp_json["image"]
-            swapped_data = base64.b64decode(swapped_b64)
+        swapped_b64 = resp_json["image"]
+        swapped_data = base64.b64decode(swapped_b64)
 
-            # Log Reactor response info for debugging
-            info_keys = [k for k in resp_json.keys() if k != "image"]
-            if info_keys:
-                logger.info(f"Reactor response info: {info_keys}")
-                for key in info_keys:
-                    logger.info(f"  {key}: {resp_json[key]}")
+        # Log Reactor response info for debugging
+        info_keys = [k for k in resp_json.keys() if k != "image"]
+        if info_keys:
+            logger.info(f"Reactor response info: {info_keys}")
+            for key in info_keys:
+                logger.info(f"  {key}: {resp_json[key]}")
 
-            # Save result
-            filename = f"face_swap_{uuid.uuid4().hex[:8]}.png"
-            local_path, url = await storage.save_upload(swapped_data, filename)
+        # Save result
+        filename = f"face_swap_{uuid.uuid4().hex[:8]}.png"
+        local_path, url = await storage.save_upload(swapped_data, filename)
 
-            logger.info(f"Face swap completed: {url}")
-            return url
-        else:
-            logger.error(f"Reactor failed: {reactor_resp.status_code}, response: {reactor_resp.text[:200]}")
-            return None
+        logger.info(f"Face swap completed: {url}")
+        return url
 
     except Exception as e:
         logger.error(f"Face swap failed: {e}", exc_info=True)
         return None
 
 
-async def _execute_workflow(workflow_id: str, req, task_manager):
+async def _execute_workflow(workflow_id: str, req, task_manager, forge_url: str = None):
     """
     Execute the complete advanced workflow asynchronously.
 
@@ -315,7 +318,7 @@ async def _execute_workflow(workflow_id: str, req, task_manager):
         await _update_stage(task_manager, workflow_id, "first_frame_acquisition", "running")
         await task_manager.redis.hset(f"workflow:{workflow_id}", "current_stage", "first_frame_acquisition")
 
-        first_frame_url = await _acquire_first_frame(workflow_id, req, analysis_result, task_manager)
+        first_frame_url = await _acquire_first_frame(workflow_id, req, analysis_result, task_manager, forge_url=forge_url)
         if not first_frame_url:
             raise Exception("Failed to acquire first frame")
 
@@ -344,7 +347,8 @@ async def _execute_workflow(workflow_id: str, req, task_manager):
                 first_frame_url,
                 req.reference_image,
                 strength=face_swap_config.get("strength", 1.0),
-                task_manager=task_manager
+                task_manager=task_manager,
+                forge_url=forge_url
             )
             if swapped_url:
                 logger.info(f"[{workflow_id}] Face swap succeeded: {swapped_url}")
@@ -455,7 +459,7 @@ async def _execute_workflow(workflow_id: str, req, task_manager):
             }
             await _update_stage(task_manager, workflow_id, "seedream_edit", "running", details_dict=running_details)
 
-            edit_result = await _edit_first_frame(workflow_id, req, first_frame_url, size, task_manager)
+            edit_result = await _edit_first_frame(workflow_id, req, first_frame_url, size, task_manager, forge_url=forge_url)
             if edit_result:
                 edited_frame_url = edit_result.url
                 await task_manager.redis.hset(f"workflow:{workflow_id}", "edited_frame_url", edited_frame_url)
@@ -616,7 +620,7 @@ async def _analyze_prompt(req, task_manager) -> Optional[dict]:
         return None
 
 
-async def _acquire_first_frame(workflow_id: str, req, analysis_result: Optional[dict], task_manager) -> Optional[str]:
+async def _acquire_first_frame(workflow_id: str, req, analysis_result: Optional[dict], task_manager, forge_url: str = None) -> Optional[str]:
     """
     Acquire first frame based on first_frame_source.
 
@@ -684,7 +688,7 @@ async def _acquire_first_frame(workflow_id: str, req, analysis_result: Optional[
 
         elif first_frame_source == "generate":
             # Generate first frame using T2I (SD WebUI)
-            return await _generate_t2i_image(req, analysis_result, task_manager)
+            return await _generate_t2i_image(req, analysis_result, task_manager, forge_url=forge_url)
 
         elif first_frame_source == "select_existing":
             # Auto-select from recommended images
@@ -714,7 +718,7 @@ async def _acquire_first_frame(workflow_id: str, req, analysis_result: Optional[
             if not recommended_images:
                 logger.warning(f"[{workflow_id}] No recommended images found for select_existing mode, falling back to T2I generation")
                 # Fallback to T2I generation
-                return await _generate_t2i_image(req, analysis_result, task_manager)
+                return await _generate_t2i_image(req, analysis_result, task_manager, forge_url=forge_url)
 
             # Randomly select from all results
             import random
@@ -771,17 +775,18 @@ async def _acquire_first_frame(workflow_id: str, req, analysis_result: Optional[
         return None
 
 
-async def _generate_t2i_image(req, analysis_result: Optional[dict], task_manager) -> Optional[str]:
+async def _generate_t2i_image(req, analysis_result: Optional[dict], task_manager, forge_url: str = None) -> Optional[str]:
     """
     Generate T2I image using SD WebUI + PONY NSFW model.
 
     Returns: URL of the generated image
     """
     try:
-        from api.config import FORGE_URL
+        from api.config import FORGE_URL as _DEFAULT_FORGE_URL
         from api.services import storage
         import aiohttp
         import uuid
+        _forge_url = forge_url or _DEFAULT_FORGE_URL
 
         # Build prompt
         prompt = req.user_prompt
@@ -872,7 +877,7 @@ async def _generate_t2i_image(req, analysis_result: Optional[dict], task_manager
         logger.info(f"Generating T2I image with prompt: {prompt[:150]}...")
 
         async with aiohttp.ClientSession() as session:
-            async with session.post(f"{FORGE_URL}/sdapi/v1/txt2img", json=payload, timeout=aiohttp.ClientTimeout(total=300)) as resp:
+            async with session.post(f"{_forge_url}/sdapi/v1/txt2img", json=payload, timeout=aiohttp.ClientTimeout(total=300)) as resp:
                 if resp.status != 200:
                     raise Exception(f"SD WebUI txt2img failed: {resp.status}")
 
@@ -892,7 +897,7 @@ async def _generate_t2i_image(req, analysis_result: Optional[dict], task_manager
         return None
 
 
-async def _edit_first_frame(workflow_id: str, req, first_frame_url: str, size: str, task_manager) -> Optional[str]:
+async def _edit_first_frame(workflow_id: str, req, first_frame_url: str, size: str, task_manager, forge_url: str = None) -> Optional[str]:
     """
     Edit first frame using SeeDream.
 
@@ -933,6 +938,7 @@ async def _edit_first_frame(workflow_id: str, req, first_frame_url: str, size: s
             seed=seed
         )
 
+        # Note: seedream_edit uses its own FORGE_URL config; forge_url routing not applied here
         result = await seedream_edit(edit_req, _=None)
         return result  # Return full result object with debug info
 
