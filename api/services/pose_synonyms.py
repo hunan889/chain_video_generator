@@ -225,11 +225,14 @@ POSE_SYNONYMS = {
         "facial cumshot",
         "cum on face",
         "cum on her face",
+        "cum face",
         "cumshot face",
         "jizz on face",
         "load on face",
         "face cum",
         "cum facial",
+        "shoot on face",
+        "ejaculate on face",
         "颜射",
         "射脸",
         "射在脸上"
@@ -310,12 +313,59 @@ def get_synonyms(pose_key: str) -> list:
 
 
 # 匹配时忽略的代词和冠词
-_STOP_WORDS = {'her', 'his', 'a', 'an', 'the', 'their', 'its', 'my', 'your', 'our'}
+_STOP_WORDS = {'her', 'his', 'a', 'an', 'the', 'their', 'its', 'my', 'your', 'our',
+               'she', 'he', 'is', 'are', 'was', 'were', 'with', 'and', 'to', 'in',
+               'on', 'of', 'for', 'that', 'this', 'girl', "girl's", 'boy', 'man',
+               "man's", 'woman', "woman's", 'guy', 'dude', 'babe'}
+
+# 简单词干映射：将常见动词变形归一化到词根
+_STEM_MAP = {
+    # cum 系列
+    'cums': 'cum', 'cumming': 'cum', 'cummed': 'cum', 'cumshot': 'cum shot',
+    'cumshots': 'cum shot', 'cumload': 'cum load',
+    # fuck 系列
+    'fucks': 'fuck', 'fucking': 'fuck', 'fucked': 'fuck', 'fucking': 'fuck',
+    # suck 系列
+    'sucks': 'suck', 'sucking': 'suck', 'sucked': 'suck',
+    # ride 系列
+    'rides': 'ride', 'riding': 'ride', 'ridden': 'ride',
+    # lick 系列
+    'licks': 'lick', 'licking': 'lick', 'licked': 'lick',
+    # stroke 系列
+    'strokes': 'stroke', 'stroking': 'stroke', 'stroked': 'stroke',
+    # gag 系列
+    'gags': 'gag', 'gagging': 'gag', 'gagged': 'gag',
+    # tie 系列
+    'ties': 'tie', 'tying': 'tie', 'tied': 'tie',
+    # finger 系列
+    'fingers': 'finger', 'fingering': 'finger', 'fingered': 'finger',
+    # sit 系列
+    'sits': 'sit', 'sitting': 'sit',
+    # stand 系列
+    'stands': 'stand', 'standing': 'stand',
+    # kneel 系列
+    'kneels': 'kneel', 'kneeling': 'kneel',
+    # spank 系列
+    'spanks': 'spank', 'spanking': 'spank', 'spanked': 'spank',
+    # squirt 系列
+    'squirts': 'squirt', 'squirting': 'squirt',
+    # penetrate 系列
+    'penetrates': 'penetrate', 'penetrating': 'penetrate', 'penetrated': 'penetrate',
+    # ejaculate 系列
+    'ejaculates': 'ejaculate', 'ejaculating': 'ejaculate', 'ejaculated': 'ejaculate',
+}
+
+
+def _stem_word(word: str) -> str:
+    """简单词干化"""
+    return _STEM_MAP.get(word, word)
 
 
 def _normalize(text: str) -> str:
-    """去除代词/冠词，便于宽松匹配"""
-    return ' '.join(w for w in text.lower().split() if w not in _STOP_WORDS)
+    """去除停用词 + 词干化，便于宽松匹配"""
+    words = text.lower().split()
+    words = [_stem_word(w) for w in words if w not in _STOP_WORDS]
+    return ' '.join(words)
 
 
 def expand_query(query: str) -> str:
@@ -324,7 +374,7 @@ def expand_query(query: str) -> str:
     query_normalized = _normalize(query_lower)
     expanded_terms = [query_lower]
 
-    # 检查是否包含同义词（支持精确匹配和去代词匹配）
+    # 检查是否包含同义词（支持精确匹配和去代词/词干匹配）
     for pose_key, synonyms in POSE_SYNONYMS.items():
         for synonym in synonyms:
             synonym_lower = synonym.lower()
