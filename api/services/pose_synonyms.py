@@ -4,6 +4,7 @@
 
 # 姿势同义词映射
 POSE_SYNONYMS = {
+    # === 经典体位 ===
     "cowgirl": [
         "woman on top",
         "girl on top",
@@ -45,18 +46,6 @@ POSE_SYNONYMS = {
         "后入",
         "后入式"
     ],
-    "blowjob": [
-        "oral sex",
-        "fellatio",
-        "oral",
-        "bj",
-        "口交"
-    ],
-    "69": [
-        "sixty nine",
-        "mutual oral",
-        "69式"
-    ],
     "standing": [
         "standing sex",
         "standing position",
@@ -67,6 +56,90 @@ POSE_SYNONYMS = {
         "side by side",
         "lying side",
         "侧卧式"
+    ],
+    "lotus": [
+        "lotus position",
+        "sitting face to face",
+        "wrapped legs",
+        "sitting embrace",
+        "sitting on lap",
+        "lap sitting",
+        "face to face sitting",
+        "莲花坐",
+        "坐莲",
+        "面对面坐"
+    ],
+    "against_wall": [
+        "wall sex",
+        "wall fuck",
+        "pushed against wall",
+        "pinned against wall",
+        "up against wall",
+        "standing wall",
+        "wall standing",
+        "pressed to wall",
+        "壁式",
+        "靠墙",
+        "墙壁式"
+    ],
+    "face_down_ass_up": [
+        "face down",
+        "ass up",
+        "prone position",
+        "face in pillow",
+        "lying face down",
+        "趴跪式",
+        "趴着",
+        "脸朝下屁股朝上"
+    ],
+    # === 口交类 ===
+    "blowjob": [
+        "oral sex",
+        "fellatio",
+        "oral",
+        "bj",
+        "sucking cock",
+        "sucking penis",
+        "mouth on cock",
+        "口交"
+    ],
+    "deepthroat": [
+        "deep throat",
+        "throat fuck",
+        "throating",
+        "throat penetration",
+        "gagging",
+        "gag on cock",
+        "balls deep mouth",
+        "深喉",
+        "喉交"
+    ],
+    "double_blowjob": [
+        "double bj",
+        "two girls blowjob",
+        "two women sucking",
+        "dual blowjob",
+        "shared blowjob",
+        "twin blowjob",
+        "two mouths",
+        "双人口交",
+        "双飞口交"
+    ],
+    "69": [
+        "sixty nine",
+        "mutual oral",
+        "69式"
+    ],
+    # === 手/足交类 ===
+    "handjob": [
+        "hand job",
+        "stroking cock",
+        "stroking penis",
+        "jacking off",
+        "jerking off",
+        "manual stimulation",
+        "手交",
+        "撸管"
     ],
     "footjob": [
         "foot job",
@@ -90,6 +163,17 @@ POSE_SYNONYMS = {
         "feet play",
         "足交"
     ],
+    "fingering": [
+        "finger pussy",
+        "finger vagina",
+        "fingers inside",
+        "finger fuck",
+        "finger insertion",
+        "manual penetration",
+        "指交",
+        "手指插入"
+    ],
+    # === 乳交类 ===
     "paizuri": [
         "titjob",
         "breast sex",
@@ -98,6 +182,20 @@ POSE_SYNONYMS = {
         "between breasts",
         "乳交"
     ],
+    "breast_play": [
+        "breast fondling",
+        "groping breasts",
+        "squeezing breasts",
+        "breast massage",
+        "tit groping",
+        "breast grab",
+        "breast worship",
+        "breast sucking",
+        "揉胸",
+        "摸奶",
+        "胸部按摩"
+    ],
+    # === 自慰类 ===
     "vaginal_masturbation": [
         "clit",
         "clitoris",
@@ -121,7 +219,88 @@ POSE_SYNONYMS = {
         "乳头",
         "玩乳头",
         "摸胸"
-    ]
+    ],
+    # === 颜射/射精类 ===
+    "facial": [
+        "facial cumshot",
+        "cum on face",
+        "cum on her face",
+        "cumshot face",
+        "jizz on face",
+        "load on face",
+        "face cum",
+        "cum facial",
+        "颜射",
+        "射脸",
+        "射在脸上"
+    ],
+    "bukkake": [
+        "multiple facial",
+        "group facial",
+        "cum shower",
+        "multiple cumshots",
+        "cum bath",
+        "mass facial",
+        "group cum",
+        "颜射群交",
+        "多人颜射"
+    ],
+    # === 肛交类 ===
+    "anal": [
+        "anal sex",
+        "anal fuck",
+        "ass fuck",
+        "butt sex",
+        "anal penetration",
+        "penis in anus",
+        "backdoor",
+        "肛交",
+        "后庭"
+    ],
+    # === 多人类 ===
+    "threesome": [
+        "three way",
+        "threeway",
+        "three people",
+        "mmf",
+        "ffm",
+        "three some",
+        "triple",
+        "三人行",
+        "3P"
+    ],
+    "gangbang": [
+        "gang bang",
+        "group sex",
+        "multiple men",
+        "multiple partners",
+        "group fuck",
+        "群交",
+        "轮奸"
+    ],
+    # === 特殊类 ===
+    "bondage": [
+        "tied up",
+        "restraints",
+        "bdsm",
+        "bound",
+        "rope bondage",
+        "handcuffs",
+        "bound wrists",
+        "束缚",
+        "捆绑",
+        "绑缚"
+    ],
+    "strap_on": [
+        "strapon",
+        "strap on dildo",
+        "pegging",
+        "wear dildo",
+        "harness dildo",
+        "穿戴式",
+        "假阳具",
+        "佩戴式"
+    ],
 }
 
 
