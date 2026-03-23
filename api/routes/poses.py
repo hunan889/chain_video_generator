@@ -76,20 +76,22 @@ async def get_pose_config(
 
 
 @router.get("/poses", response_model=PoseListResponse)
-async def list_poses(category: Optional[str] = None):
+async def list_poses(category: Optional[str] = None, include_disabled: bool = False):
     """
     列出所有姿势
 
     Args:
         category: 分类筛选 (position/oral/manual/other)
+        include_disabled: 是否包含已禁用的姿势
 
     示例:
     ```
     GET /api/v1/poses?category=position
+    GET /api/v1/poses?include_disabled=true
     ```
     """
     matcher = get_pose_matcher()
-    poses = matcher.list_all_poses(category=category)
+    poses = matcher.list_all_poses(category=category, include_disabled=include_disabled)
 
     return PoseListResponse(poses=poses)
 

@@ -110,7 +110,7 @@ const IFRAME_SRCS = {
 
 // Module tabs load HTML fragments; iframe tabs show iframes
 const MODULE_TABS = new Set(['video', 'image']);
-let _currentModuleTab = null;
+
 
 // Main tab switching
 document.querySelectorAll('.main-tab').forEach(t => {
@@ -125,12 +125,9 @@ document.querySelectorAll('.main-tab').forEach(t => {
     document.querySelectorAll('.main-section').forEach(x => x.classList.remove('active'));
 
     if (MODULE_TABS.has(target)) {
-      // Show module container, load module if needed
+      // Show module container, load/show module (DOM cached, scripts run only once)
       document.getElementById('module-content').style.display = '';
-      if (_currentModuleTab !== target) {
-        await ModuleLoader.load(target, 'module-content');
-        _currentModuleTab = target;
-      }
+      await ModuleLoader.load(target, 'module-content');
     } else {
       // Hide module container
       document.getElementById('module-content').style.display = 'none';
@@ -191,7 +188,6 @@ document.querySelectorAll('#section-poses [data-posetab]').forEach(t => {
     // Fallback to video
     document.getElementById('module-content').style.display = '';
     await ModuleLoader.load('video', 'module-content');
-    _currentModuleTab = 'video';
   }
 })();
 </script>

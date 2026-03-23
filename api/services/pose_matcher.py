@@ -225,12 +225,13 @@ class PoseMatcher:
             prompt_templates=prompt_templates
         )
 
-    def list_all_poses(self, category: Optional[str] = None) -> List[Dict]:
+    def list_all_poses(self, category: Optional[str] = None, include_disabled: bool = False) -> List[Dict]:
         """
         列出所有姿势
 
         Args:
             category: 分类筛选
+            include_disabled: 是否包含已禁用的姿势
 
         Returns:
             姿势列表
@@ -243,9 +244,12 @@ class PoseMatcher:
                (SELECT COUNT(*) FROM pose_reference_images WHERE pose_id = p.id) as reference_image_count,
                (SELECT COUNT(*) FROM pose_loras WHERE pose_id = p.id) as lora_count
         FROM poses p
-        WHERE p.enabled = 1
+        WHERE 1=1
         """
         params = []
+
+        if not include_disabled:
+            query += " AND p.enabled = 1"
 
         if category:
             query += " AND p.category = ?"
