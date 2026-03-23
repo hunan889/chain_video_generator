@@ -23,7 +23,7 @@
       "positive_prompt": "",
       "negative_prompt": "",
       "t5": ["2", 0],
-      "force_offload": true
+      "force_offload": false
     }
   },
   "4": {

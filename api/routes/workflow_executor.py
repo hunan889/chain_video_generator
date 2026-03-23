@@ -208,9 +208,10 @@ async def _apply_face_swap_to_frame(
             "face_index": [0],
             "model": "inswapper_128.onnx",
             "face_restorer": "CodeFormer",
-            "restorer_visibility": 1,
-            "codeformer_weight": 0.7,
+            "restorer_visibility": 0.85,
+            "codeformer_weight": 0.3,
             "restore_first": 1,
+            "facedetection": "retinaface_resnet50",
             "upscaler": "None",
             "scale": 1,
             "upscale_visibility": 1,
@@ -625,18 +626,21 @@ async def _update_stage(task_manager, workflow_id: str, stage_name: str, status:
 async def _analyze_prompt(req, task_manager) -> Optional[dict]:
     """Call /workflow/analyze or /poses/recommend-workflow endpoint internally"""
     try:
+        auto_prompt = _get_config(req, "stage1_prompt_analysis", "auto_prompt", True)
+        skip_llm = not auto_prompt  # turbo mode: skip LLM prompt optimization and reranking
+
         # Auto-recommend poses if not provided
         pose_keys = req.pose_keys
         if not pose_keys:
             from api.routes.poses import recommend_poses_by_prompt, PoseRecommendRequest
             try:
-                pose_req = PoseRecommendRequest(prompt=req.user_prompt, top_k=5)
+                pose_req = PoseRecommendRequest(prompt=req.user_prompt, top_k=5, use_llm=not skip_llm)
                 pose_result = await recommend_poses_by_prompt(pose_req, _=None)
                 if pose_result.recommendations:
                     # Select the first (highest similarity) pose
                     selected_pose = pose_result.recommendations[0]
                     pose_keys = [selected_pose.pose_key]
-                    logger.info(f"Auto-selected pose: {selected_pose.pose_key} (score: {selected_pose.score:.3f})")
+                    logger.info(f"Auto-selected pose: {selected_pose.pose_key} (score: {selected_pose.score:.3f}, llm_rerank={not skip_llm})")
             except Exception as e:
                 logger.warning(f"Auto pose recommendation failed: {e}")
 
@@ -646,7 +650,8 @@ async def _analyze_prompt(req, task_manager) -> Optional[dict]:
 
             recommend_req = WorkflowRecommendRequest(
                 prompt=req.user_prompt,
-                pose_keys=pose_keys
+                pose_keys=pose_keys,
+                skip_prompt_optimization=skip_llm
             )
 
             result = await recommend_workflow(recommend_req, _=None)
@@ -691,7 +696,8 @@ async def _analyze_prompt(req, task_manager) -> Optional[dict]:
             prompt=req.user_prompt,
             mode=req.mode,
             top_k_image_loras=5,
-            top_k_video_loras=5
+            top_k_video_loras=5,
+            skip_prompt_optimization=skip_llm
         )
 
         result = await analyze_workflow(analyze_req, _=None)
@@ -883,7 +889,8 @@ async def _generate_t2i_image(req, analysis_result: Optional[dict], task_manager
                 for lora in image_loras[:3]:  # Use top 3 image LoRAs
                     lora_id = lora.get("lora_id", "")
                     lora_name = lora.get("name", "")
-                    lora_tags.append(f"<lora:{lora_id}:0.8>")
+                    lora_weight = lora.get("weight", 0.8)
+                    lora_tags.append(f"<lora:{lora_id}:{lora_weight}>")
                     logger.info(f"Adding Image LoRA to T2I: {lora_name} (ID: {lora_id})")
                     # Collect trigger_words and trigger_prompt (controlled by stage1 switches)
                     inject_trigger_prompt_t2i = _get_config(req, "stage1_prompt_analysis", "inject_trigger_prompt", True)
@@ -1251,7 +1258,7 @@ async def _generate_video(workflow_id: str, req, first_frame_url: str, analysis_
                         tw = []
                 loras.append(LoraInput(
                     name=lora["name"],
-                    strength=0.8,
+                    strength=lora.get("weight", 0.8),
                     trigger_words=tw if inject_trigger_words else [],
                     trigger_prompt=lora.get("trigger_prompt") if inject_trigger_prompt else None,
                 ))
@@ -1433,9 +1440,30 @@ async def _generate_video(workflow_id: str, req, first_frame_url: str, analysis_
                 chain_req.upscale_resize = f"{resize_factor}x"
                 gen_width = max(16, int(round(width / resize_factor / 16)) * 16)
                 gen_height = max(16, int(round(height / resize_factor / 16)) * 16)
-                chain_req.width = gen_width
-                chain_req.height = gen_height
-                logger.info(f"[VIDEO_PARAMS] {workflow_id} - upscale enabled: model={chain_req.upscale_model}, resize={chain_req.upscale_resize}, gen={gen_width}x{gen_height} -> target={width}x{height}")
+                # Ensure minimum generation size (Wan2.2 needs at least 480px)
+                MIN_GEN_DIM = 480
+                if gen_width < MIN_GEN_DIM or gen_height < MIN_GEN_DIM:
+                    # Clamp resize_factor so neither dimension falls below minimum
+                    max_factor_w = width / MIN_GEN_DIM
+                    max_factor_h = height / MIN_GEN_DIM
+                    resize_factor = min(resize_factor, max_factor_w, max_factor_h)
+                    resize_factor = max(1.0, round(resize_factor * 4) / 4)  # round to 0.25 steps
+                    if resize_factor <= 1.0:
+                        # 1.0x means no actual upscaling — disable to avoid UpscalerTensorrt validation failure
+                        chain_req.enable_upscale = False
+                        logger.warning(f"[VIDEO_PARAMS] {workflow_id} - upscale disabled: resize_factor clamped to 1.0x (gen dims already at minimum {MIN_GEN_DIM})")
+                    else:
+                        chain_req.upscale_resize = f"{resize_factor}x"
+                        gen_width = max(MIN_GEN_DIM, int(round(width / resize_factor / 16)) * 16)
+                        gen_height = max(MIN_GEN_DIM, int(round(height / resize_factor / 16)) * 16)
+                        logger.warning(f"[VIDEO_PARAMS] {workflow_id} - resize_factor clamped to {resize_factor}x to keep gen dims >= {MIN_GEN_DIM}")
+                if chain_req.enable_upscale:
+                    chain_req.width = gen_width
+                    chain_req.height = gen_height
+                    logger.info(f"[VIDEO_PARAMS] {workflow_id} - upscale enabled: model={chain_req.upscale_model}, resize={chain_req.upscale_resize}, gen={gen_width}x{gen_height} -> target={width}x{height}")
+                else:
+                    chain_req.width = width
+                    chain_req.height = height
 
             # Interpolation
             interp_config = postprocess_config.get("interpolation", {})

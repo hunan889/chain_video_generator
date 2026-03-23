@@ -411,6 +411,7 @@ class TaskManager:
                 completed_steps = 0   # steps finished in previous stages
                 current_max = 0       # max_step of current stage
                 last_step = -1        # last step value seen (detect stage reset)
+                high_water_progress = 0.0  # never let progress go backwards
                 while asyncio.get_event_loop().time() < deadline:
                     try:
                         msg = await asyncio.wait_for(ws.recv(), timeout=10)
@@ -419,7 +420,7 @@ class TaskManager:
                         if isinstance(msg, bytes):
                             # Periodically check history even when receiving binary messages
                             now = asyncio.get_event_loop().time()
-                            if now - last_history_check >= 30:
+                            if now - last_history_check >= 5:
                                 last_history_check = now
                                 history = await client.get_history(prompt_id)
                                 if history:
@@ -441,6 +442,9 @@ class TaskManager:
                             overall = completed_steps + step
                             progress = round(0.05 + 0.85 * overall / max(total_steps, 1), 3)
                             progress = min(progress, 0.89)
+                            # Never let progress go backwards (HIGH→LOW stage transition)
+                            progress = max(progress, high_water_progress)
+                            high_water_progress = progress
                             # Save detailed progress info
                             await self.redis.hset(f"task:{task_id}", mapping={
                                 "progress": str(progress),
@@ -450,17 +454,21 @@ class TaskManager:
                                 "completed_steps": str(completed_steps)
                             })
                         elif msg_type == "executing":
-                            if d.get("prompt_id") == prompt_id and d.get("node") is None:
-                                logger.info("Task %s: completion signal received via WebSocket", task_id)
-                                return await client.get_history(prompt_id)
+                            if d.get("node") is None:
+                                ws_prompt_id = d.get("prompt_id")
+                                if ws_prompt_id == prompt_id:
+                                    logger.info("Task %s: completion signal received via WebSocket", task_id)
+                                    return await client.get_history(prompt_id)
+                                else:
+                                    logger.warning("Task %s: WS completion signal prompt_id mismatch: ws=%s expected=%s", task_id, ws_prompt_id, prompt_id)
                         elif msg_type in ("execution_error", "execution_interrupted"):
                             if d.get("prompt_id") == prompt_id:
                                 err_msg = d.get("exception_message", "ComfyUI execution error").strip()
                                 logger.error("Task %s: %s received via WebSocket: %s", task_id, msg_type, err_msg)
                                 raise RuntimeError(err_msg)
-                        # Periodically check history for completion (every 30s)
+                        # Periodically check history for completion (every 5s)
                         now = asyncio.get_event_loop().time()
-                        if now - last_history_check >= 30:
+                        if now - last_history_check >= 5:
                             last_history_check = now
                             history = await client.get_history(prompt_id)
                             if history:

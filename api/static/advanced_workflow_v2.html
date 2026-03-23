@@ -58,7 +58,6 @@ h2{color:#7c83ff;margin-bottom:20px;font-size:1.4em}
 .hint{font-size:11px;color:#666;margin-top:4px;font-style:italic}
 .params-disabled input,.params-disabled select,.params-disabled textarea{opacity:0.5;pointer-events:none}
 .params-disabled .collapsible{opacity:0.5;pointer-events:none}
-.turbo-toggle{display:none;margin-left:16px}
 </style>
 </head>
 <body>
@@ -134,14 +133,14 @@ h2{color:#7c83ff;margin-bottom:20px;font-size:1.4em}
 </div>
 
 <!-- 默认参数 / Turbo 开关 -->
-<div class="section" style="padding:12px 20px;display:flex;align-items:center;gap:16px;flex-wrap:wrap">
-<label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:14px;font-weight:600;color:#7c83ff">
-<input type="checkbox" id="useDefaultParams" onchange="toggleDefaultParams()"> 使用默认参数
+<div class="section" style="padding:14px 20px;display:flex;align-items:center;gap:16px;flex-wrap:wrap;border:2px solid #7c83ff;background:#1a1a3e">
+<label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:15px;font-weight:700;color:#7c83ff">
+<input type="checkbox" id="useDefaultParams" onchange="toggleDefaultParams()" style="width:18px;height:18px"> 使用默认参数
 </label>
-<label class="turbo-toggle" id="turboToggleLabel" style="display:none;align-items:center;gap:6px;cursor:pointer;font-size:14px;font-weight:600;color:#f59e0b">
-<input type="checkbox" id="turboMode" onchange="onTurboToggle()"> Turbo 模式
+<label id="turboToggleLabel" style="display:none;align-items:center;gap:6px;cursor:pointer;font-size:15px;font-weight:700;color:#f59e0b">
+<input type="checkbox" id="turboMode" onchange="onTurboToggle()" style="width:18px;height:18px"> Turbo 模式
 </label>
-<span id="defaultParamsHint" style="font-size:12px;color:#888;display:none">后端将根据模式自动选择最佳参数</span>
+<span id="defaultParamsHint" style="font-size:12px;color:#aaa;display:none">后端将根据模式自动选择最佳参数</span>
 </div>
 
 <!-- 高级参数（按阶段折叠） -->
@@ -495,11 +494,11 @@ function getDefaultConfig(mode, turbo) {
 
     let stage2FaceSwap;
     if (mode === 'face_reference') {
-        stage2FaceSwap = { enabled: true, strength: 1.0 };
+        stage2FaceSwap = { enabled: true, strength: 0.4 };
     } else if (mode === 'full_body_reference') {
-        stage2FaceSwap = turbo ? { enabled: false, strength: 1.0 } : { enabled: true, strength: 1.0 };
+        stage2FaceSwap = turbo ? { enabled: false, strength: 0.4 } : { enabled: true, strength: 0.4 };
     } else {
-        stage2FaceSwap = { enabled: false, strength: 1.0 };
+        stage2FaceSwap = { enabled: false, strength: 0.4 };
     }
     const stage2 = { first_frame_source: 'select_existing', face_swap: stage2FaceSwap };
 
@@ -516,7 +515,7 @@ function getDefaultConfig(mode, turbo) {
 
     let generation, postprocess;
     if (turbo) {
-        generation = { steps: 4, cfg: 1, scheduler: 'euler', shift: 5.0, model_preset: 'nsfw_v2' };
+        generation = { steps: 5, cfg: 1, scheduler: 'euler', shift: 5.0, model_preset: 'nsfw_v2' };
         postprocess = { upscale: { enabled: true, model: '4x-UltraSharp', resize: 2.0 }, interpolation: { enabled: false } };
     } else {
         generation = { steps: 5, cfg: 2, scheduler: 'euler', shift: 5.0, model_preset: 'nsfw_v2' };

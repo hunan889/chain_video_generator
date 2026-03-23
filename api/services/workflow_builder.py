@@ -14,6 +14,63 @@ logger = logging.getLogger(__name__)
 
 LORAS_DIR = COMFYUI_PATH / "models" / "loras"
 
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# RIFE TRT PROFILE SELECTION
+# ═══════════════════════════════════════════════════════════════════════════════
+
+# RIFE TRT engine optimization profiles (both H and W must be within range)
+_RIFE_PROFILES = [
+    ("small",  384, 1080),
+    ("medium", 672, 1312),
+    ("large",  720, 1920),
+]
+
+
+def _calc_upscaled_size(width: int, height: int, resize_to: str) -> tuple[int, int]:
+    """Calculate post-upscale dimensions (mirrors ComfyUI UpscalerTensorrt logic)."""
+    fixed = {"HD": (1280, 720), "FHD": (1920, 1080), "2k": (2560, 1440), "4k": (3840, 2160)}
+    if resize_to in fixed:
+        fw, fh = fixed[resize_to]
+        if width < height:  # portrait: swap W/H for fixed resolutions
+            fw, fh = fh, fw
+    elif resize_to == "none":
+        fw, fh = width * 4, height * 4
+    else:
+        try:
+            factor = float(resize_to.replace("x", ""))
+        except ValueError:
+            factor = 2.0
+        fw, fh = width * factor, height * factor
+    return int(fw), int(fh)
+
+
+def _select_rife_profile(width: int, height: int) -> str:
+    """Select RIFE TRT profile based on actual frame dimensions.
+
+    Returns the first profile where both dimensions fit within [min, max].
+    Falls back to the profile covering max_dim if no perfect match.
+    """
+    min_dim = min(width, height)
+    max_dim = max(width, height)
+
+    for name, p_min, p_max in _RIFE_PROFILES:
+        if min_dim >= p_min and max_dim <= p_max:
+            return name
+
+    # No perfect match — pick the profile that covers max_dim
+    if max_dim <= 1080:
+        profile = "small"
+    elif max_dim <= 1312:
+        profile = "medium"
+    else:
+        profile = "large"
+    logger.warning(
+        "No RIFE profile perfectly covers %dx%d (min=%d, max=%d), using '%s'",
+        width, height, min_dim, max_dim, profile,
+    )
+    return profile
+
 # Cache for LoRA file metadata (civitai_id -> filename mapping)
 _lora_id_cache: dict[str, str] = {}
 _lora_cache_built = False
@@ -552,7 +609,7 @@ def _inject_reactor(workflow: dict, face_image_path: str, strength: float) -> di
     Args:
         workflow: ComfyUI workflow dict
         face_image_path: ComfyUI filename of the face image (already uploaded)
-        strength: Face swap strength (0.3-1.0), used as codeformer_weight
+        strength: Face swap strength (0.3-1.0)
 
     Returns:
         Modified workflow with Reactor nodes injected
@@ -598,10 +655,10 @@ def _inject_reactor(workflow: dict, face_image_path: str, strength: float) -> di
             "enabled": True,
             "input_image": images_input,  # video frames from decode
             "swap_model": "inswapper_128.onnx",
-            "facedetection": "retinaface_mobile0.25",  # Optimized: faster than resnet50
-            "face_restore_model": "none",  # Disabled for speed - swap quality is usually good enough
-            "face_restore_visibility": 1.0,
-            "codeformer_weight": strength,
+            "facedetection": "retinaface_resnet50",
+            "face_restore_model": "codeformer",
+            "face_restore_visibility": 0.85,
+            "codeformer_weight": 0.3,
             "detect_gender_input": "no",
             "detect_gender_source": "no",
             "input_faces_index": "0",
@@ -1259,7 +1316,15 @@ def _inject_story_postproc(workflow: dict, seg: dict) -> dict:
     multiplier = seg.get("interpolation_multiplier", 2)
     if seg.get("enable_interpolation") and multiplier > 1:
         output_fps = fps * multiplier
-        rife_profile = "large" if seg.get("enable_upscale") else seg.get("interpolation_profile", "small")
+        # Select RIFE profile based on actual frame dimensions
+        if seg.get("enable_upscale"):
+            rife_w, rife_h = _calc_upscaled_size(
+                seg.get("width", 480), seg.get("height", 848),
+                seg.get("upscale_resize", "2x"),
+            )
+            rife_profile = _select_rife_profile(rife_w, rife_h)
+        else:
+            rife_profile = seg.get("interpolation_profile", "small")
         workflow["pp_rife_loader"] = {
             "class_type": "AutoLoadRifeTensorrtModel",
             "inputs": {
@@ -1714,7 +1779,7 @@ def build_merged_story_workflow(
         workflow[ids["pre_vram"]] = {
             "class_type": "VRAMCleanup",
             "inputs": {
-                "offload_model": True,
+                "offload_model": False,
                 "offload_cache": True,
                 "anything": [ids["clip_neg"], 0],
             },
@@ -1896,10 +1961,12 @@ def build_merged_story_workflow(
     output_fps = fps
     if enable_interpolation and interpolation_multiplier > 1:
         output_fps = fps * interpolation_multiplier
-        # Auto-select RIFE profile: use "large" if upscaled (dimensions > 1080px)
-        rife_profile = interpolation_profile
+        # Auto-select RIFE profile based on actual post-upscale dimensions
         if enable_upscale:
-            rife_profile = "large"
+            rife_w, rife_h = _calc_upscaled_size(width, height, upscale_resize)
+            rife_profile = _select_rife_profile(rife_w, rife_h)
+        else:
+            rife_profile = interpolation_profile
         workflow["pp_rife_loader"] = {
             "class_type": "AutoLoadRifeTensorrtModel",
             "inputs": {
@@ -2024,10 +2091,10 @@ def build_merged_story_workflow(
                 "enabled": True,
                 "input_image": current_image_source,
                 "swap_model": "inswapper_128.onnx",
-                "facedetection": "retinaface_mobile0.25",  # Optimized: faster than resnet50
-                "face_restore_model": "none",  # Disabled for speed - swap quality is usually good enough
+                "facedetection": "retinaface_resnet50",
+                "face_restore_model": "codeformer",
                 "face_restore_visibility": 1.0,
-                "codeformer_weight": face_swap_strength,
+                "codeformer_weight": 0.6,
                 "detect_gender_input": "no",
                 "detect_gender_source": "no",
                 "input_faces_index": "0",

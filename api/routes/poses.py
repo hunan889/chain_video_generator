@@ -147,6 +147,7 @@ async def get_pose_thumbnail(pose_key: str, _: str = Depends(verify_api_key)):
 class WorkflowRecommendRequest(BaseModel):
     prompt: str
     pose_keys: List[str]
+    skip_prompt_optimization: bool = False
 
 
 class LoraItem(BaseModel):
@@ -256,52 +257,66 @@ async def recommend_workflow(
             for lora in video_loras_dict.values()
         ]
 
-        # 收集trigger_words
+        # 收集trigger_words (flatten lists to strings)
         image_trigger_words = []
         for lora in image_loras_dict.values():
             trigger = lora.get('trigger_words', '')
             if trigger:
-                image_trigger_words.append(trigger)
+                if isinstance(trigger, list):
+                    image_trigger_words.extend(trigger)
+                else:
+                    image_trigger_words.append(trigger)
 
         video_trigger_words = []
         for lora in video_loras_dict.values():
             trigger = lora.get('trigger_words', '')
             if trigger:
-                video_trigger_words.append(trigger)
+                if isinstance(trigger, list):
+                    video_trigger_words.extend(trigger)
+                else:
+                    video_trigger_words.append(trigger)
 
         # 生成image_prompt
         image_prompt = request.prompt
         if image_trigger_words:
             image_prompt = f"{request.prompt}, {', '.join(image_trigger_words)}"
 
-        # 使用PromptOptimizer生成多帧video_prompt
-        from api.services.prompt_optimizer import PromptOptimizer
-        optimizer = PromptOptimizer()
+        # 生成video_prompt
+        if request.skip_prompt_optimization:
+            # Turbo mode: use raw prompt with trigger words, skip LLM optimization
+            video_prompt = request.prompt
+            if video_trigger_words:
+                video_prompt = f"{request.prompt}, {', '.join(video_trigger_words)}"
+            optimized_prompt = video_prompt
+        else:
+            # 使用PromptOptimizer生成多帧video_prompt
+            from api.services.prompt_optimizer import PromptOptimizer
+            optimizer = PromptOptimizer()
 
-        # 准备LORA信息用于优化
-        lora_info = []
-        for lora in video_loras_dict.values():
-            tw = lora.get('trigger_words') or []
-            tp = lora.get('trigger_prompt') or ''
-            example_prompts = list(lora.get('example_prompts') or [])
-            if tp.strip() and tp.strip() not in example_prompts:
-                example_prompts.insert(0, tp.strip())
-            lora_info.append({
-                "name": lora.get('lora_name', ''),
-                "description": ', '.join(tw) if tw else lora.get('description', ''),
-                "example_prompts": example_prompts
-            })
+            # 准备LORA信息用于优化
+            lora_info = []
+            for lora in video_loras_dict.values():
+                tw = lora.get('trigger_words') or []
+                tp = lora.get('trigger_prompt') or ''
+                example_prompts = list(lora.get('example_prompts') or [])
+                if tp.strip() and tp.strip() not in example_prompts:
+                    example_prompts.insert(0, tp.strip())
+                lora_info.append({
+                    "name": lora.get('lora_name', ''),
+                    "description": ', '.join(tw) if tw else lora.get('description', ''),
+                    "example_prompts": example_prompts
+                })
 
-        result = await optimizer.optimize(
-            prompt=request.prompt,
-            trigger_words=video_trigger_words,
-            mode="i2v",
-            duration=5.0,
-            lora_info=lora_info if lora_info else None
-        )
+            result = await optimizer.optimize(
+                prompt=request.prompt,
+                trigger_words=video_trigger_words,
+                mode="i2v",
+                duration=5.0,
+                lora_info=lora_info if lora_info else None
+            )
 
-        video_prompt = result["optimized_prompt"]
-        optimized_prompt = video_prompt
+            video_prompt = result["optimized_prompt"]
+            optimized_prompt = video_prompt
 
         return WorkflowRecommendResponse(
             optimized_prompt=optimized_prompt,

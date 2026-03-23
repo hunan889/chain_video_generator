@@ -22,6 +22,16 @@ async def lifespan(app: FastAPI):
     VIDEOS_DIR.mkdir(parents=True, exist_ok=True)
     UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
     await task_manager.start()
+
+    # Pre-initialize pose recommender (model loading + embedding computation)
+    # to avoid 6s cold-start penalty on first request
+    try:
+        from api.services.pose_recommender import get_pose_recommender
+        get_pose_recommender()
+        logger.info("Pose recommender pre-initialized at startup")
+    except Exception as e:
+        logger.warning(f"Failed to pre-initialize pose recommender: {e}")
+
     logger.info("Wan2.2 Video Service started")
     yield
     await task_manager.stop()
@@ -86,7 +96,7 @@ async def lora_manager():
 
 @app.get("/advanced_workflow_v2.html")
 async def advanced_workflow_v2():
-    return FileResponse(STATIC_DIR / "advanced_workflow_v2.html")
+    return FileResponse(STATIC_DIR / "advanced_workflow_v2.html", headers={"Cache-Control": "no-cache, no-store, must-revalidate"})
 
 
 @app.get("/workflow_test.html")

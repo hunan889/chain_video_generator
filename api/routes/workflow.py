@@ -38,6 +38,7 @@ class WorkflowAnalyzeRequest(BaseModel):
     )
     top_k_image_loras: int = Field(default=5, ge=1, le=20, description="Top K image LORAs")
     top_k_video_loras: int = Field(default=5, ge=1, le=20, description="Top K video LORAs")
+    skip_prompt_optimization: bool = Field(default=False, description="Skip LLM prompt optimization (turbo mode)")
 
 
 class ImageLoraRecommendation(BaseModel):
@@ -116,13 +117,17 @@ async def analyze_workflow(req: WorkflowAnalyzeRequest, _=Depends(verify_api_key
             images_task
         )
 
-        # Optimize prompts with Qwen3-14B
-        optimized_t2i_prompt, optimized_i2v_prompt = await _optimize_prompt_with_llm(
-            req.prompt,
-            image_loras,
-            video_loras,
-            req.mode
-        )
+        # Optimize prompts with Qwen3-14B (skip in turbo mode)
+        if req.skip_prompt_optimization:
+            optimized_t2i_prompt = req.prompt
+            optimized_i2v_prompt = req.prompt
+        else:
+            optimized_t2i_prompt, optimized_i2v_prompt = await _optimize_prompt_with_llm(
+                req.prompt,
+                image_loras,
+                video_loras,
+                req.mode
+            )
 
         return WorkflowAnalyzeResponse(
             original_prompt=req.prompt,
@@ -888,14 +893,8 @@ class WorkflowGenerateRequest(BaseModel):
 
     # Video generation parameters
     video_params: Optional[dict] = Field(
-        default_factory=lambda: {
-            "model": "A14B",
-            "resolution": "480p_3:4",
-            "duration": "5s",
-            "steps": 20,
-            "cfg": 6.0
-        },
-        description="Video generation parameters"
+        default=None,
+        description="Video generation parameters (legacy, only used when internal_config is absent)"
     )
 
     # Internal configuration (for debugging, disabled in production)
@@ -948,11 +947,11 @@ def _build_default_internal_config(mode: str, turbo: bool = False) -> dict:
     Returns:
         Complete internal_config dict
     """
-    # Stage 1: always the same
+    # Stage 1: turbo skips LLM prompt optimization and LLM reranking
     stage1 = {
         "auto_analyze": True,
         "auto_lora": True,
-        "auto_prompt": True,
+        "auto_prompt": not turbo,
         "inject_trigger_prompt": True,
         "inject_trigger_words": True,
     }
@@ -960,17 +959,17 @@ def _build_default_internal_config(mode: str, turbo: bool = False) -> dict:
     # Stage 2: face_swap depends on mode
     if mode == "face_reference":
         # face_reference: enable reactor face swap in stage 2
-        stage2_face_swap = {"enabled": True, "strength": 1.0}
+        stage2_face_swap = {"enabled": True, "strength": 0.4}
     elif mode == "full_body_reference":
         if turbo:
             # turbo full_body: skip reactor in stage 2 (seedream handles it)
-            stage2_face_swap = {"enabled": False, "strength": 1.0}
+            stage2_face_swap = {"enabled": False, "strength": 0.4}
         else:
             # non-turbo full_body: reactor first, then seedream
-            stage2_face_swap = {"enabled": True, "strength": 1.0}
+            stage2_face_swap = {"enabled": True, "strength": 0.4}
     else:
         # first_frame: no face swap
-        stage2_face_swap = {"enabled": False, "strength": 1.0}
+        stage2_face_swap = {"enabled": False, "strength": 0.4}
 
     stage2 = {
         "first_frame_source": "select_existing",
@@ -1008,7 +1007,7 @@ def _build_default_internal_config(mode: str, turbo: bool = False) -> dict:
     # Stage 4: video generation params
     if turbo:
         generation = {
-            "steps": 4,
+            "steps": 5,
             "cfg": 1,
             "scheduler": "euler",
             "shift": 5.0,

@@ -98,7 +98,7 @@
   },
   "58": {
     "inputs": {
-      "offload_model": true,
+      "offload_model": false,
       "offload_cache": true,
       "anything": [
         "51",

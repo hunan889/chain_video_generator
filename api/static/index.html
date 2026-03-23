@@ -97,8 +97,9 @@
 <script src="/static/js/module-loader.js"></script>
 <script>
 // Iframe source URLs (lazy-loaded on first tab click)
+const _v = Date.now();
 const IFRAME_SRCS = {
-  'workflow': '/advanced_workflow_v2.html',
+  'workflow': '/advanced_workflow_v2.html?v=' + _v,
   'wf-history': '/static/workflow_history.html',
   'favorites': '/static/my_favorites.html',
   'annotate': '/annotate.html',
