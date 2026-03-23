@@ -699,6 +699,417 @@
       border-radius: 6px;
       margin-top: 8px;
     }
+
+    /* ========== Mobile H5 Responsive ========== */
+    @media screen and (max-width: 768px) {
+      /* === CRITICAL: prevent horizontal overflow === */
+      html, body {
+        overflow-x: hidden;
+        max-width: 100vw;
+      }
+      body { padding: 12px 10px; }
+
+      /* === Header: stack vertically === */
+      .header {
+        flex-direction: column;
+        align-items: stretch;
+        gap: 12px;
+        margin-bottom: 16px;
+        padding-bottom: 12px;
+      }
+      h1 { font-size: 20px; }
+      .header > div[style] {
+        display: flex !important;
+        gap: 10px !important;
+        width: 100% !important;
+      }
+      .header .btn {
+        flex: 1;
+        text-align: center;
+        padding: 12px 12px;
+        min-height: 44px;
+        font-size: 15px;
+      }
+      .header a {
+        flex: 1; justify-content: center; font-size: 15px;
+        text-align: center;
+        padding: 12px 12px;
+        min-height: 44px;
+        background: #1a1a2e;
+        border: 1px solid #2a2a3a;
+        border-radius: 8px;
+        display: flex;
+        align-items: center;
+      }
+
+      /* === Filters: full stack, each control full-width === */
+      .filters {
+        flex-direction: column;
+        gap: 10px;
+        margin-bottom: 16px;
+      }
+      .filters input[type="text"] {
+        width: 100% !important;
+        flex: unset !important;
+        font-size: 16px;
+        padding: 12px;
+        border-radius: 10px;
+        min-height: 44px;
+      }
+      .filters select {
+        width: 100%;
+        font-size: 16px;
+        padding: 12px;
+        border-radius: 10px;
+        min-height: 44px;
+        appearance: none;
+        -webkit-appearance: none;
+        background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8'%3E%3Cpath d='M1 1l5 5 5-5' stroke='%23888' stroke-width='1.5' fill='none'/%3E%3C/svg%3E");
+        background-repeat: no-repeat;
+        background-position: right 12px center;
+        padding-right: 32px;
+      }
+      .filters .btn {
+        width: 100%;
+        min-width: unset !important;
+        padding: 12px;
+        font-size: 15px;
+        border-radius: 10px;
+        min-height: 44px;
+      }
+      .filters label {
+        font-size: 15px !important;
+        padding: 6px 0;
+        min-height: 44px;
+        display: flex !important;
+        align-items: center;
+      }
+      .filters label input[type="checkbox"] {
+        width: 20px;
+        height: 20px;
+        min-width: 20px;
+      }
+
+      /* === Pose grid: single column === */
+      .pose-grid {
+        grid-template-columns: 1fr !important;
+        gap: 14px;
+      }
+
+      /* === Pose cards: contain all children === */
+      .pose-card {
+        padding: 14px;
+        border-radius: 12px;
+        overflow: hidden;
+        word-break: break-word;
+      }
+      .pose-header {
+        flex-direction: column;
+        gap: 8px;
+        align-items: stretch !important;
+      }
+      /* Right side: badges + toggle, wrap to fit */
+      .pose-header > div[style] {
+        display: flex !important;
+        flex-wrap: wrap !important;
+        gap: 8px !important;
+        justify-content: space-between;
+        align-items: center !important;
+      }
+      .pose-title {
+        font-size: 17px;
+        word-break: break-word;
+        overflow-wrap: break-word;
+      }
+      .pose-key {
+        font-size: 12px;
+        word-break: break-all;
+      }
+      .pose-description {
+        font-size: 14px;
+        word-break: break-word;
+        overflow-wrap: break-word;
+      }
+      .pose-badges { margin-top: 0; flex-wrap: wrap; }
+
+      /* === Badges: increase size for readability === */
+      .badge {
+        padding: 4px 10px;
+        font-size: 12px;
+      }
+
+      /* === Toggle switch: bigger for touch === */
+      .toggle-switch {
+        width: 46px;
+        height: 26px;
+      }
+      .toggle-slider:before {
+        width: 22px;
+        height: 22px;
+      }
+      .toggle-switch input:checked + .toggle-slider:before {
+        transform: translateX(20px);
+      }
+
+      /* === Pose preview section === */
+      .pose-preview-section {
+        padding: 10px;
+        border-radius: 10px;
+        overflow: hidden;
+      }
+      .pose-preview-title {
+        flex-wrap: wrap;
+        gap: 6px;
+        font-size: 13px;
+      }
+      .pose-preview-grid {
+        grid-template-columns: repeat(auto-fill, minmax(68px, 1fr));
+        gap: 6px;
+      }
+
+      /* === Pose actions: 2-col grid === */
+      .pose-actions {
+        display: grid !important;
+        grid-template-columns: 1fr 1fr;
+        gap: 8px;
+      }
+      .pose-actions .btn {
+        flex: unset;
+        min-width: unset;
+        padding: 12px 6px;
+        font-size: 14px;
+        border-radius: 8px;
+        text-align: center;
+        min-height: 44px;
+      }
+
+      /* === Stats === */
+      .pose-stats { gap: 6px; }
+      .stat-value { font-size: 16px; }
+      .stat-label { font-size: 11px; }
+
+      /* === LoRA items: bigger touch targets === */
+      .pose-lora-list { overflow: hidden; }
+      .pose-lora-item {
+        padding: 10px 8px;
+        font-size: 13px;
+        overflow: hidden;
+        min-height: 48px;
+      }
+      .pose-lora-preview {
+        width: 40px;
+        height: 40px;
+        min-width: 40px;
+      }
+      .pose-lora-info {
+        min-width: 0;
+        overflow: hidden;
+      }
+      .pose-lora-name {
+        font-size: 13px;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        min-height: 20px;
+        line-height: 20px;
+      }
+      .pose-lora-type {
+        flex-wrap: wrap;
+        gap: 4px;
+        font-size: 12px;
+      }
+      .lora-weight-input {
+        width: 56px;
+        font-size: 14px;
+        padding: 4px 6px;
+        min-height: 28px;
+        border-radius: 4px;
+      }
+      .pose-lora-drag-handle {
+        padding: 0 4px;
+        font-size: 18px;
+        min-width: 24px;
+        text-align: center;
+      }
+      .pose-lora-delete {
+        padding: 8px 10px;
+        font-size: 12px;
+        white-space: nowrap;
+        flex-shrink: 0;
+        min-height: 32px;
+        border-radius: 4px;
+        display: flex;
+        align-items: center;
+      }
+      /* Disabled badge position fix */
+      .pose-lora-item.disabled::after {
+        right: 60px;
+        font-size: 9px;
+        padding: 2px 6px;
+      }
+
+      /* === LORA section "添加" button: bigger === */
+      .pose-preview-title .btn {
+        padding: 8px 14px !important;
+        font-size: 13px !important;
+        min-height: 36px;
+      }
+
+      /* === Overlay badges on preview items === */
+      .pose-preview-badge {
+        font-size: 10px;
+        padding: 3px 8px;
+      }
+      .pose-preview-delete {
+        font-size: 18px;
+        width: 28px;
+        height: 28px;
+        padding: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        opacity: 1;
+        border-radius: 50%;
+      }
+
+      /* === Modals: fix close button clickability === */
+      .modal { padding: 8px; }
+      .modal-content {
+        width: 96%;
+        padding: 16px;
+        border-radius: 14px;
+        max-height: 88vh;
+      }
+      .modal-header {
+        margin-bottom: 14px;
+        padding-bottom: 12px;
+        position: relative;
+      }
+      .modal-title { font-size: 17px; padding-right: 48px; }
+      .close-btn {
+        position: absolute !important;
+        top: -4px;
+        right: -4px;
+        width: 44px !important;
+        height: 44px !important;
+        font-size: 28px !important;
+        z-index: 10;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: #2a2a3a !important;
+        border-radius: 50% !important;
+        color: #e0e0e0 !important;
+      }
+      .close-btn:active {
+        background: #3a3a4a !important;
+        transform: scale(0.95);
+      }
+
+      /* === Modal form inputs === */
+      .modal-content input[type="text"],
+      .modal-content textarea,
+      .modal-content select {
+        font-size: 16px;
+        padding: 12px;
+        min-height: 44px;
+        border-radius: 8px;
+      }
+      .modal-content label {
+        font-size: 14px;
+      }
+
+      /* === Resource selector === */
+      .resource-selector-modal { padding: 8px; }
+      .resource-selector-content {
+        width: 96%;
+        max-height: 88vh;
+        border-radius: 14px;
+      }
+      .resource-selector-header {
+        padding: 14px;
+        position: relative;
+      }
+      .resource-selector-header h3 { font-size: 16px; padding-right: 48px; }
+      .resource-selector-filters {
+        padding: 12px;
+        flex-direction: column;
+        gap: 8px;
+      }
+      .resource-selector-filters input,
+      .resource-selector-filters select {
+        width: 100%;
+        font-size: 16px;
+        padding: 12px;
+        border-radius: 8px;
+        min-height: 44px;
+      }
+      .resource-selector-body { padding: 10px; }
+      .resource-selector-grid {
+        grid-template-columns: repeat(auto-fill, minmax(90px, 1fr));
+        gap: 8px;
+      }
+      .resource-selector-footer {
+        padding: 12px;
+        flex-wrap: wrap;
+        gap: 8px;
+      }
+      .resource-selector-footer .btn {
+        min-height: 44px;
+        padding: 10px 16px;
+      }
+
+      /* === Image zoom === */
+      .image-zoom-modal { padding: 8px; }
+      .image-zoom-close {
+        top: -44px;
+        padding: 10px 18px;
+        font-size: 14px;
+        min-height: 40px;
+      }
+
+      /* === Config section in modal === */
+      .config-item {
+        padding: 10px;
+        border-radius: 8px;
+        word-break: break-word;
+      }
+
+      /* === Buttons base === */
+      .btn {
+        padding: 12px;
+        font-size: 14px;
+        border-radius: 8px;
+        min-height: 40px;
+      }
+
+      /* === "暂无" empty state buttons === */
+      .pose-preview-empty .btn {
+        padding: 8px 16px !important;
+        font-size: 13px !important;
+        min-height: 36px;
+      }
+
+      /* === Global overflow protection === */
+      * { -webkit-tap-highlight-color: transparent; }
+      html { -webkit-overflow-scrolling: touch; scroll-behavior: smooth; }
+      input, select { font-size: 16px; }
+      img, video { max-width: 100%; height: auto; }
+    }
+
+    @media screen and (max-width: 375px) {
+      body { padding: 10px 8px; }
+      h1 { font-size: 18px; }
+      .pose-card { padding: 12px; }
+      .pose-title { font-size: 16px; }
+      .pose-preview-grid {
+        grid-template-columns: repeat(auto-fill, minmax(56px, 1fr));
+      }
+      .pose-actions .btn { font-size: 13px; padding: 10px 4px; }
+      .pose-lora-preview { width: 36px; height: 36px; min-width: 36px; }
+      .pose-lora-name { font-size: 12px; }
+      .pose-lora-delete { padding: 6px 8px; font-size: 12px; }
+    }
   </style>
 </head>
 <body>
@@ -989,7 +1400,7 @@
             <div style="display:flex;align-items:center;gap:8px;">
               <div class="pose-badges">
                 <span class="badge badge-category">${getCategoryName(pose.category)}</span>
-                <span class="badge badge-difficulty ${pose.difficulty}">${getDifficultyName(pose.difficulty)}</span>
+                ${pose.difficulty ? `<span class="badge badge-difficulty ${pose.difficulty}">${getDifficultyName(pose.difficulty)}</span>` : ''}
               </div>
               <label class="toggle-switch" title="${pose.enabled ? '已启用（参与推荐）' : '已关闭（不参与推荐）'}">
                 <input type="checkbox" ${pose.enabled ? 'checked' : ''} onchange="togglePoseEnabled(${pose.id}, this.checked)">
@@ -1658,7 +2069,7 @@
         medium: '中等',
         hard: '困难'
       };
-      return names[difficulty] || difficulty;
+      return names[difficulty] || difficulty || '';
     }
 
     // Event listeners
