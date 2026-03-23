@@ -1,0 +1,1188 @@
+<!-- Image Module -->
+<div class="main-section active" id="section-image">
+<div class="tabs">
+<div class="tab active" data-imgtab="t2i">文生图</div>
+<div class="tab" data-imgtab="i2i">图片编辑</div>
+<div class="tab" data-imgtab="multiref">多参考合照</div>
+<div class="tab" data-imgtab="sceneswap">场景人物替换</div>
+<div class="tab" data-imgtab="faceswap">角色定制 (NSFW)</div>
+<div class="tab" data-imgtab="transfer">姿态迁移</div>
+<div class="tab" data-imgtab="zimage">Z-Image 编辑</div>
+<div class="tab" data-imgtab="character">人物一致性</div>
+<div class="tab" data-imgtab="history">历史记录</div>
+</div>
+
+<!-- T2I Panel -->
+<div class="panel active" id="imgpanel-t2i">
+<div class="row"><div class="field" style="flex:3"><label>提示词 (Prompt)</label>
+<textarea id="img-prompt" placeholder="Describe the image you want to generate..." style="min-height:100px"></textarea>
+</div></div>
+<div class="row">
+<div class="field"><label>尺寸预设</label>
+<select id="img-size" onchange="onImgSizeChange()">
+<option value="2048x2048">2K 方形 (2048×2048)</option>
+<option value="2048x1024">2K 横版 (2048×1024)</option>
+<option value="1024x2048">2K 竖版 (1024×2048)</option>
+<option value="1920x1080">1080P 横版 (1920×1080)</option>
+<option value="1080x1920">1080P 竖版 (1080×1920)</option>
+<option value="custom">自定义</option>
+</select></div>
+<div class="field" id="img-custom-size" style="display:none"><label>自定义尺寸 (宽x高)</label>
+<input type="text" id="img-custom" value="2048x2048" placeholder="例如: 1920x1080"></div>
+<div class="field"><label>Seedream 模型</label>
+<select id="img-model">
+<option value="seedream-5-0-260128">5.0 Lite</option>
+<option value="seedream-4-5-251128">4.5</option>
+<option value="seedream-4-0-250828">4.0</option>
+</select></div>
+<div class="field"><label>Seed (-1=随机)</label>
+<input type="number" id="img-seed" value="-1"></div>
+</div>
+<div class="btn-row"><button class="btn" onclick="submitImage()">生成图片</button></div>
+<div id="img-status" style="margin-top:12px;font-size:13px;color:#aaa"></div>
+<div class="img-result" id="img-result"></div>
+</div>
+
+<!-- I2I Panel -->
+<div class="panel" id="imgpanel-i2i">
+<div class="row">
+<div class="field" style="flex:1;max-width:300px"><label>上传参考图</label>
+<div class="upload-area" id="i2i-upload-area">
+<img id="i2i-img-preview" style="display:none">
+<span id="i2i-upload-text">点击或拖拽上传图片</span>
+<input type="file" id="i2i-file" accept="image/*">
+</div></div>
+<div class="field" style="flex:2"><label>编辑提示词 (描述你想要的修改)</label>
+<textarea id="i2i-prompt" placeholder="例如: Transform into anime style / 把背景改成海边日落 / 给人物换上红色裙子" style="min-height:120px"></textarea>
+</div></div>
+<div class="row">
+<div class="field"><label>输出尺寸</label>
+<select id="i2i-size">
+<option value="adaptive">自适应 (跟随原图)</option>
+<option value="2048x2048">2K 方形 (2048×2048)</option>
+<option value="2048x1024">2K 横版 (2048×1024)</option>
+<option value="1024x2048">2K 竖版 (1024×2048)</option>
+<option value="1920x1080">1080P 横版 (1920×1080)</option>
+<option value="1080x1920">1080P 竖版 (1080×1920)</option>
+</select></div>
+<div class="field"><label>Seedream 模型</label>
+<select id="i2i-model">
+<option value="seedream-5-0-260128">5.0 Lite</option>
+<option value="seedream-4-5-251128">4.5</option>
+<option value="seedream-4-0-250828">4.0</option>
+</select></div>
+<div class="field"><label>Seed (-1=随机)</label>
+<input type="number" id="i2i-seed" value="-1"></div>
+</div>
+<div class="btn-row"><button class="btn" onclick="submitI2I()">开始编辑</button></div>
+<div id="i2i-status" style="margin-top:12px;font-size:13px;color:#aaa"></div>
+<div class="img-result" id="i2i-result"></div>
+</div>
+
+<!-- Multi-Ref Panel -->
+<div class="panel" id="imgpanel-multiref">
+<div class="row">
+<div class="field" style="flex:1">
+<label>参考图片 (最多10张，点击添加)</label>
+<div id="multiref-gallery" style="display:flex;flex-wrap:wrap;gap:8px;margin-top:6px;min-height:100px;background:#0a0a23;border:1px dashed #555;border-radius:8px;padding:12px;align-items:flex-start">
+</div>
+<input type="file" id="multiref-file" accept="image/*" multiple style="display:none">
+<div style="font-size:11px;color:#666;margin-top:4px">支持场景：多人合照、角色一致性、风格融合 | 单张最大 10MB</div>
+</div>
+</div>
+<div class="row"><div class="field" style="flex:3"><label>提示词 (描述想要生成的效果)</label>
+<textarea id="multiref-prompt" placeholder="例如: 三个人站在一起合照，背景是巴黎铁塔，阳光明媚 / 把这些角色放在同一个场景中" style="min-height:100px"></textarea>
+</div></div>
+<div class="row">
+<div class="field"><label>输出尺寸</label>
+<select id="multiref-size">
+<option value="2048x2048">2K 方形 (2048×2048)</option>
+<option value="2048x1024">2K 横版 (2048×1024)</option>
+<option value="1024x2048">2K 竖版 (1024×2048)</option>
+<option value="1920x1080">1080P 横版 (1920×1080)</option>
+<option value="1080x1920">1080P 竖版 (1080×1920)</option>
+</select></div>
+<div class="field"><label>Seedream 模型</label>
+<select id="multiref-model">
+<option value="seedream-5-0-260128">5.0 Lite</option>
+<option value="seedream-4-5-251128">4.5</option>
+<option value="seedream-4-0-250828">4.0</option>
+</select></div>
+<div class="field"><label>Seed (-1=随机)</label>
+<input type="number" id="multiref-seed" value="-1"></div>
+</div>
+<div class="btn-row"><button class="btn" onclick="submitMultiRef()">生成合照</button></div>
+<div id="multiref-status" style="margin-top:12px;font-size:13px;color:#aaa"></div>
+<div class="img-result" id="multiref-result"></div>
+</div>
+
+<!-- Scene Character Swap Panel -->
+<div class="panel" id="imgpanel-sceneswap">
+<div class="row">
+<div class="field" style="flex:1">
+<label>IMAGE 1 — 目标人物 (正脸照)</label>
+<div id="sceneswap-face-box" onclick="document.getElementById('sceneswap-face-file').click()" style="width:120px;height:120px;border:2px dashed #555;border-radius:8px;display:flex;align-items:center;justify-content:center;cursor:pointer;color:#888;font-size:28px;margin-top:6px;overflow:hidden;position:relative" title="上传目标人物照片">+</div>
+<input type="file" id="sceneswap-face-file" accept="image/*" style="display:none">
+<div style="font-size:11px;color:#666;margin-top:4px">上传清晰正脸照，作为替换的目标人物</div>
+</div>
+<div class="field" style="flex:1">
+<label>IMAGE 2 — 场景图 (含人物)</label>
+<div id="sceneswap-scene-box" onclick="document.getElementById('sceneswap-scene-file').click()" style="width:120px;height:120px;border:2px dashed #555;border-radius:8px;display:flex;align-items:center;justify-content:center;cursor:pointer;color:#888;font-size:28px;margin-top:6px;overflow:hidden;position:relative" title="上传场景图片">+</div>
+<input type="file" id="sceneswap-scene-file" accept="image/*" style="display:none">
+<div style="font-size:11px;color:#666;margin-top:4px">上传含人物的场景图，人脸将被替换为目标人物</div>
+</div>
+</div>
+<div class="row"><div class="field" style="flex:3"><label>默认提示词 (可编辑)</label>
+<textarea id="sceneswap-prompt" style="min-height:60px">edit image 2, keep the position of image 2, and swap face to image 1, replace the character of image 2 to image 1, change face to image 1</textarea>
+</div></div>
+<div class="row"><div class="field" style="flex:3"><label>额外提示词 (可选，追加在默认提示词后)</label>
+<input type="text" id="sceneswap-extra" placeholder="例如: wearing a blue dress, sunny background, high quality">
+</div></div>
+<div class="row">
+<div class="field"><label>表情保留</label>
+<input type="range" id="sceneswap-expr" min="0" max="0.8" step="0.05" value="0" oninput="document.getElementById('sceneswap-expr-val').textContent=this.value">
+<span id="sceneswap-expr-val" style="color:#7c83ff;font-size:13px">0</span>
+<div style="font-size:11px;color:#666;margin-top:2px">0=纯换脸 | 0.3=轻保留 | 0.5=推荐 | 0.8=强保留原表情</div>
+</div>
+<div class="field"><label><input type="checkbox" id="sceneswap-occlusion" onchange="onSceneSwapModeChange()"> 保留遮挡物</label>
+<div style="font-size:11px;color:#666;margin-top:2px">跳过换脸，靠 AI 大模型替换人物，保留脸部所有遮挡物</div>
+</div>
+<div class="field"><label><input type="checkbox" id="sceneswap-reactor-only" onchange="onSceneSwapModeChange()"> 仅换脸</label>
+<div style="font-size:11px;color:#666;margin-top:2px">只做 Reactor 换脸，跳过 AI 大模型编辑（保留遮挡最精确）</div>
+</div>
+<div class="field"><label><input type="checkbox" id="sceneswap-skip-reactor" onchange="onSceneSwapModeChange()"> 跳过换脸</label>
+<div style="font-size:11px;color:#666;margin-top:2px">不做 Reactor 换脸，仅靠 AI 大模型理解提示词替换人物</div>
+</div>
+<div class="field"><label>输出尺寸</label>
+<select id="sceneswap-size">
+<option value="1024x1024">1024×1024 方形</option>
+<option value="2048x2048">2K 方形</option>
+<option value="768x1024">768×1024 竖版</option>
+<option value="1024x768">1024×768 横版</option>
+<option value="1080x1920">1080P 竖版</option>
+<option value="1920x1080">1080P 横版</option>
+<option value="2048x1024">2K 横版</option>
+<option value="1024x2048">2K 竖版</option>
+</select></div>
+<div class="field"><label>Seedream 模型</label>
+<select id="sceneswap-model">
+<option value="seedream-5-0-260128">5.0 Lite</option>
+<option value="seedream-4-5-251128">4.5</option>
+<option value="seedream-4-0-250828">4.0</option>
+</select></div>
+<div class="field"><label>Seed (-1=随机)</label>
+<input type="number" id="sceneswap-seed" value="-1"></div>
+</div>
+<div class="btn-row"><button class="btn" onclick="submitSceneSwap()">替换人物</button></div>
+<div id="sceneswap-status" style="margin-top:12px;font-size:13px;color:#aaa"></div>
+<div class="img-result" id="sceneswap-result"></div>
+</div>
+
+<!-- FaceSwap Panel -->
+<div class="panel" id="imgpanel-faceswap">
+<div class="row">
+<div class="field" style="flex:1">
+<label>人脸参考图 (1-5张，每人一张正脸照)</label>
+<div id="faceswap-gallery" style="display:flex;flex-wrap:wrap;gap:8px;margin-top:6px;min-height:100px;background:#0a0a23;border:1px dashed #555;border-radius:8px;padding:12px;align-items:flex-start">
+<div id="faceswap-add-btn" onclick="document.getElementById('faceswap-file').click()" style="width:90px;height:90px;border:2px dashed #555;border-radius:8px;display:flex;align-items:center;justify-content:center;cursor:pointer;color:#888;font-size:28px;flex-shrink:0" title="添加人脸">+</div>
+</div>
+<input type="file" id="faceswap-file" accept="image/*" multiple style="display:none">
+<div style="font-size:11px;color:#666;margin-top:4px">上传清晰正脸照，面部特征将融入生成过程（非贴脸）| IP-Adapter FaceID + Forge Couple</div>
+</div>
+</div>
+<div class="row"><div class="field" style="flex:3"><label>场景描述 (Prompt)</label>
+<textarea id="faceswap-prompt" placeholder="写实风格示例:&#10;单人: a beautiful woman, portrait photo, natural lighting, professional photography&#10;多人用换行分隔每人描述:&#10;a woman on the left, red dress, smiling&#10;a man on the right, black suit, confident" style="min-height:100px"></textarea>
+</div></div>
+<div class="row"><div class="field" style="flex:3"><label>反向提示词 (Negative Prompt)</label>
+<input type="text" id="faceswap-neg" value="deformed, blurry, bad anatomy, bad hands, extra fingers, ugly, cartoon, anime, painting, drawing">
+</div></div>
+<div class="row">
+<div class="field"><label>尺寸</label>
+<select id="faceswap-size" onchange="onFaceswapSizeChange()">
+<option value="auto" selected>自适应(跟随参考图)</option>
+<option value="768x1024">768x1024 竖版</option>
+<option value="1024x768">1024x768 横版</option>
+<option value="1024x1024">1024x1024 方形</option>
+<option value="custom">自定义</option>
+</select></div>
+<div class="field" id="faceswap-w-field" style="display:none"><label>宽度</label>
+<input type="number" id="faceswap-w" value="768" step="64" min="512" max="2048"></div>
+<div class="field" id="faceswap-h-field" style="display:none"><label>高度</label>
+<input type="number" id="faceswap-h" value="1024" step="64" min="512" max="2048"></div>
+<div class="field"><label>Steps</label>
+<input type="number" id="faceswap-steps" value="25" min="10" max="50"></div>
+<div class="field"><label>CFG</label>
+<input type="number" id="faceswap-cfg" value="5" step="0.5" min="1" max="20"></div>
+<div class="field"><label>面部相似度</label>
+<input type="number" id="faceswap-weight" value="0.8" step="0.05" min="0.3" max="1.0" title="越高越像参考脸，但可能降低画质"></div>
+<div class="field"><label>Seed (-1=随机)</label>
+<input type="number" id="faceswap-seed" value="-1"></div>
+</div>
+<div class="btn-row"><button class="btn" onclick="submitFaceSwap()">生成角色图</button></div>
+<div id="faceswap-status" style="margin-top:12px;font-size:13px;color:#aaa"></div>
+<div class="img-result" id="faceswap-result"></div>
+</div>
+<!-- Transfer Panel -->
+<div class="panel" id="imgpanel-transfer">
+<div class="row" style="gap:16px">
+<div class="field" style="flex:1">
+<label>A 图：动作/场景参考 (可选)</label>
+<div id="transfer-pose-preview" style="min-height:160px;background:#0a0a23;border:1px dashed #555;border-radius:8px;display:flex;align-items:center;justify-content:center;cursor:pointer;overflow:hidden" onclick="document.getElementById('transfer-pose-file').click()">
+<span style="color:#888;font-size:13px" id="transfer-pose-hint">点击上传动作/场景图 (不传则纯文字生成)</span>
+</div>
+<input type="file" id="transfer-pose-file" accept="image/*" style="display:none">
+</div>
+<div class="field" style="flex:1">
+<label>B 图：人物参考</label>
+<div id="transfer-ref-preview" style="min-height:160px;background:#0a0a23;border:1px dashed #555;border-radius:8px;display:flex;align-items:center;justify-content:center;cursor:pointer;overflow:hidden" onclick="document.getElementById('transfer-ref-file').click()">
+<span style="color:#888;font-size:13px" id="transfer-ref-hint">点击上传人物参考图</span>
+</div>
+<input type="file" id="transfer-ref-file" accept="image/*" style="display:none">
+</div>
+</div>
+<div class="row"><div class="field" style="flex:3"><label>场景描述 (Prompt) — 可选，不填则自动</label>
+<textarea id="transfer-prompt" placeholder="可留空，图片已定义全部内容。如需额外引导可填写，例如:&#10;a woman in red dress, outdoor garden, sunny day" style="min-height:60px"></textarea>
+</div></div>
+<div class="row"><div class="field" style="flex:3"><label>反向提示词</label>
+<input type="text" id="transfer-neg" value="deformed, blurry, bad anatomy, bad hands, extra fingers, ugly, cartoon, anime, painting, drawing, overexposed, oversaturated, plastic skin, airbrushed, glossy skin, shiny skin, doll">
+</div></div>
+<div class="row">
+<div class="field"><label>构图保持</label>
+<select id="transfer-structure" title="从A图提取构图结构，保持整体画面一致">
+<option value="none">无 (仅姿势)</option>
+<option value="canny" selected>Canny 边缘 (推荐，保留轮廓)</option>
+<option value="depth">Depth 深度 (保留空间层次)</option>
+<option value="softedge">SoftEdge 柔边 (柔和保留构图)</option>
+</select></div>
+<div class="field"><label>构图权重</label>
+<input type="number" id="transfer-structure-w" value="0.85" step="0.05" min="0.1" max="1.5" title="越高越接近A图构图"></div>
+<div class="field"><label>能力开关</label>
+<div style="display:flex;gap:16px;margin-top:4px">
+<label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:13px">
+<input type="checkbox" id="transfer-face-on" checked> 人脸身份 (InstantID)
+</label>
+<label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:13px">
+<input type="checkbox" id="transfer-appear-on" checked> 外观服装 (IP-Adapter)
+</label>
+</div>
+</div>
+</div>
+<div class="row">
+<div class="field"><label>姿态权重</label>
+<input type="number" id="transfer-pose-w" value="0.8" step="0.05" min="0.1" max="1.5" title="OpenPose控制姿态的强度"></div>
+<div class="field"><label>人脸权重</label>
+<input type="number" id="transfer-face-w" value="0.8" step="0.05" min="0.1" max="1.5" title="InstantID人脸相似度"></div>
+<div class="field"><label>外观权重</label>
+<input type="number" id="transfer-appear-w" value="0.6" step="0.05" min="0.1" max="1.5" title="IP-Adapter服装/体型迁移强度"></div>
+</div>
+<div class="row">
+<div class="field"><label>Steps</label>
+<input type="number" id="transfer-steps" value="30" min="10" max="50"></div>
+<div class="field"><label>CFG</label>
+<input type="number" id="transfer-cfg" value="3" step="0.5" min="1" max="20"></div>
+<div class="field"><label>Seed (-1=随机)</label>
+<input type="number" id="transfer-seed" value="-1"></div>
+</div>
+<div class="btn-row"><button class="btn" onclick="submitTransfer()">生成迁移图</button></div>
+<div id="transfer-status" style="margin-top:12px;font-size:13px;color:#aaa"></div>
+<div class="img-result" id="transfer-result"></div>
+</div>
+
+<!-- Z-Image Edit Panel -->
+<div class="panel" id="imgpanel-zimage">
+<div class="row"><div class="field" style="flex:3"><label>编辑指令 (Prompt)</label>
+<textarea id="zimg-prompt" placeholder="描述完整的目标画面（不是编辑指令），例如：a woman in red dress on the beach, sunset, photorealistic, 8k"></textarea></div></div>
+<div class="row">
+<div class="field"><label>Denoise (编辑强度)</label>
+<input type="range" id="zimg-denoise" min="0.1" max="1.0" step="0.05" value="0.75" oninput="document.getElementById('zimg-denoise-val').textContent=this.value">
+<span id="zimg-denoise-val" style="color:#7c83ff;font-size:13px">0.75</span>
+<div style="font-size:11px;color:#666;margin-top:2px">0.6=微调保留原图 | 0.75=推荐 | 0.9=大改</div></div>
+<div class="field"><label>Steps</label>
+<input type="number" id="zimg-steps" value="8" min="4" max="30"></div>
+<div class="field"><label>CFG</label>
+<input type="number" id="zimg-cfg" value="1.0" step="0.5" min="1" max="10"></div>
+<div class="field"><label>Seed</label>
+<input type="number" id="zimg-seed" value="-1"></div>
+</div>
+<div class="row">
+<div class="field"><label><input type="checkbox" id="zimg-cn-enable" onchange="document.getElementById('zimg-cn-strength').disabled=!this.checked"> ControlNet (保留结构/人物)</label>
+<input type="range" id="zimg-cn-strength" min="0.1" max="1.5" step="0.05" value="0.6" disabled oninput="document.getElementById('zimg-cn-val').textContent=this.value">
+<span id="zimg-cn-val" style="color:#7c83ff;font-size:13px">0.6</span>
+<div style="font-size:11px;color:#666;margin-top:2px">开启后锁定原图轮廓，防止人物变形 | 0.4=轻 0.6=推荐 1.0=强</div></div>
+</div>
+<div class="row"><div class="field"><label>负向提示词 (可选)</label>
+<input type="text" id="zimg-neg" placeholder="blurry, low quality, watermark"></div></div>
+<div class="row"><div class="field">
+<label>上传图片</label>
+<div class="upload-area" onclick="this.querySelector('input').click()">
+<input type="file" id="zimg-file" accept="image/*" onchange="previewUpload(this,'zimg-preview')">
+<div id="zimg-preview">点击上传图片</div>
+</div></div></div>
+<div class="btn-row"><button class="btn" onclick="submitZImage()">Z-Image 编辑</button></div>
+<div id="zimg-status" style="margin-top:12px;font-size:13px;color:#aaa"></div>
+<div class="img-result" id="zimg-result"></div>
+</div>
+
+<!-- Character Consistency Panel -->
+<div class="panel" id="imgpanel-character">
+<div class="row"><div class="field" style="flex:3"><label>提示词 (Prompt)</label>
+<textarea id="char-prompt" placeholder="a woman standing in a garden, wearing a red dress, smiling..." style="min-height:100px"></textarea>
+</div></div>
+<div class="row"><div class="field" style="flex:3"><label>负向提示词</label>
+<input type="text" id="char-neg" value="deformed, blurry, bad anatomy, bad hands, extra fingers, ugly, cartoon, anime, painting, drawing, low quality"></div></div>
+<div class="row">
+<div class="field"><label>宽度</label><input type="number" id="char-width" value="768" step="64"></div>
+<div class="field"><label>高度</label><input type="number" id="char-height" value="1024" step="64"></div>
+<div class="field"><label>Steps</label><input type="number" id="char-steps" value="30" min="1" max="100"></div>
+<div class="field"><label>CFG Scale</label><input type="number" id="char-cfg" value="5.0" step="0.5" min="1" max="20"></div>
+</div>
+<div class="row">
+<div class="field"><label>InstantID 权重</label><input type="number" id="char-instantid" value="0.8" step="0.1" min="0" max="2"></div>
+<div class="field"><label>FaceID 权重</label><input type="number" id="char-faceid" value="0.7" step="0.1" min="0" max="2"></div>
+<div class="field"><label>IP-Adapter 权重</label><input type="number" id="char-ipadapter" value="0.5" step="0.1" min="0" max="2"></div>
+<div class="field"><label>Seed (-1=随机)</label><input type="number" id="char-seed" value="-1"></div>
+</div>
+<div class="row"><div class="field">
+<label>上传人脸参考图</label>
+<div class="upload-area" onclick="this.querySelector('input').click()">
+<input type="file" id="char-file" accept="image/*" onchange="previewUpload(this,'char-preview')">
+<div id="char-preview">点击上传人脸参考图</div>
+</div></div></div>
+<div style="background:#0f3460;padding:12px;border-radius:6px;margin:16px 0;font-size:13px;line-height:1.6">
+<strong style="color:#7c83ff">💡 使用说明：</strong><br>
+• <strong>InstantID</strong>: 保持面部结构和关键点 (推荐 0.7-0.9)<br>
+• <strong>FaceID</strong>: 增强面部身份特征 (推荐 0.6-0.8)<br>
+• <strong>IP-Adapter</strong>: 保持整体风格和外观 (推荐 0.4-0.6)<br>
+• 三者结合可以获得最佳的人物一致性效果
+</div>
+<div class="btn-row"><button class="btn" onclick="submitCharacterConsistency()">生成图片</button></div>
+<div id="char-status" style="margin-top:12px;font-size:13px;color:#aaa"></div>
+<div class="img-result" id="char-result"></div>
+</div>
+
+<!-- History Panel -->
+<div class="panel" id="imgpanel-history">
+<div style="margin-bottom:20px">
+<select id="history-type-filter" onchange="historyPage=1;historyCache={};loadImageHistory();" style="background:#0a0a23;border:1px solid #444;color:#e0e0e0;padding:8px 12px;border-radius:4px;margin-right:10px">
+<option value="">全部类型</option>
+<option value="t2i">文生图</option>
+<option value="i2i">图片编辑</option>
+<option value="multiref">多参考合照</option>
+<option value="scene-swap">场景人物替换</option>
+<option value="faceswap">角色定制</option>
+<option value="transfer">姿态迁移</option>
+<option value="zimage-edit">Z-Image编辑</option>
+<option value="character-consistency">人物一致性</option>
+</select>
+<button class="btn btn-sm" onclick="historyPage=1;historyCache={};loadImageHistory();">刷新</button>
+</div>
+
+<div id="history-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:20px;margin-bottom:20px"></div>
+
+<div id="history-load-more" style="display:flex;justify-content:center;margin-top:20px">
+<button class="btn" onclick="loadMoreHistory()" style="padding:12px 40px">加载更多</button>
+</div>
+</div>
+
+</div><!-- end section-image -->
+
+<script>
+// ========== Image generation helpers ==========
+function onImgSizeChange() {
+  const v = document.getElementById('img-size').value;
+  document.getElementById('img-custom-size').style.display = v === 'custom' ? '' : 'none';
+}
+
+async function submitImage() {
+  const prompt = document.getElementById('img-prompt').value.trim();
+  if (!prompt) return alert('请输入提示词');
+  const sizeSelect = document.getElementById('img-size').value;
+  const size = sizeSelect === 'custom' ? document.getElementById('img-custom').value.trim() : sizeSelect;
+  const seed = parseInt(document.getElementById('img-seed').value);
+  const statusEl = document.getElementById('img-status');
+  const resultEl = document.getElementById('img-result');
+  statusEl.textContent = '正在生成图片，请稍候...';
+  statusEl.style.color = '#7c83ff';
+  resultEl.innerHTML = '';
+  const model = document.getElementById('img-model').value;
+  const body = { prompt, size, model };
+  if (seed >= 0) body.seed = seed;
+  try {
+    const r = await fetch(BASE + '/api/v1/image/generate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-API-Key': getKey() },
+      body: JSON.stringify(body)
+    });
+    const data = await r.json();
+    if (!r.ok) {
+      statusEl.textContent = '生成失败: ' + (data.detail || JSON.stringify(data));
+      statusEl.style.color = '#f87171';
+      return;
+    }
+    statusEl.textContent = '生成完成! 尺寸: ' + (data.size || size);
+    statusEl.style.color = '#4ade80';
+    resultEl.innerHTML = `<img src="${data.url}" onclick="window.open(this.src,'_blank')" style="cursor:pointer" title="点击查看原图">`;
+  } catch(e) {
+    statusEl.textContent = '请求失败: ' + e.message;
+    statusEl.style.color = '#f87171';
+  }
+}
+
+// ========== I2I (Image-to-Image) ==========
+let i2iSelectedFile = null;
+
+async function submitI2I() {
+  const prompt = document.getElementById('i2i-prompt').value.trim();
+  if (!prompt) return alert('请输入编辑提示词');
+  if (!i2iSelectedFile) return alert('请上传参考图');
+  const size = document.getElementById('i2i-size').value;
+  const seed = parseInt(document.getElementById('i2i-seed').value);
+  const statusEl = document.getElementById('i2i-status');
+  const resultEl = document.getElementById('i2i-result');
+  statusEl.textContent = '正在编辑图片，请稍候...';
+  statusEl.style.color = '#7c83ff';
+  resultEl.innerHTML = '';
+  const fd = new FormData();
+  fd.append('prompt', prompt);
+  fd.append('size', size);
+  fd.append('model', document.getElementById('i2i-model').value);
+  if (seed >= 0) fd.append('seed', seed);
+  fd.append('image', i2iSelectedFile);
+  try {
+    const r = await fetch(BASE + '/api/v1/image/edit', {
+      method: 'POST',
+      headers: { 'X-API-Key': getKey() },
+      body: fd
+    });
+    const data = await r.json();
+    if (!r.ok) {
+      statusEl.textContent = '编辑失败: ' + (data.detail || JSON.stringify(data));
+      statusEl.style.color = '#f87171';
+      return;
+    }
+    statusEl.textContent = '编辑完成! 尺寸: ' + (data.size || size);
+    statusEl.style.color = '#4ade80';
+    resultEl.innerHTML = `<img src="${data.url}" onclick="window.open(this.src,'_blank')" style="cursor:pointer" title="点击查看原图">`;
+  } catch(e) {
+    statusEl.textContent = '请求失败: ' + e.message;
+    statusEl.style.color = '#f87171';
+  }
+}
+
+// ========== Multi-Reference ==========
+let multirefFiles = new Array(10).fill(null);
+let multirefPreviews = new Array(10).fill(null);
+let multirefAddingSlot = -1;
+let multirefDragFrom = -1;
+
+function removeMultiRef(idx) {
+  multirefFiles[idx] = null;
+  multirefPreviews[idx] = null;
+  renderMultiRefGallery();
+}
+function renderMultiRefGallery() {
+  const gallery = document.getElementById('multiref-gallery');
+  gallery.innerHTML = '';
+  const usedCount = multirefFiles.filter(f => f).length;
+  const totalSlots = Math.max(usedCount + 1, multirefFiles.findLastIndex(f => f) + 2);
+  const showSlots = Math.min(totalSlots, 10);
+  for (let i = 0; i < showSlots; i++) {
+    const wrap = document.createElement('div');
+    wrap.style.cssText = 'position:relative;width:90px;flex-shrink:0;text-align:center';
+    wrap.dataset.slot = i;
+    // Drop target for all slots
+    wrap.addEventListener('dragover', function(e) { e.preventDefault(); this.style.outline = '2px solid #7c83ff'; });
+    wrap.addEventListener('dragleave', function() { this.style.outline = ''; });
+    wrap.addEventListener('drop', function(e) {
+      e.preventDefault(); this.style.outline = '';
+      const to = parseInt(this.dataset.slot);
+      if (multirefDragFrom >= 0 && multirefDragFrom !== to) {
+        const tmp = multirefFiles[multirefDragFrom];
+        multirefFiles[multirefDragFrom] = multirefFiles[to];
+        multirefFiles[to] = tmp;
+        const tmpP = multirefPreviews[multirefDragFrom];
+        multirefPreviews[multirefDragFrom] = multirefPreviews[to];
+        multirefPreviews[to] = tmpP;
+        renderMultiRefGallery();
+      }
+    });
+    const label = document.createElement('div');
+    label.style.cssText = 'font-size:11px;color:#7c83ff;margin-bottom:3px;font-weight:bold';
+    label.textContent = 'IMAGE ' + (i + 1);
+    wrap.appendChild(label);
+    if (multirefFiles[i]) {
+      const box = document.createElement('div');
+      box.style.cssText = 'position:relative;width:90px;height:90px;border-radius:8px;overflow:hidden;cursor:grab';
+      box.draggable = true;
+      box.addEventListener('dragstart', (function(slot) { return function(e) {
+        multirefDragFrom = slot;
+        e.dataTransfer.effectAllowed = 'move';
+        this.style.opacity = '0.5';
+      }; })(i));
+      box.addEventListener('dragend', function() { this.style.opacity = ''; multirefDragFrom = -1; });
+      // Click to replace (only if not dragging)
+      box.addEventListener('click', (function(slot) { return function(e) {
+        if (e.target.closest('[data-remove]')) return; // let x handle removal
+        multirefAddingSlot = slot;
+        document.getElementById('multiref-file').click();
+      }; })(i));
+      const fillBox = function(b, slot, src) {
+        b.innerHTML = `<img src="${src}" style="width:100%;height:100%;object-fit:cover;pointer-events:none"><div data-remove="1" onclick="event.stopPropagation();removeMultiRef(${slot})" style="position:absolute;top:2px;right:2px;width:20px;height:20px;background:rgba(0,0,0,.7);border-radius:50%;color:#f87171;font-size:14px;display:flex;align-items:center;justify-content:center;cursor:pointer">&times;</div>`;
+      };
+      if (multirefPreviews[i]) {
+        fillBox(box, i, multirefPreviews[i]);
+      } else {
+        const reader = new FileReader();
+        reader.onload = (function(b, slot) { return function(e) {
+          multirefPreviews[slot] = e.target.result;
+          fillBox(b, slot, e.target.result);
+        }; })(box, i);
+        reader.readAsDataURL(multirefFiles[i]);
+      }
+      wrap.appendChild(box);
+    } else {
+      const box = document.createElement('div');
+      box.style.cssText = 'width:90px;height:90px;border:2px dashed #555;border-radius:8px;display:flex;align-items:center;justify-content:center;cursor:pointer;color:#888;font-size:28px';
+      box.textContent = '+';
+      box.onclick = (function(slot) { return function() { multirefAddingSlot = slot; document.getElementById('multiref-file').click(); }; })(i);
+      wrap.appendChild(box);
+    }
+    gallery.appendChild(wrap);
+  }
+}
+
+async function submitMultiRef() {
+  const prompt = document.getElementById('multiref-prompt').value.trim();
+  if (!prompt) return alert('请输入提示词');
+  const files = multirefFiles.filter(f => f);
+  if (files.length < 1) return alert('请至少上传1张参考图');
+  const size = document.getElementById('multiref-size').value;
+  const seed = parseInt(document.getElementById('multiref-seed').value);
+  const statusEl = document.getElementById('multiref-status');
+  const resultEl = document.getElementById('multiref-result');
+  statusEl.textContent = `正在生成 (${files.length}张参考图)，请稍候...`;
+  statusEl.style.color = '#7c83ff';
+  resultEl.innerHTML = '';
+  const fd = new FormData();
+  fd.append('prompt', prompt);
+  fd.append('size', size);
+  fd.append('model', document.getElementById('multiref-model').value);
+  if (seed >= 0) fd.append('seed', seed);
+  // Send files in slot order: IMAGE 1, IMAGE 2, ... (skip empty slots)
+  const slotIndices = [];
+  for (let i = 0; i < multirefFiles.length; i++) {
+    if (multirefFiles[i]) { fd.append('images', multirefFiles[i]); slotIndices.push(i); }
+  }
+  try {
+    const r = await fetch(BASE + '/api/v1/image/multiref', {
+      method: 'POST',
+      headers: { 'X-API-Key': getKey() },
+      body: fd
+    });
+    const data = await r.json();
+    if (!r.ok) {
+      statusEl.textContent = '生成失败: ' + (data.detail || JSON.stringify(data));
+      statusEl.style.color = '#f87171';
+      return;
+    }
+    statusEl.textContent = '生成完成! 尺寸: ' + (data.size || size);
+    statusEl.style.color = '#4ade80';
+    let html = '';
+    if (data.cropped_inputs && data.cropped_inputs.length) {
+      html += '<div style="margin-bottom:8px;font-size:12px;color:#999">裁剪后的输入图（对应模型数组位置）：</div><div style="display:flex;gap:12px;margin-bottom:12px;flex-wrap:wrap">';
+      data.cropped_inputs.forEach((u, i) => {
+        const slotNum = slotIndices[i] !== undefined ? slotIndices[i] + 1 : i + 1;
+        html += `<div style="text-align:center"><div style="font-size:11px;color:#7c83ff;font-weight:bold;margin-bottom:4px">IMAGE ${slotNum}</div><img src="${u}" onclick="window.open(this.src,'_blank')" style="max-height:200px;cursor:pointer;border:1px solid #333;border-radius:6px" title="IMAGE ${slotNum} (裁剪后)"></div>`;
+      });
+      html += '</div>';
+    }
+    html += `<img src="${data.url}" onclick="window.open(this.src,'_blank')" style="cursor:pointer;max-width:100%" title="点击查看原图">`;
+    resultEl.innerHTML = html;
+  } catch(e) {
+    statusEl.textContent = '请求失败: ' + e.message;
+    statusEl.style.color = '#f87171';
+  }
+}
+
+// ========== Scene Character Swap ==========
+let sceneswapFace = null, sceneswapScene = null;
+function setupSceneSwapUpload(inputId, boxId, onSet) {
+  document.getElementById(inputId).addEventListener('change', function() {
+    const file = this.files[0];
+    if (!file) return;
+    if (file.size > 10 * 1024 * 1024) { alert(file.name + ' 超过10MB限制'); this.value = ''; return; }
+    onSet(file);
+    const reader = new FileReader();
+    const box = document.getElementById(boxId);
+    reader.onload = e => {
+      box.innerHTML = `<img src="${e.target.result}" style="width:100%;height:100%;object-fit:cover"><div onclick="event.stopPropagation();clearSceneSwapSlot('${inputId}','${boxId}')" style="position:absolute;top:2px;right:2px;width:20px;height:20px;background:rgba(0,0,0,.7);border-radius:50%;color:#f87171;font-size:14px;display:flex;align-items:center;justify-content:center;cursor:pointer">&times;</div>`;
+    };
+    reader.readAsDataURL(file);
+    this.value = '';
+  });
+}
+function clearSceneSwapSlot(inputId, boxId) {
+  document.getElementById(boxId).innerHTML = '+';
+  if (inputId === 'sceneswap-face-file') sceneswapFace = null;
+  else sceneswapScene = null;
+}
+
+function onSceneSwapModeChange() {
+  const skip = document.getElementById('sceneswap-skip-reactor').checked;
+  const occl = document.getElementById('sceneswap-occlusion').checked;
+  const reactorOnly = document.getElementById('sceneswap-reactor-only');
+  const expr = document.getElementById('sceneswap-expr');
+  // Occlusion mode auto-skips Reactor, incompatible with reactor-only
+  if (occl) { reactorOnly.checked = false; reactorOnly.disabled = true; }
+  else { reactorOnly.disabled = skip; }
+  // Skip reactor disables reactor-only
+  if (skip) { reactorOnly.checked = false; reactorOnly.disabled = true; }
+  expr.disabled = skip || occl || reactorOnly.checked;
+}
+
+async function submitSceneSwap() {
+  if (!sceneswapFace) return alert('请上传目标人物照片 (IMAGE 1)');
+  if (!sceneswapScene) return alert('请上传场景图片 (IMAGE 2)');
+  const prompt = document.getElementById('sceneswap-prompt').value.trim();
+  if (!prompt) return alert('请输入提示词');
+  const extra = document.getElementById('sceneswap-extra').value.trim();
+  const size = document.getElementById('sceneswap-size').value;
+  const seed = parseInt(document.getElementById('sceneswap-seed').value);
+  const statusEl = document.getElementById('sceneswap-status');
+  const resultEl = document.getElementById('sceneswap-result');
+  statusEl.textContent = '步骤 1/2: Reactor 换脸中...';
+  statusEl.style.color = '#7c83ff';
+  resultEl.innerHTML = '';
+  const fd = new FormData();
+  fd.append('face_image', sceneswapFace);
+  fd.append('scene_image', sceneswapScene);
+  fd.append('prompt', prompt);
+  fd.append('extra_prompt', extra);
+  const skipReactor = document.getElementById('sceneswap-skip-reactor').checked;
+  const occlusion = document.getElementById('sceneswap-occlusion').checked;
+  const reactorOnly = document.getElementById('sceneswap-reactor-only').checked;
+  fd.append('skip_reactor', skipReactor ? 'true' : 'false');
+  fd.append('reactor_only', reactorOnly ? 'true' : 'false');
+  fd.append('expression_keep', (skipReactor || occlusion || reactorOnly) ? '0' : document.getElementById('sceneswap-expr').value);
+  fd.append('preserve_occlusion', occlusion ? 'true' : 'false');
+  fd.append('size', size);
+  fd.append('model', document.getElementById('sceneswap-model').value);
+  if (seed >= 0) fd.append('seed', seed);
+  try {
+    const modeText = skipReactor ? 'SeedDream 编辑' : reactorOnly ? 'Reactor 换脸' : 'Reactor换脸 + SeedDream编辑';
+    statusEl.textContent = `正在处理 (${modeText})，请稍候...`;
+    const r = await fetch(BASE + '/api/v1/image/scene-swap', {
+      method: 'POST',
+      headers: { 'X-API-Key': getKey() },
+      body: fd
+    });
+    const data = await r.json();
+    if (!r.ok) {
+      statusEl.textContent = '生成失败: ' + (data.detail || JSON.stringify(data));
+      statusEl.style.color = '#f87171';
+      return;
+    }
+    statusEl.textContent = '生成完成! 尺寸: ' + (data.size || size);
+    statusEl.style.color = '#4ade80';
+    let html = '';
+    if (data.cropped_inputs && data.cropped_inputs.length) {
+      const labels = ['IMAGE 1 (目标人物)', 'IMAGE 2 (换脸后场景)'];
+      html += '<div style="display:flex;gap:12px;margin-bottom:12px;flex-wrap:wrap">';
+      data.cropped_inputs.forEach((u, i) => {
+        html += `<div style="text-align:center"><div style="font-size:11px;color:#7c83ff;font-weight:bold;margin-bottom:4px">${labels[i] || 'IMAGE '+(i+1)}</div><img src="${u}" onclick="window.open(this.src,'_blank')" style="max-height:200px;cursor:pointer;border:1px solid #333;border-radius:6px" title="${labels[i] || ''}"></div>`;
+      });
+      html += '</div>';
+    }
+    html += `<div style="text-align:center"><div style="font-size:11px;color:#4ade80;font-weight:bold;margin-bottom:4px">生成结果</div><img src="${data.url}" onclick="window.open(this.src,'_blank')" style="cursor:pointer;max-width:100%;border-radius:6px" title="点击查看原图"></div>`;
+    resultEl.innerHTML = html;
+  } catch(e) {
+    statusEl.textContent = '请求失败: ' + e.message;
+    statusEl.style.color = '#f87171';
+  }
+}
+
+// ========== FaceSwap ==========
+let faceswapFiles = [];
+
+function removeFaceSwap(idx) {
+  faceswapFiles[idx] = null;
+  const el = document.getElementById('faceswap-gallery').querySelector(`[data-fidx="${idx}"]`);
+  if (el) el.remove();
+  document.getElementById('faceswap-add-btn').style.display = faceswapFiles.filter(f=>f).length >= 5 ? 'none' : 'flex';
+}
+function onFaceswapSizeChange() {
+  const v = document.getElementById('faceswap-size').value;
+  const showCustom = v === 'custom';
+  document.getElementById('faceswap-w-field').style.display = showCustom ? '' : 'none';
+  document.getElementById('faceswap-h-field').style.display = showCustom ? '' : 'none';
+  if (v !== 'auto' && v !== 'custom') {
+    const [w, h] = v.split('x').map(Number);
+    document.getElementById('faceswap-w').value = w;
+    document.getElementById('faceswap-h').value = h;
+  }
+}
+async function submitFaceSwap() {
+  const prompt = document.getElementById('faceswap-prompt').value.trim();
+  if (!prompt) return alert('请输入场景描述');
+  const files = faceswapFiles.filter(f => f);
+  if (files.length < 1) return alert('请至少上传1张人脸照片');
+  // Multi-face: prompt needs one line per face for regional control
+  if (files.length > 1) {
+    const lines = prompt.split('\n').filter(l => l.trim());
+    if (lines.length < files.length) {
+      return alert(`上传了${files.length}张脸，prompt需要${files.length}行（每行描述一个人）。\n例如:\na woman on the left, red dress\na man on the right, black suit`);
+    }
+  }
+  const statusEl = document.getElementById('faceswap-status');
+  const resultEl = document.getElementById('faceswap-result');
+  statusEl.textContent = `正在生成 (${files.length}张人脸)，约需30-60秒...`;
+  statusEl.style.color = '#7c83ff';
+  resultEl.innerHTML = '';
+  const sizeMode = document.getElementById('faceswap-size').value;
+  let w, h;
+  if (sizeMode === 'auto') {
+    w = 0; h = 0; // server auto-detects from face image
+  } else if (sizeMode === 'custom') {
+    w = document.getElementById('faceswap-w').value;
+    h = document.getElementById('faceswap-h').value;
+  } else {
+    [w, h] = sizeMode.split('x').map(Number);
+  }
+  const fd = new FormData();
+  fd.append('prompt', prompt);
+  fd.append('negative_prompt', document.getElementById('faceswap-neg').value);
+  fd.append('width', w);
+  fd.append('height', h);
+  fd.append('steps', document.getElementById('faceswap-steps').value);
+  fd.append('cfg_scale', document.getElementById('faceswap-cfg').value);
+  fd.append('face_weight', document.getElementById('faceswap-weight').value);
+  fd.append('seed', document.getElementById('faceswap-seed').value);
+  files.forEach(f => fd.append('faces', f));
+  try {
+    const r = await fetch(BASE + '/api/v1/image/faceswap', {
+      method: 'POST',
+      headers: { 'X-API-Key': getKey() },
+      body: fd
+    });
+    const data = await r.json();
+    if (!r.ok) {
+      statusEl.textContent = '生成失败: ' + (data.detail || JSON.stringify(data));
+      statusEl.style.color = '#f87171';
+      return;
+    }
+    statusEl.textContent = '生成完成! 尺寸: ' + (data.size || '');
+    statusEl.style.color = '#4ade80';
+    resultEl.innerHTML = `<img src="${data.url}" onclick="window.open(this.src,'_blank')" style="cursor:pointer" title="点击查看原图">`;
+  } catch(e) {
+    statusEl.textContent = '请求失败: ' + e.message;
+    statusEl.style.color = '#f87171';
+  }
+}
+
+// ========== Transfer (Pose Transfer) ==========
+let transferPoseFile = null, transferRefFile = null;
+
+async function submitTransfer() {
+  if (!transferRefFile) return alert('请上传 B 图（人物参考）');
+  const prompt = document.getElementById('transfer-prompt').value.trim();
+  const enableFace = document.getElementById('transfer-face-on').checked;
+  const enableAppear = document.getElementById('transfer-appear-on').checked;
+  if (!enableFace && !enableAppear) return alert('请至少开启一个能力（人脸身份或外观服装）');
+  const statusEl = document.getElementById('transfer-status');
+  const resultEl = document.getElementById('transfer-result');
+  statusEl.textContent = '正在生成，约需30-60秒...';
+  statusEl.style.color = '#7c83ff';
+  resultEl.innerHTML = '';
+  const fd = new FormData();
+  if (transferPoseFile) fd.append('pose_image', transferPoseFile);
+  fd.append('ref_image', transferRefFile);
+  if (prompt) fd.append('prompt', prompt);
+  fd.append('negative_prompt', document.getElementById('transfer-neg').value);
+  fd.append('structure_mode', document.getElementById('transfer-structure').value);
+  fd.append('structure_weight', document.getElementById('transfer-structure-w').value);
+  fd.append('pose_weight', document.getElementById('transfer-pose-w').value);
+  fd.append('face_weight', document.getElementById('transfer-face-w').value);
+  fd.append('appearance_weight', document.getElementById('transfer-appear-w').value);
+  fd.append('enable_face', enableFace);
+  fd.append('enable_appearance', enableAppear);
+  fd.append('steps', document.getElementById('transfer-steps').value);
+  fd.append('cfg_scale', document.getElementById('transfer-cfg').value);
+  fd.append('seed', document.getElementById('transfer-seed').value);
+  try {
+    const r = await fetch(BASE + '/api/v1/image/transfer', {
+      method: 'POST',
+      headers: { 'X-API-Key': getKey() },
+      body: fd
+    });
+    const text = await r.text();
+    let data;
+    try { data = JSON.parse(text); } catch(e) {
+      statusEl.textContent = '响应解析失败 (HTTP ' + r.status + '): ' + text.substring(0, 200);
+      statusEl.style.color = '#f87171';
+      return;
+    }
+    if (!r.ok) {
+      statusEl.textContent = '生成失败: ' + (data.detail || JSON.stringify(data));
+      statusEl.style.color = '#f87171';
+      return;
+    }
+    statusEl.textContent = '生成完成! 尺寸: ' + (data.size || '');
+    statusEl.style.color = '#4ade80';
+    resultEl.innerHTML = `<img src="${data.url}" onclick="window.open(this.src,'_blank')" style="cursor:pointer" title="点击查看原图">`;
+  } catch(e) {
+    statusEl.textContent = '请求失败: ' + e.message;
+    statusEl.style.color = '#f87171';
+  }
+}
+
+// ========== Z-Image Edit ==========
+let zimgSelectedFile = null;
+let charSelectedFile = null;
+
+function previewUpload(input, previewId) {
+  const file = input.files[0];
+  if (!file) return;
+  zimgSelectedFile = file;
+  const reader = new FileReader();
+  reader.onload = e => {
+    document.getElementById(previewId).innerHTML = '<img src="' + e.target.result + '" style="max-width:100%;max-height:200px;border-radius:6px">';
+  };
+  reader.readAsDataURL(file);
+}
+
+async function submitZImage() {
+  const prompt = document.getElementById('zimg-prompt').value.trim();
+  if (!prompt) return alert('请输入编辑指令');
+  if (!zimgSelectedFile) return alert('请上传图片');
+  const statusEl = document.getElementById('zimg-status');
+  const resultEl = document.getElementById('zimg-result');
+  statusEl.textContent = '正在编辑，请稍候（约10-30秒）...';
+  statusEl.style.color = '#7c83ff';
+  resultEl.innerHTML = '';
+  const fd = new FormData();
+  fd.append('prompt', prompt);
+  fd.append('negative_prompt', document.getElementById('zimg-neg').value);
+  fd.append('denoise', document.getElementById('zimg-denoise').value);
+  fd.append('steps', document.getElementById('zimg-steps').value);
+  fd.append('cfg', document.getElementById('zimg-cfg').value);
+  fd.append('seed', document.getElementById('zimg-seed').value);
+  const cnEnabled = document.getElementById('zimg-cn-enable').checked;
+  fd.append('controlnet_strength', cnEnabled ? document.getElementById('zimg-cn-strength').value : '0');
+  fd.append('image', zimgSelectedFile);
+  try {
+    const r = await fetch(BASE + '/api/v1/image/zimage-edit', {
+      method: 'POST',
+      headers: { 'X-API-Key': getKey() },
+      body: fd
+    });
+    const data = await r.json();
+    if (!r.ok) {
+      statusEl.textContent = '编辑失败: ' + (data.detail || JSON.stringify(data));
+      statusEl.style.color = '#f87171';
+      return;
+    }
+    statusEl.textContent = '编辑完成! Seed: ' + (data.seed || '');
+    statusEl.style.color = '#4ade80';
+    resultEl.innerHTML = '<img src="' + data.url + '" onclick="window.open(this.src,\'_blank\')" style="cursor:pointer" title="点击查看原图">';
+  } catch(e) {
+    statusEl.textContent = '请求失败: ' + e.message;
+    statusEl.style.color = '#f87171';
+  }
+}
+
+// ========== Character Consistency ==========
+async function submitCharacterConsistency() {
+  const prompt = document.getElementById('char-prompt').value.trim();
+  if (!prompt) return alert('请输入提示词');
+  if (!charSelectedFile) return alert('请上传人脸参考图');
+
+  const statusEl = document.getElementById('char-status');
+  const resultEl = document.getElementById('char-result');
+  statusEl.textContent = '正在生成，请稍候（约30-60秒）...';
+  statusEl.style.color = '#7c83ff';
+  resultEl.innerHTML = '';
+
+  const fd = new FormData();
+  fd.append('prompt', prompt);
+  fd.append('negative_prompt', document.getElementById('char-neg').value);
+  fd.append('width', document.getElementById('char-width').value);
+  fd.append('height', document.getElementById('char-height').value);
+  fd.append('steps', document.getElementById('char-steps').value);
+  fd.append('cfg', document.getElementById('char-cfg').value);
+  fd.append('seed', document.getElementById('char-seed').value);
+  fd.append('instantid_weight', document.getElementById('char-instantid').value);
+  fd.append('faceid_weight', document.getElementById('char-faceid').value);
+  fd.append('ipadapter_weight', document.getElementById('char-ipadapter').value);
+  fd.append('face_image', charSelectedFile);
+
+  try {
+    const r = await fetch(BASE + '/api/v1/image/character-consistency', {
+      method: 'POST',
+      headers: { 'X-API-Key': getKey() },
+      body: fd
+    });
+    const data = await r.json();
+    if (!r.ok) {
+      statusEl.textContent = '生成失败: ' + (data.detail || JSON.stringify(data));
+      statusEl.style.color = '#f87171';
+      return;
+    }
+    statusEl.textContent = '生成完成! Seed: ' + (data.seed || '');
+    statusEl.style.color = '#4ade80';
+    resultEl.innerHTML = '<img src="' + data.url + '" onclick="window.open(this.src,\'_blank\')" style="cursor:pointer" title="点击查看原图">';
+  } catch(e) {
+    statusEl.textContent = '请求失败: ' + e.message;
+    statusEl.style.color = '#f87171';
+  }
+}
+
+// ========== Image History ==========
+let historyPage = 1;
+let historyTotalPages = 1;
+const historyPageSize = 20;
+let historyCache = {};
+
+async function loadImageHistory(append = false) {
+  const filterEl = document.getElementById('history-type-filter');
+  if (!filterEl) return;
+
+  const typeFilter = filterEl.value;
+  const cacheKey = `${typeFilter}_${historyPage}`;
+
+  // Check cache
+  if (historyCache[cacheKey]) {
+    renderImageHistory(historyCache[cacheKey].items, append);
+    historyTotalPages = historyCache[cacheKey].total_pages;
+    updateHistoryLoadMore();
+    return;
+  }
+
+  const params = new URLSearchParams({
+    page: historyPage,
+    page_size: historyPageSize
+  });
+  if (typeFilter) params.append('generation_type', typeFilter);
+
+  const gridEl = document.getElementById('history-grid');
+  const loadMoreEl = document.getElementById('history-load-more');
+  if (!gridEl || !loadMoreEl) return;
+
+  if (!append) {
+    gridEl.innerHTML = '<div style="text-align:center;padding:40px;color:#aaa">加载中...</div>';
+  } else {
+    loadMoreEl.innerHTML = '<div style="text-align:center;padding:20px;color:#aaa">加载中...</div>';
+  }
+
+  try {
+    const response = await fetch(`${BASE}/api/v1/image/history?${params}`, {
+      headers: { 'X-API-Key': getKey() }
+    });
+    const data = await response.json();
+
+    historyCache[cacheKey] = {
+      items: data.items,
+      total_pages: data.total_pages
+    };
+
+    historyTotalPages = data.total_pages;
+    renderImageHistory(data.items, append);
+    updateHistoryLoadMore();
+  } catch (error) {
+    if (!append) {
+      gridEl.innerHTML = '<div style="text-align:center;padding:40px;color:#aaa">加载失败</div>';
+    } else {
+      loadMoreEl.innerHTML = '<button class="btn" onclick="loadMoreHistory()" style="padding:12px 40px">加载更多</button>';
+      alert('加载失败');
+    }
+  }
+}
+
+function renderImageHistory(items, append = false) {
+  const grid = document.getElementById('history-grid');
+  if (items.length === 0 && !append) {
+    grid.innerHTML = '<div style="text-align:center;padding:40px;color:#aaa">暂无历史记录</div>';
+    return;
+  }
+
+  const typeNames = {
+    't2i': '文生图',
+    'i2i': '图片编辑',
+    'multiref': '多参考合照',
+    'scene-swap': '场景替换',
+    'faceswap': '角色定制',
+    'transfer': '姿态迁移',
+    'zimage-edit': 'Z-Image编辑'
+  };
+
+  const html = items.map(item => `
+    <div style="background:#1a1a1a;border-radius:8px;overflow:hidden">
+      <div style="width:100%;height:300px;background:#0a0a0a;display:flex;align-items:center;justify-content:center">
+        <img src="${item.image_url}" alt="Generated" style="max-width:100%;max-height:100%;object-fit:contain">
+      </div>
+      <div style="padding:15px">
+        <div style="font-size:11px;color:#7c83ff;margin-bottom:6px">${typeNames[item.generation_type] || item.generation_type}</div>
+        ${item.prompt ? `<div style="font-size:12px;color:#ccc;margin-bottom:8px;max-height:60px;overflow-y:auto">${item.prompt}</div>` : ''}
+        <div style="font-size:11px;color:#666;display:flex;flex-wrap:wrap;gap:8px">
+          ${item.size ? `<span>尺寸: ${item.size}</span>` : ''}
+          ${item.seed !== null ? `<span>Seed: ${item.seed}</span>` : ''}
+          ${item.steps ? `<span>Steps: ${item.steps}</span>` : ''}
+          ${item.cfg_scale ? `<span>CFG: ${item.cfg_scale}</span>` : ''}
+        </div>
+        <div style="font-size:10px;color:#555;margin-top:8px">${new Date(item.created_at).toLocaleString('zh-CN')}</div>
+      </div>
+    </div>
+  `).join('');
+
+  if (append) {
+    grid.innerHTML += html;
+  } else {
+    grid.innerHTML = html;
+  }
+}
+
+function updateHistoryLoadMore() {
+  const loadMoreDiv = document.getElementById('history-load-more');
+  if (historyPage >= historyTotalPages) {
+    loadMoreDiv.innerHTML = '<div style="text-align:center;padding:20px;color:#666">已加载全部内容</div>';
+  } else {
+    loadMoreDiv.innerHTML = '<button class="btn" onclick="loadMoreHistory()" style="padding:12px 40px">加载更多</button>';
+  }
+}
+
+function loadMoreHistory() {
+  if (historyPage < historyTotalPages) {
+    historyPage++;
+    loadImageHistory(true);
+  }
+}
+
+// ========== Module lifecycle ==========
+function __init_image() {
+  // Set up image sub-tab switching
+  document.querySelectorAll('#section-image [data-imgtab]').forEach(t => {
+    t.addEventListener('click', () => {
+      document.querySelectorAll('#section-image [data-imgtab]').forEach(x => x.classList.remove('active'));
+      document.querySelectorAll('#section-image [id^="imgpanel-"]').forEach(x => x.classList.remove('active'));
+      t.classList.add('active');
+      const panelId = 'imgpanel-' + t.dataset.imgtab;
+      const panel = document.getElementById(panelId);
+      if (panel) panel.classList.add('active');
+      if (t.dataset.imgtab === 'history') {
+        historyPage = 1;
+        historyCache = {};
+        loadImageHistory();
+      }
+    });
+  });
+
+  // I2I image upload handler
+  document.getElementById('i2i-file').addEventListener('change', function() {
+    const file = this.files[0];
+    if (!file) return;
+    i2iSelectedFile = file;
+    const reader = new FileReader();
+    const preview = document.getElementById('i2i-img-preview');
+    const text = document.getElementById('i2i-upload-text');
+    reader.onload = e => { preview.src = e.target.result; preview.style.display = 'block'; text.style.display = 'none'; };
+    reader.readAsDataURL(file);
+  });
+
+  // Multi-reference file upload handler
+  document.getElementById('multiref-file').addEventListener('change', function() {
+    if (!this.files.length) return;
+    const replacing = multirefAddingSlot >= 0 && multirefFiles[multirefAddingSlot] !== null;
+    let slot = multirefAddingSlot >= 0 ? multirefAddingSlot : multirefFiles.indexOf(null);
+    let count = 0;
+    for (const file of this.files) {
+      if (file.size > 10 * 1024 * 1024) { alert(file.name + ' 超过10MB限制'); continue; }
+      if (replacing && count === 0) {
+        // Replace this specific slot
+        multirefFiles[slot] = file;
+        multirefPreviews[slot] = null;
+        count++; slot++;
+        continue;
+      }
+      // Find next empty slot
+      while (slot < 10 && multirefFiles[slot] !== null) slot++;
+      if (slot >= 10) { alert('最多10张参考图'); break; }
+      multirefFiles[slot] = file;
+      multirefPreviews[slot] = null;
+      slot++;
+      count++;
+    }
+    this.value = '';
+    multirefAddingSlot = -1;
+    renderMultiRefGallery();
+  });
+
+  // Render initial multi-ref gallery
+  renderMultiRefGallery();
+
+  // Scene swap upload handlers
+  setupSceneSwapUpload('sceneswap-face-file', 'sceneswap-face-box', f => { sceneswapFace = f; });
+  setupSceneSwapUpload('sceneswap-scene-file', 'sceneswap-scene-box', f => { sceneswapScene = f; });
+
+  // FaceSwap file upload handler
+  document.getElementById('faceswap-file').addEventListener('change', function() {
+    for (const file of this.files) {
+      if (faceswapFiles.length >= 5) break;
+      if (file.size > 10 * 1024 * 1024) { alert(file.name + ' 超过10MB限制'); continue; }
+      faceswapFiles.push(file);
+      const reader = new FileReader();
+      const idx = faceswapFiles.length - 1;
+      reader.onload = e => {
+        const wrap = document.createElement('div');
+        wrap.style.cssText = 'position:relative;width:90px;height:90px;border-radius:8px;overflow:hidden;flex-shrink:0';
+        wrap.innerHTML = `<img src="${e.target.result}" style="width:100%;height:100%;object-fit:cover"><div onclick="removeFaceSwap(${idx})" style="position:absolute;top:2px;right:2px;width:20px;height:20px;background:rgba(0,0,0,.7);border-radius:50%;color:#f87171;font-size:14px;display:flex;align-items:center;justify-content:center;cursor:pointer">&times;</div><div style="position:absolute;bottom:2px;left:2px;background:rgba(0,0,0,.7);color:#fff;font-size:10px;padding:1px 5px;border-radius:4px">Face ${idx+1}</div>`;
+        wrap.dataset.fidx = idx;
+        const gallery = document.getElementById('faceswap-gallery');
+        gallery.insertBefore(wrap, document.getElementById('faceswap-add-btn'));
+      };
+      reader.readAsDataURL(file);
+    }
+    this.value = '';
+    document.getElementById('faceswap-add-btn').style.display = faceswapFiles.filter(f=>f).length >= 5 ? 'none' : 'flex';
+  });
+
+  // Transfer pose file upload handler
+  document.getElementById('transfer-pose-file').addEventListener('change', function() {
+    const file = this.files[0]; if (!file) return;
+    transferPoseFile = file;
+    const r = new FileReader();
+    r.onload = e => {
+      document.getElementById('transfer-pose-preview').innerHTML =
+        `<img src="${e.target.result}" style="max-width:100%;max-height:240px;object-fit:contain">`;
+    };
+    r.readAsDataURL(file);
+  });
+
+  // Transfer ref file upload handler
+  document.getElementById('transfer-ref-file').addEventListener('change', function() {
+    const file = this.files[0]; if (!file) return;
+    transferRefFile = file;
+    const r = new FileReader();
+    r.onload = e => {
+      document.getElementById('transfer-ref-preview').innerHTML =
+        `<img src="${e.target.result}" style="max-width:100%;max-height:240px;object-fit:contain">`;
+    };
+    r.readAsDataURL(file);
+  });
+
+  // Character consistency image upload handler
+  document.getElementById('char-file').addEventListener('change', function() {
+    const file = this.files[0];
+    if (!file) return;
+    charSelectedFile = file;
+    const reader = new FileReader();
+    const preview = document.getElementById('char-preview');
+    reader.onload = e => {
+      preview.innerHTML = '<img src="' + e.target.result + '" style="max-width:100%;max-height:200px;border-radius:6px">';
+    };
+    reader.readAsDataURL(file);
+  });
+}
+
+ModuleLoader.registerCleanup('image', () => {
+  // No special cleanup needed
+});
+</script>

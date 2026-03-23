@@ -406,8 +406,8 @@ async def _execute_workflow(workflow_id: str, req, task_manager):
                 skip_reason = "跳过（未启用）"
 
         if should_run_seedream and req.reference_image:
-            # SeeDream 固定使用 1080p 分辨率以保证编辑质量
-            # 根据宽高比计算实际尺寸
+            # 根据宽高比计算 SeeDream 分辨率
+            # turbo 模式使用视频目标分辨率以加速; 非 turbo 使用 1080p 以保证编辑质量
             try:
                 # 解析宽高比
                 if req.aspect_ratio:
@@ -425,24 +425,21 @@ async def _execute_workflow(workflow_id: str, req, task_manager):
                         ar_width, ar_height = 3, 4
                     logger.info(f"[{workflow_id}] SeeDream: aspect_ratio not provided, derived {ar_width}:{ar_height} from resolution {video_resolution}")
 
-                # 基于 1080p 计算尺寸
-                base_width = 1920
-                base_height = 1080
-
-                if ar_width / ar_height > base_width / base_height:
-                    width = base_width
-                    height = round(base_width * ar_height / ar_width)
+                # 使用视频目标分辨率作为 SeeDream 分辨率（无需比视频更大）
+                import re as _re
+                res_str = req.resolution or "480p"
+                _m = _re.match(r'(\d+)', res_str)
+                p_val = int(_m.group(1)) if _m else 480
+                if ar_width >= ar_height:
+                    height = round(p_val / 8) * 8
+                    width = round(p_val * ar_width / ar_height / 8) * 8
                 else:
-                    height = base_height
-                    width = round(base_height * ar_width / ar_height)
-
-                # 确保是 8 的倍数
-                width = round(width / 8) * 8
-                height = round(height / 8) * 8
+                    width = round(p_val / 8) * 8
+                    height = round(p_val * ar_height / ar_width / 8) * 8
 
                 detected_size = f"{width}x{height}"
                 aspect_ratio_str = req.aspect_ratio if req.aspect_ratio else f"{ar_width}:{ar_height}"
-                logger.info(f"[{workflow_id}] SeeDream will use 1080p resolution: {detected_size} (aspect ratio: {aspect_ratio_str})")
+                logger.info(f"[{workflow_id}] SeeDream will use {p_val}p resolution: {detected_size} (aspect ratio: {aspect_ratio_str})")
             except Exception as e:
                 logger.warning(f"Failed to calculate SeeDream size: {e}, using default")
                 detected_size = "832x1216"
@@ -1437,7 +1434,7 @@ async def _generate_video(workflow_id: str, req, first_frame_url: str, analysis_
                     resize_factor = float(raw_resize.lower().rstrip('x'))
                 else:
                     resize_factor = float(raw_resize)
-                chain_req.upscale_resize = f"{resize_factor}x"
+                chain_req.upscale_resize = f"{int(resize_factor)}x" if resize_factor == int(resize_factor) else f"{resize_factor}x"
                 gen_width = max(16, int(round(width / resize_factor / 16)) * 16)
                 gen_height = max(16, int(round(height / resize_factor / 16)) * 16)
                 # Ensure minimum generation size (Wan2.2 needs at least 480px)
@@ -1453,7 +1450,7 @@ async def _generate_video(workflow_id: str, req, first_frame_url: str, analysis_
                         chain_req.enable_upscale = False
                         logger.warning(f"[VIDEO_PARAMS] {workflow_id} - upscale disabled: resize_factor clamped to 1.0x (gen dims already at minimum {MIN_GEN_DIM})")
                     else:
-                        chain_req.upscale_resize = f"{resize_factor}x"
+                        chain_req.upscale_resize = f"{int(resize_factor)}x" if resize_factor == int(resize_factor) else f"{resize_factor}x"
                         gen_width = max(MIN_GEN_DIM, int(round(width / resize_factor / 16)) * 16)
                         gen_height = max(MIN_GEN_DIM, int(round(height / resize_factor / 16)) * 16)
                         logger.warning(f"[VIDEO_PARAMS] {workflow_id} - resize_factor clamped to {resize_factor}x to keep gen dims >= {MIN_GEN_DIM}")

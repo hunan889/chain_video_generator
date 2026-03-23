@@ -1,5 +1,5 @@
 #!/bin/bash
-# Start ComfyUI A14B instance
+# Start ComfyUI VACE instance (Wan2.2 Video-to-Video style transfer)
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -15,13 +15,13 @@ else
     COMFYUI_DIR="$COMFYUI_RAW"
 fi
 
-GPU_IDS="${A14B_GPU_IDS:-0,1}"
-PORT="${COMFYUI_A14B_PORT:-8188}"
+GPU_IDS="${VACE_GPU_IDS:-6,7}"
+PORT="${COMFYUI_VACE_PORT:-8190}"
 
 cd "$COMFYUI_DIR"
 export CUDA_VISIBLE_DEVICES="$GPU_IDS"
 
-echo "Starting ComfyUI A14B on port $PORT (GPU $GPU_IDS)..."
+echo "Starting ComfyUI VACE on port $PORT (GPU $GPU_IDS)..."
 exec "$COMFYUI_DIR/venv/bin/python" main.py \
     --listen 0.0.0.0 \
     --port "$PORT" \

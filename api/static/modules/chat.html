@@ -1,0 +1,167 @@
+<!-- Chat Module -->
+<div class="main-section active" id="section-chat">
+<div style="display:flex;flex-direction:column;height:calc(100vh - 200px);max-height:800px">
+<div class="row" style="margin-bottom:8px;flex-shrink:0">
+<div class="field" style="min-width:260px"><label>模型 Endpoint</label>
+<input type="text" id="chat-model" value="ep-20260308123632-k8f6w" placeholder="ep-xxxx"></div>
+<div class="field" style="min-width:200px"><label>MCP Server (可选)</label>
+<input type="text" id="chat-mcp-url" placeholder="https://mcp.deepwiki.com/mcp"></div>
+<div class="field" style="min-width:140px"><label>MCP Label</label>
+<input type="text" id="chat-mcp-label" placeholder="deepwiki"></div>
+</div>
+<div id="chat-messages" style="flex:1;overflow-y:auto;background:#0a0a23;border:1px solid #444;border-radius:8px;padding:16px;margin-bottom:12px">
+<div style="color:#666;font-size:13px;text-align:center;padding:40px 0">发送消息开始对话</div>
+</div>
+<div style="display:flex;gap:8px;flex-shrink:0">
+<textarea id="chat-input" placeholder="输入消息..." style="flex:1;padding:10px;background:#0a0a23;border:1px solid #444;border-radius:8px;color:#e0e0e0;font-size:14px;resize:none;min-height:48px;max-height:120px" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendChat()}"></textarea>
+<button class="btn" onclick="sendChat()" id="chat-send-btn" style="align-self:flex-end">发送</button>
+<button class="btn" onclick="clearChat()" style="align-self:flex-end;background:#333">清空</button>
+</div>
+</div>
+</div>
+
+<script>
+// --- Chat ---
+let chatHistory = [];
+let chatAbort = null;
+
+function clearChat() {
+  chatHistory = [];
+  const box = document.getElementById('chat-messages');
+  box.innerHTML = '<div style="color:#666;font-size:13px;text-align:center;padding:40px 0">发送消息开始对话</div>';
+}
+
+function appendChatMsg(role, text) {
+  const box = document.getElementById('chat-messages');
+  if (chatHistory.length === 1) box.innerHTML = '';
+  const div = document.createElement('div');
+  div.className = 'chat-msg ' + role;
+  div.innerHTML = '<div class="role">' + (role === 'user' ? '你' : 'AI') + '</div><div class="bubble">' + escapeHtml(text) + '</div>';
+  box.appendChild(div);
+  box.scrollTop = box.scrollHeight;
+  return div;
+}
+
+function escapeHtml(s) {
+  const d = document.createElement('div');
+  d.textContent = s;
+  return d.innerHTML;
+}
+
+async function sendChat() {
+  const input = document.getElementById('chat-input');
+  const text = input.value.trim();
+  if (!text) return;
+
+  input.value = '';
+  chatHistory.push({role: 'user', content: text});
+  appendChatMsg('user', text);
+
+  const model = document.getElementById('chat-model').value.trim();
+  const mcpUrl = document.getElementById('chat-mcp-url').value.trim();
+  const mcpLabel = document.getElementById('chat-mcp-label').value.trim();
+
+  const body = {
+    messages: chatHistory,
+    stream: true,
+  };
+  if (model) body.model = model;
+  if (mcpUrl) {
+    body.tools = [{type: 'mcp', server_label: mcpLabel || 'mcp', server_url: mcpUrl, require_approval: 'never'}];
+  }
+
+  const btn = document.getElementById('chat-send-btn');
+  btn.disabled = true;
+  btn.textContent = '...';
+
+  const box = document.getElementById('chat-messages');
+  const msgDiv = document.createElement('div');
+  msgDiv.className = 'chat-msg assistant';
+  msgDiv.innerHTML = '<div class="role">AI</div><div class="bubble">...</div>';
+  box.appendChild(msgDiv);
+  box.scrollTop = box.scrollHeight;
+  const bubble = msgDiv.querySelector('.bubble');
+
+  let fullText = '';
+
+  try {
+    const resp = await fetch(BASE + '/api/v1/chat/completions', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json', 'X-API-Key': getKey()},
+      body: JSON.stringify(body),
+    });
+
+    if (!resp.ok) {
+      const err = await resp.text();
+      bubble.textContent = 'Error: ' + err;
+      btn.disabled = false;
+      btn.textContent = '发送';
+      return;
+    }
+
+    const reader = resp.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+
+    while (true) {
+      const {done, value} = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, {stream: true});
+
+      const lines = buffer.split('\n');
+      buffer = lines.pop();
+
+      for (const line of lines) {
+        if (!line.startsWith('data:')) continue;
+        const data = line.slice(5).trim();
+        if (data === '[DONE]') continue;
+        try {
+          const obj = JSON.parse(data);
+          if (obj.type === 'response.output_text.delta' && obj.delta) {
+            fullText += obj.delta;
+            bubble.textContent = fullText;
+            box.scrollTop = box.scrollHeight;
+          } else if (obj.type === 'response.completed' && obj.response) {
+            const output = obj.response.output;
+            if (output && !fullText) {
+              for (const item of output) {
+                if (item.type === 'message' && item.content) {
+                  for (const c of item.content) {
+                    if (c.type === 'output_text') fullText += c.text;
+                  }
+                }
+              }
+              bubble.textContent = fullText || '(empty response)';
+            }
+          } else if (obj.error) {
+            fullText = 'Error: ' + (obj.error.message || JSON.stringify(obj.error));
+            bubble.textContent = fullText;
+          }
+        } catch(e) {}
+      }
+    }
+
+    if (!fullText) {
+      bubble.textContent = '(empty response)';
+    }
+    chatHistory.push({role: 'assistant', content: fullText});
+  } catch(e) {
+    bubble.textContent = 'Request failed: ' + e.message;
+  }
+
+  btn.disabled = false;
+  btn.textContent = '发送';
+}
+
+function __init_chat() {
+  // No special initialization needed for chat
+}
+
+ModuleLoader.registerCleanup('chat', () => {
+  // Abort any pending chat request
+  if (chatAbort) {
+    try { chatAbort.abort(); } catch(e) {}
+    chatAbort = null;
+  }
+});
+</script>

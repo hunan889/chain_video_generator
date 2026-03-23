@@ -818,21 +818,73 @@ async def seedream_edit(req: SeeDreamEditRequest, _=Depends(verify_api_key)):
                     error="SeeDream failed, using Reactor result"
                 )
             else:
-                # No fallback available
-                logger.error(f"SeeDream failed and no Reactor result: {e}")
-                url = _save_result_image(scene_b64)
-                return SeeDreamEditResponse(
-                    url=url,
-                    edit_mode=edit_mode_label,
-                    face_swapped=False,
-                    size=f"{target_w}x{target_h}",
-                    seed=req.seed,
-                    model=model_name,
-                    api_status="failed",
-                    fallback_used=True,
-                    fallback_reason="SeeDream API 失败且无 Reactor 结果，返回原始图片",
-                    error=f"SeeDream failed: {str(e)}"
-                )
+                # SeeDream failed and Reactor didn't run beforehand.
+                # Try Reactor now as a last-resort fallback.
+                seedream_error = str(e.detail) if hasattr(e, 'detail') else str(e)
+                logger.warning(f"SeeDream failed ({seedream_error[:120]}), attempting Reactor fallback...")
+
+                reactor_fallback_ok = False
+                if face_b64:
+                    try:
+                        reactor_payload = {
+                            "source_image": face_b64,
+                            "target_image": scene_b64,
+                            "source_faces_index": [0],
+                            "face_index": [0],
+                            "model": "inswapper_128.onnx",
+                            "face_restorer": "CodeFormer",
+                            "restorer_visibility": 1,
+                            "codeformer_weight": 0.7,
+                            "restore_first": 1,
+                            "upscaler": "None",
+                            "scale": 1,
+                            "upscale_visibility": 1,
+                            "device": "CUDA",
+                            "mask_face": 1,
+                            "det_thresh": 0.5,
+                            "det_maxnum": 0,
+                        }
+                        logger.info(f"Reactor fallback: face swap ({target_w}x{target_h})...")
+                        reactor_resp = await _async_post(
+                            f"{FORGE_URL}/reactor/image", json=reactor_payload, timeout=120
+                        )
+                        if reactor_resp.status_code == 200:
+                            reactor_b64 = reactor_resp.json()["image"]
+                            url = _save_result_image(reactor_b64)
+                            reactor_fallback_ok = True
+                            logger.info("Reactor fallback succeeded")
+                            return SeeDreamEditResponse(
+                                url=url,
+                                edit_mode=edit_mode_label,
+                                face_swapped=True,
+                                size=f"{target_w}x{target_h}",
+                                seed=req.seed,
+                                model=model_name,
+                                api_status="failed",
+                                fallback_used=True,
+                                fallback_reason="SeeDream API 失败，Reactor 换脸作为回退",
+                                error=f"SeeDream failed: {seedream_error}"
+                            )
+                        else:
+                            logger.warning(f"Reactor fallback also failed: {reactor_resp.status_code}")
+                    except Exception as reactor_err:
+                        logger.warning(f"Reactor fallback error: {reactor_err}")
+
+                if not reactor_fallback_ok:
+                    logger.error(f"SeeDream failed and Reactor fallback unavailable: {seedream_error[:120]}")
+                    url = _save_result_image(scene_b64)
+                    return SeeDreamEditResponse(
+                        url=url,
+                        edit_mode=edit_mode_label,
+                        face_swapped=False,
+                        size=f"{target_w}x{target_h}",
+                        seed=req.seed,
+                        model=model_name,
+                        api_status="failed",
+                        fallback_used=True,
+                        fallback_reason="SeeDream API 失败且 Reactor 回退也失败，返回原始图片",
+                        error=f"SeeDream failed: {seedream_error}"
+                    )
 
     except HTTPException:
         raise
@@ -961,12 +1013,8 @@ def _build_default_internal_config(mode: str, turbo: bool = False) -> dict:
         # face_reference: enable reactor face swap in stage 2
         stage2_face_swap = {"enabled": True, "strength": 0.4}
     elif mode == "full_body_reference":
-        if turbo:
-            # turbo full_body: skip reactor in stage 2 (seedream handles it)
-            stage2_face_swap = {"enabled": False, "strength": 0.4}
-        else:
-            # non-turbo full_body: reactor first, then seedream
-            stage2_face_swap = {"enabled": True, "strength": 0.4}
+        # full_body: always reactor first for face similarity, then seedream
+        stage2_face_swap = {"enabled": True, "strength": 0.4}
     else:
         # first_frame: no face swap
         stage2_face_swap = {"enabled": False, "strength": 0.4}

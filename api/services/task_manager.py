@@ -682,7 +682,8 @@ class TaskManager:
                     image_filename = upload_result.get("name", frame_path.name)
 
                     mode = GenerateMode.I2V
-                    workflow = build_workflow(
+                    workflow = await asyncio.to_thread(
+                        build_workflow,
                         mode=mode, model=model,
                         prompt=seg["prompt"],
                         negative_prompt=seg.get("negative_prompt", ""),
@@ -707,7 +708,8 @@ class TaskManager:
                     seg["segment_index"] = i
                     seg["target_prompt"] = segment_prompts[i] if i < len(segment_prompts) else seg["prompt"]
                     seg["final_prompt"] = seg["prompt"]
-                    workflow = build_workflow(
+                    workflow = await asyncio.to_thread(
+                        build_workflow,
                         mode=mode, model=model,
                         prompt=seg["prompt"],
                         negative_prompt=seg.get("negative_prompt", ""),
@@ -733,7 +735,8 @@ class TaskManager:
                         upload_result = await client.upload_image(frame_data, frame_path.name)
                         image_filename = upload_result.get("name", frame_path.name)
 
-                    workflow = build_workflow(
+                    workflow = await asyncio.to_thread(
+                        build_workflow,
                         mode=mode, model=model,
                         prompt=seg["prompt"],
                         negative_prompt=seg.get("negative_prompt", ""),
@@ -862,7 +865,8 @@ class TaskManager:
             # Single segment face_reference mode: use I2V workflow (PainterI2V)
             logger.info("Chain %s: single segment face_reference mode, using I2V workflow", chain_id)
 
-            workflow = build_story_workflow(
+            workflow = await asyncio.to_thread(
+                build_story_workflow,
                 is_first_segment=True,
                 prompt=seg0["prompt"],
                 negative_prompt=seg0.get("negative_prompt", ""),
@@ -886,7 +890,7 @@ class TaskManager:
 
             # Inject post-processing if needed
             if seg0.get("enable_upscale") or seg0.get("enable_interpolation") or seg0.get("enable_mmaudio"):
-                workflow = _inject_story_postproc(workflow, seg0)
+                workflow = await asyncio.to_thread(_inject_story_postproc, workflow, seg0)
 
             # Create task and wait for completion
             task_id = await self.create_task(
@@ -920,8 +924,8 @@ class TaskManager:
         face_image_filename = seg0.get("face_image_filename", "")
         face_swap_strength = seg0.get("face_swap_strength", 1.0)
 
-        # Build single merged workflow
-        workflow = build_merged_story_workflow(
+        # Build single merged workflow (run in thread to avoid blocking event loop)
+        workflow = await asyncio.to_thread(build_merged_story_workflow,
             segments=segments,
             width=seg0["width"],
             height=seg0["height"],
@@ -1124,7 +1128,8 @@ class TaskManager:
         if i == 0 and parent_video_fn:
             # First segment but continuing from parent video: use PainterLongVideo
             logger.info("Chain %s seg 0: continuation from parent video %s", chain_id, parent_video_fn)
-            workflow = build_story_workflow(
+            workflow = await asyncio.to_thread(
+                build_story_workflow,
                 is_first_segment=False,
                 prompt=seg["prompt"],
                 negative_prompt=seg.get("negative_prompt", ""),
@@ -1155,7 +1160,8 @@ class TaskManager:
             if image_mode in ["face_reference", "full_body_reference"]:
                 logger.info("Chain %s: seg 0 %s mode, using I2V workflow", chain_id, image_mode)
 
-                workflow = build_story_workflow(
+                workflow = await asyncio.to_thread(
+                    build_story_workflow,
                     is_first_segment=True,
                     prompt=seg["prompt"],
                     negative_prompt=seg.get("negative_prompt", ""),
@@ -1178,14 +1184,15 @@ class TaskManager:
                 )
                 # Inject post-processing nodes (upscale, RIFE, MMAudio) if enabled
                 if seg.get("enable_upscale") or seg.get("enable_interpolation") or seg.get("enable_mmaudio"):
-                    workflow = _inject_story_postproc(workflow, seg)
+                    workflow = await asyncio.to_thread(_inject_story_postproc, workflow, seg)
                 return workflow
 
             if not image_filename:
                 # No start image — fall back to standard T2V for first segment
                 logger.info("Chain %s: story mode seg 0 has no image, using T2V fallback", chain_id)
                 from api.models.enums import GenerateMode
-                workflow = build_workflow(
+                workflow = await asyncio.to_thread(
+                    build_workflow,
                     mode=GenerateMode.T2V,
                     model=ModelType(seg["model"]),
                     prompt=seg["prompt"],
@@ -1202,7 +1209,8 @@ class TaskManager:
                 return workflow
 
             # First_frame mode: use PainterI2V
-            workflow = build_story_workflow(
+            workflow = await asyncio.to_thread(
+                build_story_workflow,
                 is_first_segment=True,
                 prompt=seg["prompt"],
                 negative_prompt=seg.get("negative_prompt", ""),
@@ -1224,7 +1232,8 @@ class TaskManager:
             )
         else:
             # Continuation segment: PainterLongVideo with full video reference
-            workflow = build_story_workflow(
+            workflow = await asyncio.to_thread(
+                build_story_workflow,
                 is_first_segment=False,
                 prompt=seg["prompt"],
                 negative_prompt=seg.get("negative_prompt", ""),
@@ -1248,7 +1257,7 @@ class TaskManager:
 
         # Inject post-processing nodes (upscale, RIFE, MMAudio) into single-segment story workflow
         if seg.get("enable_upscale") or seg.get("enable_interpolation") or seg.get("enable_mmaudio"):
-            workflow = _inject_story_postproc(workflow, seg)
+            workflow = await asyncio.to_thread(_inject_story_postproc, workflow, seg)
 
         return workflow
 
