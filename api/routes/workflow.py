@@ -1535,7 +1535,7 @@ async def run_custom_workflow(
         raise HTTPException(400, f"Invalid model: {model}")
 
     # Check if ComfyUI instance is alive
-    client = task_manager.clients.get(model_type.value)
+    client = task_manager._get_client(model_type.value)
     if not client or not await client.is_alive():
         raise HTTPException(503, f"ComfyUI {model_type.value} instance is not available")
 
@@ -1735,7 +1735,7 @@ async def run_workflow_with_image(
             except ValueError:
                 raise HTTPException(400, f"Invalid model: {model_type_val}")
 
-            client = task_manager.clients.get(mt.value)
+            client = task_manager._get_client(mt.value)
             if not client or not await client.is_alive():
                 raise HTTPException(503, f"ComfyUI {mt.value} instance is not available")
 

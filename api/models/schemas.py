@@ -211,6 +211,7 @@ class HealthResponse(BaseModel):
     comfyui_a14b: bool = False
     comfyui_5b: bool = False
     redis: bool = False
+    comfyui_a14b_instances: list[dict] = []
 
 
 class LoraRecommendRequest(BaseModel):

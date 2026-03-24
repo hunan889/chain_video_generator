@@ -9,7 +9,7 @@ from pathlib import Path
 from urllib.parse import urlparse
 from api.config import API_HOST, API_PORT, VIDEOS_DIR, UPLOADS_DIR
 from api.services.task_manager import TaskManager
-from api.routes import generate, generate_i2v, tasks, loras, civitai, prompt, lora_recommend, extend, workflow, tts, postprocess, image, chat, resources, lora_admin, search, recommend, embeddings, resource_admin, pose_images, poses, pose_admin, pose_synonyms_admin
+from api.routes import generate, generate_i2v, tasks, loras, civitai, prompt, lora_recommend, extend, workflow, tts, postprocess, image, chat, resources, lora_admin, search, recommend, embeddings, resource_admin, pose_images, poses, pose_admin, pose_synonyms_admin, dashscope
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
 logger = logging.getLogger(__name__)
@@ -71,6 +71,7 @@ app.include_router(pose_images.router)
 app.include_router(poses.router, prefix="/api/v1", tags=["poses"])
 app.include_router(pose_admin.router, prefix="/api/v1", tags=["pose_admin"])
 app.include_router(pose_synonyms_admin.router)
+app.include_router(dashscope.router, prefix="/api/v1", tags=["dashscope"])
 
 STATIC_DIR = Path(__file__).parent / "static"
 
@@ -164,10 +165,22 @@ async def proxy_media(url: str = Query(...)):
 @app.get("/health")
 async def health():
     from api.models.schemas import HealthResponse
-    a14b_ok = await task_manager.clients.get("a14b", _Stub()).is_alive()
-    five_b_ok = await task_manager.clients.get("5b", _Stub()).is_alive()
+    # Check all A14B instances
+    a14b_clients = task_manager.clients.get("a14b", [])
+    a14b_statuses = [await c.is_alive() for c in a14b_clients] if a14b_clients else [False]
+    a14b_ok = all(a14b_statuses)
+    # Check 5B instances
+    five_b_clients = task_manager.clients.get("5b", [])
+    five_b_statuses = [await c.is_alive() for c in five_b_clients] if five_b_clients else [False]
+    five_b_ok = all(five_b_statuses)
     redis_ok = await task_manager.redis_alive()
-    return HealthResponse(status="ok", comfyui_a14b=a14b_ok, comfyui_5b=five_b_ok, redis=redis_ok)
+    return HealthResponse(
+        status="ok",
+        comfyui_a14b=a14b_ok,
+        comfyui_5b=five_b_ok,
+        redis=redis_ok,
+        comfyui_a14b_instances=[{"url": c.base_url, "alive": s} for c, s in zip(a14b_clients, a14b_statuses)],
+    )
 
 
 @app.get("/api/v1/model-presets")

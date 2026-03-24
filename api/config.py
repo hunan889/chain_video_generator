@@ -17,8 +17,16 @@ def _resolve_path(env_var: str, default: str) -> Path:
 
 
 COMFYUI_PATH = _resolve_path("COMFYUI_PATH", "./ComfyUI")
-COMFYUI_A14B_URL = os.getenv("COMFYUI_A14B_URL", "http://127.0.0.1:8188")
-COMFYUI_5B_URL = os.getenv("COMFYUI_5B_URL", "http://127.0.0.1:8189")
+
+# Multi-instance support: COMFYUI_A14B_URLS (comma-separated) takes priority over COMFYUI_A14B_URL
+_a14b_urls_raw = os.getenv("COMFYUI_A14B_URLS", "") or os.getenv("COMFYUI_A14B_URL", "http://127.0.0.1:8188")
+COMFYUI_A14B_URLS: list[str] = [u.strip() for u in _a14b_urls_raw.split(",") if u.strip()]
+COMFYUI_A14B_URL = COMFYUI_A14B_URLS[0]  # backward compat: first instance
+
+_5b_urls_raw = os.getenv("COMFYUI_5B_URLS", "") or os.getenv("COMFYUI_5B_URL", "http://127.0.0.1:8189")
+COMFYUI_5B_URLS: list[str] = [u.strip() for u in _5b_urls_raw.split(",") if u.strip()]
+COMFYUI_5B_URL = COMFYUI_5B_URLS[0]
+
 FORGE_URL = os.getenv("FORGE_URL", "http://127.0.0.1:7860")
 REDIS_URL = os.getenv("REDIS_URL", "redis://127.0.0.1:6379/0")
 API_HOST = os.getenv("API_HOST", "0.0.0.0")
@@ -33,12 +41,12 @@ UPLOADS_DIR = STORAGE_PATH / "uploads"
 RESULTS_DIR = UPLOADS_DIR  # Alias: /api/v1/results/ serves files from UPLOADS_DIR for images
 WORKFLOWS_DIR = PROJECT_ROOT / "workflows"
 
-_ALL_COMFYUI_URLS = {
-    "a14b": COMFYUI_A14B_URL,
-    "5b": COMFYUI_5B_URL,
+_ALL_COMFYUI_URLS: dict[str, list[str]] = {
+    "a14b": COMFYUI_A14B_URLS,
+    "5b": COMFYUI_5B_URLS,
 }
 _enabled = os.getenv("ENABLED_WORKERS", "a14b,5b").split(",")
-COMFYUI_URLS = {k: v for k, v in _ALL_COMFYUI_URLS.items() if k.strip() in [w.strip() for w in _enabled]}
+COMFYUI_URLS: dict[str, list[str]] = {k: v for k, v in _ALL_COMFYUI_URLS.items() if k.strip() in [w.strip() for w in _enabled]}
 
 # Support multiple Forge instances: FORGE_URLS=url1,url2 (falls back to FORGE_URL)
 FORGE_URLS = [u.strip() for u in os.getenv("FORGE_URLS", FORGE_URL).split(",") if u.strip()]

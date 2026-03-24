@@ -1174,7 +1174,7 @@ async def transfer_image(
 
 # --- Z-Image I2I (Uncensored Image Editing via ComfyUI) ---
 
-COMFYUI_URL = os.getenv("COMFYUI_A14B_URL", "http://127.0.0.1:8188")
+from api.config import COMFYUI_A14B_URL as COMFYUI_URL
 
 
 def _upload_image_to_comfyui(image_data: bytes, filename: str) -> str:
@@ -1520,7 +1520,7 @@ async def faceswap_video(
     face_filename, _ = await storage.save_upload(face_data, face_image.filename or "face.png")
 
     # Upload to ComfyUI
-    client = task_manager.clients.get("a14b")
+    client = task_manager._get_client("a14b")
     if not client or not await client.is_alive():
         raise HTTPException(503, "ComfyUI service unavailable")
 

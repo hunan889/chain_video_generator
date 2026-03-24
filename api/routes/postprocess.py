@@ -146,7 +146,7 @@ async def upscale_image(
         ext = ".jpg"
     filename = f"upscale_in_{uuid.uuid4().hex[:12]}{ext}"
 
-    client = ComfyUIClient(COMFYUI_A14B_URL)
+    client = ComfyUIClient(COMFYUI_A14B_URL)  # Uses first A14B instance via config
     try:
         # Upload image to ComfyUI
         upload_result = await client.upload_image(image_data, filename)

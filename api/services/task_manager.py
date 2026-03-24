@@ -25,36 +25,49 @@ class TaskManager:
     def __init__(self):
         self.redis: Optional[aioredis.Redis] = None
         self._worker_redis: Optional[aioredis.Redis] = None
-        self.clients: dict[str, ComfyUIClient] = {}
+        self.clients: dict[str, list[ComfyUIClient]] = {}
         self._workers: list[asyncio.Task] = []
         self._chain_workers: dict[str, asyncio.Task] = {}  # chain_id -> asyncio.Task
 
     async def start(self):
         self.redis = aioredis.from_url(REDIS_URL, decode_responses=True)
         self._worker_redis = aioredis.from_url(REDIS_URL, decode_responses=True)
-        for model_key, url in COMFYUI_URLS.items():
-            self.clients[model_key] = ComfyUIClient(url)
+        for model_key, urls in COMFYUI_URLS.items():
+            self.clients[model_key] = [ComfyUIClient(url) for url in urls]
         # Recover orphan running tasks (from previous crash/restart)
         await self._recover_orphan_tasks()
-        # Start worker tasks for each model
-        for model_key in COMFYUI_URLS:
-            task = asyncio.create_task(self._worker_loop(model_key))
-            self._workers.append(task)
-        logger.info("TaskManager started with workers: %s", list(COMFYUI_URLS.keys()))
+        # Start worker tasks for each model — one worker per ComfyUI instance
+        for model_key, urls in COMFYUI_URLS.items():
+            for idx, url in enumerate(urls):
+                client = self.clients[model_key][idx]
+                worker_name = f"{model_key}#{idx}"
+                task = asyncio.create_task(self._worker_loop(model_key, client, worker_name))
+                self._workers.append(task)
+        logger.info("TaskManager started with workers: %s",
+                     {k: len(v) for k, v in self.clients.items()})
 
     async def stop(self):
         for w in self._workers:
             w.cancel()
-        for client in self.clients.values():
-            await client.close()
+        for client_list in self.clients.values():
+            for client in client_list:
+                await client.close()
         if self.redis:
             await self.redis.close()
         if self._worker_redis:
             await self._worker_redis.close()
 
     def _get_client(self, model_key: str) -> "ComfyUIClient | None":
-        """Get ComfyUI client by model key."""
-        return self.clients.get(model_key)
+        """Get first ComfyUI client for a model key (shared filesystem — any instance works)."""
+        clients = self.clients.get(model_key)
+        return clients[0] if clients else None
+
+    def _get_client_by_url(self, model_key: str, url: str) -> "ComfyUIClient | None":
+        """Get the specific ComfyUI client matching a URL."""
+        for client in self.clients.get(model_key, []):
+            if client.base_url == url:
+                return client
+        return self._get_client(model_key)
 
     async def redis_alive(self) -> bool:
         try:
@@ -132,7 +145,8 @@ class TaskManager:
         elif status == TaskStatus.RUNNING.value:
             prompt_id = data.get("prompt_id")
             model = data.get("model", "")
-            client = self._get_client(model)
+            comfyui_url = data.get("comfyui_url", "")
+            client = self._get_client_by_url(model, comfyui_url) if comfyui_url else self._get_client(model)
             if client and prompt_id:
                 await client.interrupt()
                 await client.cancel_prompt(prompt_id)
@@ -216,7 +230,13 @@ class TaskManager:
                     task_id = key.split(":", 1)[1]
                     prompt_id = await self.redis.hget(key, "prompt_id")
                     model_key = await self.redis.hget(key, "model")
-                    client = self._get_client(model_key) if model_key else None
+                    comfyui_url = await self.redis.hget(key, "comfyui_url")
+                    if model_key and comfyui_url:
+                        client = self._get_client_by_url(model_key, comfyui_url)
+                    elif model_key:
+                        client = self._get_client(model_key)
+                    else:
+                        client = None
 
                     if not prompt_id or not client:
                         await self.redis.hset(key, mapping={
@@ -307,27 +327,34 @@ class TaskManager:
                 "error": f"Resume failed: {e}",
             })
 
-    async def _worker_loop(self, model_key: str):
+    async def _worker_loop(self, model_key: str, client: ComfyUIClient, worker_name: str):
         queue_name = f"queue:{model_key}"
-        client = self.clients[model_key]
-        logger.info("Worker for %s started", model_key)
-        while True:
-            try:
-                result = await self._worker_redis.blpop(queue_name, timeout=5)
-                if result is None:
-                    continue
-                _, task_id = result
-                await self._process_task(task_id, client)
-            except asyncio.CancelledError:
-                break
-            except Exception as e:
-                logger.exception("Worker %s error: %s", model_key, e)
-                await asyncio.sleep(2)
+        # Each worker needs its own Redis connection for blocking blpop
+        worker_redis = aioredis.from_url(REDIS_URL, decode_responses=True)
+        logger.info("Worker %s started (queue=%s, url=%s)", worker_name, queue_name, client.base_url)
+        try:
+            while True:
+                try:
+                    result = await worker_redis.blpop(queue_name, timeout=5)
+                    if result is None:
+                        continue
+                    _, task_id = result
+                    await self._process_task(task_id, client, worker_name)
+                except asyncio.CancelledError:
+                    break
+                except Exception as e:
+                    logger.exception("Worker %s error: %s", worker_name, e)
+                    await asyncio.sleep(2)
+        finally:
+            await worker_redis.close()
 
-    async def _process_task(self, task_id: str, client: ComfyUIClient):
+    async def _process_task(self, task_id: str, client: ComfyUIClient, worker_name: str = ""):
         try:
             t_start = time.time()
-            await self.redis.hset(f"task:{task_id}", "status", TaskStatus.RUNNING.value)
+            await self.redis.hset(f"task:{task_id}", mapping={
+                "status": TaskStatus.RUNNING.value,
+                "comfyui_url": client.base_url,
+            })
             workflow_json = await self.redis.hget(f"task:{task_id}", "workflow")
             workflow = json.loads(workflow_json)
 
@@ -338,7 +365,7 @@ class TaskManager:
                 "progress": "0.05",
                 "prompt_id": prompt_id,
             })
-            logger.info("Task %s: submit took %.2fs", task_id, time.time() - t_submit)
+            logger.info("Task %s [%s]: submit took %.2fs", task_id, worker_name or client.base_url, time.time() - t_submit)
 
             # Wait for completion with progress updates
             t_wait = time.time()
@@ -982,6 +1009,11 @@ class TaskManager:
         prompt_id = task_data.get("prompt_id", "")
         if not prompt_id:
             raise RuntimeError("No prompt_id found for merged story task")
+
+        # Use the specific client that processed this task
+        comfyui_url = task_data.get("comfyui_url", "")
+        if comfyui_url:
+            client = self._get_client_by_url(model.value, comfyui_url)
 
         output_files = await client.get_output_files_ordered(prompt_id)
         if not output_files:

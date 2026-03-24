@@ -60,7 +60,7 @@ async def generate_i2v(
     local_name, _ = await storage.save_upload(image_data, image.filename or "upload.png")
 
     # Upload to ComfyUI
-    client = task_manager.clients.get(req.model.value)
+    client = task_manager._get_client(req.model.value)
     if not client or not await client.is_alive():
         raise HTTPException(503, f"ComfyUI {req.model.value} instance is not available")
 

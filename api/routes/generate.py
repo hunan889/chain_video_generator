@@ -91,7 +91,7 @@ async def generate_t2v(
         params_extra["original_prompt"] = original_prompt
 
     # Check if ComfyUI instance is alive
-    client = task_manager.clients.get(req.model.value)
+    client = task_manager._get_client(req.model.value)
     if not client or not await client.is_alive():
         raise HTTPException(503, f"ComfyUI {req.model.value} instance is not available")
 
