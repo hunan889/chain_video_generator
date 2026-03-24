@@ -25,7 +25,13 @@ h2{color:#7c83ff;margin-bottom:20px;font-size:1.4em}
 .btn{padding:12px 32px;background:#7c83ff;color:#fff;border:none;border-radius:8px;font-size:15px;cursor:pointer;font-weight:600;transition:background .2s}
 .btn:hover{background:#5a62e0}
 .btn:disabled{background:#444;cursor:not-allowed}
+.btn-secondary{background:#0f3460;margin-right:10px}
+.btn-secondary:hover{background:#1a4a7a}
+.btn-primary{background:#7c83ff}
 .btn-row{text-align:center;margin-top:20px}
+.btn-history{background:#333}
+.btn-history:hover{background:#444}
+.history-toggle-row{text-align:right;margin-bottom:12px}
 .collapsible{cursor:pointer;padding:12px 16px;background:#0f3460;border:1px solid #444;border-radius:6px;margin-bottom:12px;display:flex;justify-content:space-between;align-items:center;user-select:none;font-size:14px;font-weight:600}
 .collapsible:hover{background:#16213e}
 .collapsible-content{max-height:0;overflow:hidden;transition:max-height 0.3s ease-out}
@@ -56,32 +62,278 @@ h2{color:#7c83ff;margin-bottom:20px;font-size:1.4em}
 @keyframes spin{0%{transform:rotate(0deg)}100%{transform:rotate(360deg)}}
 .spinner{display:inline-block;width:14px;height:14px;border:2px solid #333;border-top-color:#7c83ff;border-radius:50%;animation:spin 0.6s linear infinite;margin-left:8px}
 .hint{font-size:11px;color:#666;margin-top:4px;font-style:italic}
+.defaults-bar{padding:14px 20px;display:flex;align-items:center;gap:16px;flex-wrap:wrap;border:2px solid #7c83ff;background:#1a1a3e}
 .params-disabled input,.params-disabled select,.params-disabled textarea{opacity:0.5;pointer-events:none}
 .params-disabled .collapsible{opacity:0.5;pointer-events:none}
+
+/* ========== Mobile H5 Responsive ========== */
+@media screen and (max-width: 768px) {
+  /* --- Global & Layout --- */
+  body{background:#0f0f1e}
+  .container{padding:16px 12px;max-width:100%}
+  h2{font-size:1.15em;margin-bottom:16px;text-align:center;letter-spacing:0.5px}
+
+  /* --- Card sections: elevated card style --- */
+  .section{
+    padding:16px 14px;margin-bottom:16px;border-radius:14px;
+    border:1px solid rgba(124,131,255,0.15);
+    background:linear-gradient(145deg,#16213e 0%,#1a1a32 100%);
+    box-shadow:0 2px 12px rgba(0,0,0,0.3)
+  }
+  .subsection{
+    padding:14px 12px;margin-bottom:12px;border-radius:10px;
+    background:rgba(10,10,35,0.6);border:1px solid rgba(255,255,255,0.06)
+  }
+  .subsection-title{font-size:13px;margin-bottom:10px}
+
+  /* --- Form layout: single column --- */
+  .row{flex-direction:column;gap:12px;margin-bottom:14px}
+  .field{min-width:unset;width:100%}
+
+  /* --- Inputs: large, modern, rounded --- */
+  .field label{font-size:13px;margin-bottom:6px;color:#99a;font-weight:500;letter-spacing:0.3px}
+  .field input,.field select,.field textarea{
+    font-size:16px;padding:12px 14px;border-radius:10px;
+    background:#0d0d24;border:1px solid rgba(255,255,255,0.1);
+    transition:border-color .2s,box-shadow .2s
+  }
+  .field input:focus,.field select:focus,.field textarea:focus{
+    border-color:#7c83ff;box-shadow:0 0 0 3px rgba(124,131,255,0.15)
+  }
+  .field textarea{min-height:80px}
+  .field select{
+    appearance:none;-webkit-appearance:none;
+    background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8'%3E%3Cpath d='M1 1l5 5 5-5' stroke='%23888' stroke-width='1.5' fill='none'/%3E%3C/svg%3E");
+    background-repeat:no-repeat;background-position:right 12px center;padding-right:32px
+  }
+  .hint{font-size:11px;margin-top:5px;color:#667;font-style:normal}
+
+  /* --- Quick params: imageRole full-width, rest 2-col --- */
+  .row:has(#resolution){flex-direction:row;flex-wrap:wrap}
+  .row .field:has(#imageRole){flex:unset;width:100%}
+  .row .field:has(#resolution),.row .field:has(#aspectRatio),.row .field:has(#duration){flex:unset;width:calc(50% - 6px)}
+
+  /* --- Upload area: inviting --- */
+  .upload-area{
+    padding:24px 14px;min-height:100px;border-radius:14px;
+    border:2px dashed rgba(124,131,255,0.3);
+    background:linear-gradient(180deg,rgba(124,131,255,0.04) 0%,rgba(10,10,35,0.8) 100%)
+  }
+  .upload-area:hover,.upload-area:active{border-color:#7c83ff}
+  .upload-area .placeholder{font-size:14px;color:#556}
+  .upload-area img{max-height:200px;border-radius:10px}
+
+  /* --- Defaults bar: pill toggle style --- */
+  .defaults-bar{
+    flex-direction:row;flex-wrap:wrap;gap:12px;
+    padding:14px 16px;border-radius:14px;
+    border:1.5px solid rgba(124,131,255,0.4);
+    background:linear-gradient(135deg,#1a1a3e 0%,#1e1640 100%);
+    align-items:center
+  }
+  .defaults-bar label{font-size:14px !important}
+  .defaults-bar span{font-size:11px}
+
+  /* --- Collapsible: rounded cards --- */
+  .collapsible{
+    padding:14px 16px;font-size:14px;border-radius:12px;
+    background:linear-gradient(135deg,#0f3460 0%,#132a50 100%);
+    border:1px solid rgba(124,131,255,0.2);margin-bottom:10px;
+    box-shadow:0 1px 6px rgba(0,0,0,0.2)
+  }
+  .collapsible:hover{background:linear-gradient(135deg,#163b6e 0%,#1a3560 100%)}
+  .stage-collapsible{
+    padding:12px 14px;border-radius:10px;
+    background:rgba(10,10,35,0.7);
+    border:1px solid rgba(255,255,255,0.06)
+  }
+  .stage-collapsible:hover{background:rgba(15,26,46,0.9)}
+
+  /* --- Buttons: gradient, rounded, prominent --- */
+  .btn-row{display:flex;flex-direction:column;gap:12px;padding:0;margin-top:24px}
+  .btn{
+    width:100%;padding:15px 20px;font-size:16px;border-radius:14px;
+    font-weight:700;letter-spacing:0.5px;
+    box-shadow:0 4px 14px rgba(124,131,255,0.25);
+    transition:transform .15s,box-shadow .15s,background .2s
+  }
+  .btn:active{transform:scale(0.97);box-shadow:0 2px 8px rgba(124,131,255,0.15)}
+  .btn-secondary{background:linear-gradient(135deg,#0f3460,#1a4a7a);margin-right:0}
+  .btn-primary{background:linear-gradient(135deg,#7c83ff,#6366f1)}
+
+  /* --- History button --- */
+  .btn-history{
+    width:100%;border-radius:12px;background:#1a1a32;
+    border:1px solid rgba(124,131,255,0.2);box-shadow:none;
+    padding:12px;font-size:14px;font-weight:500;color:#99a
+  }
+  .history-toggle-row{text-align:center;margin-bottom:8px}
+
+  /* --- History panel --- */
+  #historySection{margin-bottom:16px;border-radius:14px}
+  #historyList{max-height:240px}
+
+  /* --- Checkboxes: toggle style --- */
+  input[type=checkbox]{
+    width:20px;height:20px;margin-right:8px;
+    accent-color:#7c83ff;border-radius:4px
+  }
+  label:has(input[type=checkbox]){
+    display:flex;align-items:center;gap:8px;
+    padding:6px 2px;font-size:14px;cursor:pointer;
+    -webkit-tap-highlight-color:transparent
+  }
+
+  /* --- SeeDream checkbox grid --- */
+  div[style*="display:flex"][style*="flex-wrap:wrap"][style*="gap:12px"]{
+    display:grid !important;grid-template-columns:1fr 1fr;gap:6px !important
+  }
+  div[style*="display:flex"][style*="flex-wrap:wrap"][style*="gap:12px"] label{
+    font-size:14px;padding:8px 6px;
+    background:rgba(10,10,35,0.5);border-radius:8px;
+    border:1px solid rgba(255,255,255,0.06);margin:0
+  }
+
+  /* --- Progress section --- */
+  .stage{padding:14px 12px;border-radius:10px}
+  .stage-header{gap:8px}
+  .stage-name{font-size:13px}
+  .stage-status{font-size:10px;padding:4px 10px;border-radius:10px}
+  .stage-details{font-size:12px}
+  .spinner{width:12px;height:12px}
+
+  /* --- Result video --- */
+  .result-section .section{border:1px solid rgba(74,222,128,0.2)}
+  .result-video video{max-height:50vh;border-radius:12px}
+  .result-actions{flex-direction:column;gap:10px;margin-top:16px}
+  .result-actions .btn{margin:0;border-radius:14px}
+
+  /* --- Disabled state --- */
+  .params-disabled{opacity:0.6}
+  .params-disabled .collapsible{pointer-events:none}
+
+  /* --- JS-generated inline-style overrides --- */
+
+  /* Progress overall status box */
+  #overallStatus{border-radius:12px !important;padding:14px !important}
+  #overallStatusText{font-size:16px !important}
+  #overallStageText{font-size:13px !important}
+  #overallProgressBar{height:100%;border-radius:4px}
+
+  /* Stage containers generated by renderStageHtml */
+  #stagesContainer > div{
+    border-radius:12px !important;padding:14px !important;margin-bottom:12px !important
+  }
+  /* Stage header rows */
+  #stagesContainer > div > div:first-child{
+    flex-wrap:wrap !important;gap:6px !important
+  }
+
+  /* Fixed-size images/videos in details: make responsive */
+  #stagesContainer img,#stagesContainer video,
+  #resultSection img,#resultSection video{
+    max-width:100% !important;height:auto !important;width:auto !important
+  }
+  /* LoRA/image preview grids: responsive wrap */
+  #stagesContainer div[style*="display:flex"][style*="gap:8px"],
+  #resultSection div[style*="display:flex"][style*="gap:8px"]{
+    display:grid !important;grid-template-columns:repeat(auto-fill,minmax(100px,1fr)) !important;gap:8px !important
+  }
+  /* Fixed-width preview containers */
+  #stagesContainer div[style*="width:150px"],
+  #stagesContainer div[style*="width:120px"],
+  #resultSection div[style*="width:150px"]{
+    width:100% !important
+  }
+  #stagesContainer img[style*="width:120px"],
+  #stagesContainer video[style*="width:120px"],
+  #stagesContainer img[style*="width:150px"],
+  #stagesContainer video[style*="width:150px"],
+  #resultSection img[style*="width:150px"],
+  #resultSection video[style*="width:150px"]{
+    width:100% !important;height:auto !important;aspect-ratio:1;object-fit:cover
+  }
+  /* Max-width images in details */
+  #stagesContainer img[style*="max-width:200px"],
+  #stagesContainer img[style*="max-width:300px"],
+  #stagesContainer img[style*="max-width:150px"],
+  #resultSection img[style*="max-width:200px"],
+  #resultSection img[style*="max-width:300px"]{
+    max-width:60vw !important;border-radius:10px !important
+  }
+  /* Before/after comparison row */
+  #stagesContainer div[style*="display:flex"][style*="gap:16px"]{
+    flex-direction:column !important;gap:12px !important
+  }
+  #stagesContainer div[style*="display:flex"][style*="gap:16px"] img{
+    max-width:100% !important
+  }
+
+  /* Analysis result container */
+  div[style*="background:#0a0a23"][style*="padding:20px"][style*="border-radius:8px"]{
+    padding:14px !important;border-radius:12px !important
+  }
+
+  /* History items */
+  #historyList > div > div{
+    border-radius:10px !important;padding:12px !important
+  }
+
+  /* Result section stages summary */
+  .stages-summary{border-radius:14px !important;padding:14px !important}
+  .stages-summary > div{border-radius:10px !important;padding:12px !important;margin-bottom:10px !important}
+
+  /* Error box */
+  div[style*="background:#3d1a1a"],div[style*="background:#2a1a1a"]{
+    border-radius:10px !important;padding:12px !important;font-size:13px !important
+  }
+
+  /* --- Smooth scrolling --- */
+  html{scroll-behavior:smooth;-webkit-overflow-scrolling:touch}
+
+  /* --- Safe area for notched phones --- */
+  .container{padding-bottom:env(safe-area-inset-bottom,16px)}
+  .btn-row{padding-bottom:env(safe-area-inset-bottom,0px)}
+
+  /* --- Tap highlight --- */
+  *{-webkit-tap-highlight-color:transparent}
+}
+
+/* ========== Small phones (<=375px) ========== */
+@media screen and (max-width: 375px) {
+  .container{padding:12px 8px}
+  .section{padding:14px 10px;border-radius:12px}
+  .collapsible{font-size:13px;padding:12px}
+  .field input,.field select,.field textarea{font-size:15px;padding:11px 12px}
+  .btn{font-size:15px;padding:14px 16px}
+  .defaults-bar{padding:12px}
+  .row .field:has(#resolution),.row .field:has(#aspectRatio),.row .field:has(#duration){width:calc(50% - 6px)}
+}
 </style>
 </head>
 <body>
 <div class="container">
 <h2>🎬 高级视频生成工作流</h2>
 
-<!-- 任务历史 -->
-<div class="section" id="historySection" style="display:none;margin-bottom:20px">
-<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
-<h3 style="color:#7c83ff;margin:0">📋 任务历史</h3>
-<button class="btn btn-sm" onclick="toggleHistory()" style="background:#333">收起</button>
-</div>
-<div id="historyList" style="max-height:300px;overflow-y:auto"></div>
-</div>
-
-<div style="text-align:right;margin-bottom:12px">
-<button class="btn btn-sm" onclick="toggleHistory()" id="showHistoryBtn" style="background:#333">📋 查看历史任务</button>
-</div>
-
 <!-- 主要参数 -->
 <div class="section">
 <div class="field">
 <label>提示词 Prompt</label>
 <textarea id="prompt" placeholder="描述你想要生成的视频内容..."></textarea>
+</div>
+<div id="storyInputRow" class="row" style="margin-top:8px;display:none">
+<div class="field" style="flex:1;min-width:0">
+<label>故事续写 (填入上一个 Workflow ID)</label>
+<div style="display:flex;gap:8px;align-items:center">
+<input type="text" id="parentWorkflowInput" placeholder="例如: wf_abc123..." style="flex:1" oninput="onParentWorkflowInput(this.value)">
+<button class="btn btn-secondary" onclick="clearStoryMode()" style="padding:8px 12px;font-size:12px;white-space:nowrap">清除</button>
+</div>
+</div>
+</div>
+<div style="margin-top:8px">
+<label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:13px;color:#aaa">
+<input type="checkbox" id="showStoryInput" onchange="toggleStoryInput()" style="width:16px;height:16px"> 续写上一个视频（Story模式）
+</label>
 </div>
 
 <div class="row" style="margin-top:16px">
@@ -118,6 +370,11 @@ h2{color:#7c83ff;margin-bottom:20px;font-size:1.4em}
 <option value="15">15秒</option>
 </select>
 </div>
+<div class="field">
+<label style="display:flex;align-items:center;gap:6px;cursor:pointer">
+<input type="checkbox" id="mmaudioToggle" onchange="onMMAudioToggle()" style="width:16px;height:16px"> 生成音频
+</label>
+</div>
 </div>
 
 <div class="row">
@@ -133,7 +390,7 @@ h2{color:#7c83ff;margin-bottom:20px;font-size:1.4em}
 </div>
 
 <!-- 默认参数 / Turbo 开关 -->
-<div class="section" style="padding:14px 20px;display:flex;align-items:center;gap:16px;flex-wrap:wrap;border:2px solid #7c83ff;background:#1a1a3e">
+<div class="section defaults-bar">
 <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:15px;font-weight:700;color:#7c83ff">
 <input type="checkbox" id="useDefaultParams" onchange="toggleDefaultParams()" style="width:18px;height:18px"> 使用默认参数
 </label>
@@ -402,6 +659,29 @@ h2{color:#7c83ff;margin-bottom:20px;font-size:1.4em}
 </select>
 </div>
 </div>
+<div class="row">
+<div class="field">
+<label><input type="checkbox" id="s4_mmaudioEnabled" onchange="toggleMMAudioRow()"> 启用音频生成 (MMAudio)</label>
+</div>
+<div class="field">
+<label>音频提示词</label>
+<input type="text" id="s4_mmaudioPrompt" placeholder="描述想要的音频效果...">
+</div>
+<div class="field">
+<label>采样步数</label>
+<input type="number" id="s4_mmaudioSteps" value="25" min="1" max="100" step="1">
+</div>
+</div>
+<div class="row" id="s4_mmaudioDetailRow" style="display:none">
+<div class="field">
+<label>负面提示词</label>
+<input type="text" id="s4_mmaudioNeg" placeholder="不想要的音频效果...">
+</div>
+<div class="field">
+<label>CFG强度</label>
+<input type="number" id="s4_mmaudioCfg" value="4.5" min="0" max="20" step="0.5">
+</div>
+</div>
 </div>
 </div>
 </div>
@@ -410,8 +690,8 @@ h2{color:#7c83ff;margin-bottom:20px;font-size:1.4em}
 </div><!-- /advancedParamsWrapper -->
 
 <div class="btn-row">
-<button class="btn" id="analyzeBtn" onclick="analyzeOnly()" style="background:#0f3460;margin-right:10px">🔍 仅分析推荐</button>
-<button class="btn" id="generateBtn" onclick="generateVideo()">🎬 生成视频</button>
+<button class="btn btn-primary" id="generateBtn" onclick="generateVideo()">🎬 生成视频</button>
+<button class="btn" id="cancelBtn" onclick="cancelWorkflow()" style="display:none;background:#dc2626;margin-left:10px">取消</button>
 </div>
 
 <!-- 进度展示 -->
@@ -431,6 +711,7 @@ h2{color:#7c83ff;margin-bottom:20px;font-size:1.4em}
 </div>
 <div class="result-actions">
 <button class="btn" onclick="downloadVideo()">📥 下载视频</button>
+<button class="btn" onclick="continueStory()" style="background:#0f3460">📖 续写故事</button>
 <button class="btn" onclick="resetForm()" style="background:#333">🔄 重新生成</button>
 </div>
 </div>
@@ -516,10 +797,10 @@ function getDefaultConfig(mode, turbo) {
     let generation, postprocess;
     if (turbo) {
         generation = { steps: 5, cfg: 1, scheduler: 'euler', shift: 5.0, model_preset: 'nsfw_v2' };
-        postprocess = { upscale: { enabled: true, model: '4x-UltraSharp', resize: 2.0 }, interpolation: { enabled: false } };
+        postprocess = { upscale: { enabled: true, model: '4x-UltraSharp', resize: 2.0 }, interpolation: { enabled: false }, mmaudio: { enabled: false } };
     } else {
         generation = { steps: 5, cfg: 2, scheduler: 'euler', shift: 5.0, model_preset: 'nsfw_v2' };
-        postprocess = { upscale: { enabled: true, model: '4x-UltraSharp', resize: 1.5 }, interpolation: { enabled: true, multiplier: 2, profile: 'fast' } };
+        postprocess = { upscale: { enabled: true, model: '4x-UltraSharp', resize: 1.5 }, interpolation: { enabled: true, multiplier: 2, profile: 'fast' }, mmaudio: { enabled: false } };
     }
 
     return {
@@ -587,6 +868,10 @@ function applyDefaultsToForm() {
     document.getElementById('s4_interpEnabled').checked = pp.interpolation.enabled;
     if (pp.interpolation.multiplier) document.getElementById('s4_interpMultiplier').value = pp.interpolation.multiplier;
     if (pp.interpolation.profile) document.getElementById('s4_interpProfile').value = pp.interpolation.profile;
+
+    const mma = pp.mmaudio || {};
+    document.getElementById('s4_mmaudioEnabled').checked = mma.enabled || false;
+    toggleMMAudioRow();
 }
 
 function onTurboToggle() {
@@ -601,6 +886,7 @@ let uploadedImageBase64 = null;
 let uploadedImageUrl = null;  // 新增：存储上传后的URL
 let currentTaskId = null;
 let pollInterval = null;
+let parentWorkflowId = null;  // Story续写：父工作流ID
 
 // 任务历史管理
 const MAX_HISTORY = 20;
@@ -862,7 +1148,12 @@ function saveFormParams() {
         s4_upscaleResize: document.getElementById('s4_upscaleResize').value,
         s4_interpEnabled: document.getElementById('s4_interpEnabled').checked,
         s4_interpMultiplier: document.getElementById('s4_interpMultiplier').value,
-        s4_interpProfile: document.getElementById('s4_interpProfile').value
+        s4_interpProfile: document.getElementById('s4_interpProfile').value,
+        s4_mmaudioEnabled: document.getElementById('s4_mmaudioEnabled').checked,
+        s4_mmaudioPrompt: document.getElementById('s4_mmaudioPrompt').value,
+        s4_mmaudioNeg: document.getElementById('s4_mmaudioNeg').value,
+        s4_mmaudioSteps: document.getElementById('s4_mmaudioSteps').value,
+        s4_mmaudioCfg: document.getElementById('s4_mmaudioCfg').value
     };
     localStorage.setItem('advanced_workflow_params', JSON.stringify(params));
 }
@@ -986,6 +1277,15 @@ function loadFormParams() {
         if (s4InterpMultiplierEl && params.s4_interpMultiplier) s4InterpMultiplierEl.value = params.s4_interpMultiplier;
         if (s4InterpProfileEl && params.s4_interpProfile) s4InterpProfileEl.value = params.s4_interpProfile;
 
+        // MMAudio
+        const s4MmaudioEnabledEl = document.getElementById('s4_mmaudioEnabled');
+        if (s4MmaudioEnabledEl && params.s4_mmaudioEnabled !== undefined) s4MmaudioEnabledEl.checked = params.s4_mmaudioEnabled;
+        if (params.s4_mmaudioPrompt) document.getElementById('s4_mmaudioPrompt').value = params.s4_mmaudioPrompt;
+        if (params.s4_mmaudioNeg) document.getElementById('s4_mmaudioNeg').value = params.s4_mmaudioNeg;
+        if (params.s4_mmaudioSteps) document.getElementById('s4_mmaudioSteps').value = params.s4_mmaudioSteps;
+        if (params.s4_mmaudioCfg) document.getElementById('s4_mmaudioCfg').value = params.s4_mmaudioCfg;
+        toggleMMAudioRow();
+
         // 更新 SeeDream prompt 和 UI 状态
         updateSeeDreamPrompt();
         updateStage3Visibility();
@@ -993,6 +1293,22 @@ function loadFormParams() {
     } catch (e) {
         console.error('Failed to load saved params:', e);
     }
+}
+
+// MMAudio 详细行显隐
+function toggleMMAudioRow() {
+    const enabled = document.getElementById('s4_mmaudioEnabled').checked;
+    document.getElementById('s4_mmaudioDetailRow').style.display = enabled ? 'flex' : 'none';
+    // 同步外部开关
+    document.getElementById('mmaudioToggle').checked = enabled;
+}
+
+// 外部 MMAudio 开关 → 同步到高级参数内部开关
+function onMMAudioToggle() {
+    const enabled = document.getElementById('mmaudioToggle').checked;
+    document.getElementById('s4_mmaudioEnabled').checked = enabled;
+    toggleMMAudioRow();
+    saveFormParams();
 }
 
 // 更新 Stage 3 可见性和验证
@@ -1180,19 +1496,22 @@ async function generateVideo() {
     const imageRole = document.getElementById('imageRole').value;
     const firstFrameSource = document.getElementById('s2_firstFrameSource').value;
 
-    // 检查是否需要上传图片
-    if (!uploadedImageUrl) {
-        if (imageRole === 'first_frame') {
-            alert('请上传首帧图片');
-        } else {
-            alert('请上传参考图片');
+    // Story续写模式不需要上传图片
+    if (!parentWorkflowId) {
+        // 检查是否需要上传图片
+        if (!uploadedImageUrl) {
+            if (imageRole === 'first_frame') {
+                alert('请上传首帧图片');
+            } else {
+                alert('请上传参考图片');
+            }
+            return;
         }
-        return;
     }
 
-    // 验证模式相关的配置（仅在自定义参数模式下检查）
+    // 验证模式相关的配置（仅在自定义参数模式下检查，续写模式跳过）
     const useDefault = document.getElementById('useDefaultParams').checked;
-    if (!useDefault) {
+    if (!useDefault && !parentWorkflowId) {
         if (imageRole === 'face_reference') {
             const s2FaceSwapEnabled = document.getElementById('s2_faceSwapEnabled').checked;
             const s3Enabled = document.getElementById('s3_enabled').checked;
@@ -1211,10 +1530,11 @@ async function generateVideo() {
         }
     }
 
-    // 禁用生成按钮
+    // 禁用生成按钮，显示取消按钮
     const btn = document.getElementById('generateBtn');
     btn.disabled = true;
     btn.textContent = '生成中...';
+    document.getElementById('cancelBtn').style.display = 'inline-block';
 
     // 隐藏结果，显示进度
     document.getElementById('resultSection').style.display = 'none';
@@ -1255,6 +1575,7 @@ async function generateVideo() {
         alert('生成失败: ' + error.message);
         btn.disabled = false;
         btn.textContent = '🎬 生成视频';
+        document.getElementById('cancelBtn').style.display = 'none';
     }
 }
 
@@ -1348,6 +1669,13 @@ function buildRequestData() {
                     enabled: document.getElementById('s4_interpEnabled').checked,
                     multiplier: parseInt(document.getElementById('s4_interpMultiplier').value),
                     profile: document.getElementById('s4_interpProfile').value
+                },
+                mmaudio: {
+                    enabled: document.getElementById('s4_mmaudioEnabled').checked,
+                    prompt: document.getElementById('s4_mmaudioPrompt').value.trim(),
+                    negative_prompt: document.getElementById('s4_mmaudioNeg').value.trim(),
+                    steps: parseInt(document.getElementById('s4_mmaudioSteps').value) || 25,
+                    cfg: parseFloat(document.getElementById('s4_mmaudioCfg').value) || 4.5
                 }
             }
         }
@@ -1368,6 +1696,23 @@ function buildRequestData() {
         requestData.turbo = document.getElementById('turboMode').checked;
     } else {
         requestData.internal_config = internalConfig;
+    }
+
+    // MMAudio 作为顶层参数传递
+    const mmaudioOn = document.getElementById('mmaudioToggle').checked;
+    if (mmaudioOn) {
+        requestData.mmaudio = {
+            enabled: true,
+            prompt: document.getElementById('s4_mmaudioPrompt').value.trim(),
+            negative_prompt: document.getElementById('s4_mmaudioNeg').value.trim(),
+            steps: parseInt(document.getElementById('s4_mmaudioSteps').value) || 25,
+            cfg: parseFloat(document.getElementById('s4_mmaudioCfg').value) || 4.5
+        };
+    }
+
+    // Story续写模式
+    if (parentWorkflowId) {
+        requestData.parent_workflow_id = parentWorkflowId;
     }
 
     // 根据模式设置图片字段
@@ -1752,6 +2097,7 @@ function showResult(status) {
     const btn = document.getElementById('generateBtn');
     btn.disabled = false;
     btn.textContent = '🎬 生成视频';
+    document.getElementById('cancelBtn').style.display = 'none';
 
     document.getElementById('progressSection').style.display = 'none';
 
@@ -1924,11 +2270,31 @@ function showResult(status) {
     }
 }
 
+// 取消工作流
+async function cancelWorkflow() {
+    if (!currentTaskId) return;
+    try {
+        await fetch(`/api/v1/workflow/${currentTaskId}/cancel`, {
+            method: 'POST',
+            headers: { 'X-API-Key': localStorage.getItem('wan22_api_key') || 'wan22-default-key-change-me' }
+        });
+    } catch (e) {
+        console.error('取消请求失败:', e);
+    }
+    if (pollInterval) clearInterval(pollInterval);
+    const btn = document.getElementById('generateBtn');
+    btn.disabled = false;
+    btn.textContent = '🎬 生成视频';
+    document.getElementById('cancelBtn').style.display = 'none';
+    document.getElementById('progressSection').style.display = 'none';
+}
+
 // 显示错误
 function showError(errorMsg) {
     const btn = document.getElementById('generateBtn');
     btn.disabled = false;
     btn.textContent = '🎬 生成视频';
+    document.getElementById('cancelBtn').style.display = 'none';
 
     document.getElementById('progressSection').style.display = 'none';
     const errDiv = document.getElementById('errorSection') || (() => {
@@ -1951,11 +2317,71 @@ function downloadVideo() {
     a.click();
 }
 
+// Story续写相关函数
+function toggleStoryInput() {
+    const show = document.getElementById('showStoryInput').checked;
+    document.getElementById('storyInputRow').style.display = show ? 'flex' : 'none';
+    if (!show) {
+        clearStoryMode();
+    }
+}
+
+function onParentWorkflowInput(value) {
+    parentWorkflowId = value.trim() || null;
+    updateStoryIndicator();
+}
+
+function clearStoryMode() {
+    parentWorkflowId = null;
+    document.getElementById('parentWorkflowInput').value = '';
+    document.getElementById('showStoryInput').checked = false;
+    document.getElementById('storyInputRow').style.display = 'none';
+    updateStoryIndicator();
+}
+
+function continueStory() {
+    if (!currentTaskId) return;
+
+    // 设置父工作流ID
+    parentWorkflowId = currentTaskId;
+    document.getElementById('parentWorkflowInput').value = currentTaskId;
+    document.getElementById('showStoryInput').checked = true;
+    document.getElementById('storyInputRow').style.display = 'flex';
+    updateStoryIndicator();
+
+    // 隐藏结果，回到表单
+    document.getElementById('resultSection').style.display = 'none';
+    document.getElementById('progressSection').style.display = 'none';
+
+    // 清空prompt让用户输入新的
+    document.getElementById('prompt').value = '';
+    document.getElementById('prompt').focus();
+    document.getElementById('prompt').scrollIntoView({ behavior: 'smooth', block: 'center' });
+}
+
+function updateStoryIndicator() {
+    let indicator = document.getElementById('storyIndicator');
+    if (parentWorkflowId) {
+        if (!indicator) {
+            indicator = document.createElement('div');
+            indicator.id = 'storyIndicator';
+            indicator.style.cssText = 'background:#0f3460;border:1px solid #7c83ff;border-radius:6px;padding:8px 12px;margin-bottom:12px;font-size:13px;display:flex;align-items:center;gap:8px';
+            const btn = document.getElementById('generateBtn');
+            btn.parentNode.insertBefore(indicator, btn);
+        }
+        indicator.innerHTML = `<span style="color:#7c83ff">📖 故事续写模式</span><span style="color:#aaa">父工作流: ${parentWorkflowId.substring(0, 20)}...</span>`;
+        indicator.style.display = 'flex';
+    } else if (indicator) {
+        indicator.style.display = 'none';
+    }
+}
+
 // 重置表单
 function resetForm() {
     document.getElementById('resultSection').style.display = 'none';
     document.getElementById('progressSection').style.display = 'none';
     currentTaskId = null;
+    clearStoryMode();
 
     if (pollInterval) {
         clearInterval(pollInterval);

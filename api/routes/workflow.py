@@ -958,6 +958,17 @@ class WorkflowGenerateRequest(BaseModel):
     # Turbo mode (used with default params)
     turbo: Optional[bool] = Field(default=False, description="Turbo mode: faster generation with fewer steps")
 
+    # MMAudio top-level toggle
+    mmaudio: Optional[dict] = Field(default=None, description="MMAudio config: {enabled, prompt, negative_prompt, steps, cfg}")
+
+    # Story continuation: continue from a previous workflow
+    parent_workflow_id: Optional[str] = Field(
+        default=None,
+        description="Parent workflow ID to continue from (Story Mode continuation). "
+                    "When set, stages 2-3 are skipped and video is generated using Story Mode "
+                    "with the parent video's last frames as motion reference."
+    )
+
 
 class WorkflowStage(BaseModel):
     """Workflow stage status"""
@@ -986,6 +997,17 @@ class WorkflowGenerateResponse(BaseModel):
     total_steps: Optional[int] = Field(default=None, description="Total steps across all stages")
     completed_steps: Optional[int] = Field(default=None, description="Completed steps from previous stages")
     elapsed_time: Optional[float] = Field(default=None, description="Elapsed time in seconds")
+
+
+def _deep_merge(base: dict, override: dict) -> dict:
+    """Deep merge override into base. Override values take priority."""
+    result = base.copy()
+    for key, value in override.items():
+        if key in result and isinstance(result[key], dict) and isinstance(value, dict):
+            result[key] = _deep_merge(result[key], value)
+        else:
+            result[key] = value
+    return result
 
 
 def _build_default_internal_config(mode: str, turbo: bool = False) -> dict:
@@ -1070,6 +1092,9 @@ def _build_default_internal_config(mode: str, turbo: bool = False) -> dict:
             "interpolation": {
                 "enabled": False,
             },
+            "mmaudio": {
+                "enabled": False,
+            },
         }
     else:
         generation = {
@@ -1089,6 +1114,9 @@ def _build_default_internal_config(mode: str, turbo: bool = False) -> dict:
                 "enabled": True,
                 "multiplier": 2,
                 "profile": "fast",
+            },
+            "mmaudio": {
+                "enabled": False,
             },
         }
 
@@ -1161,10 +1189,26 @@ async def generate_advanced_workflow(req: WorkflowGenerateRequest, _=Depends(ver
         if req.internal_config:
             logger.info(f"[WORKFLOW_PARAMS] {workflow_id} - internal_config: {json.dumps(req.internal_config, ensure_ascii=False)}")
 
-        # Build default internal_config if not provided
+        # Always build default internal_config, then merge user overrides on top
+        # This ensures turbo-mode defaults (steps, cfg, etc.) are always applied
+        default_config = _build_default_internal_config(req.mode, req.turbo or False)
         if req.internal_config is None:
-            req.internal_config = _build_default_internal_config(req.mode, req.turbo or False)
+            req.internal_config = default_config
             logger.info(f"[WORKFLOW_PARAMS] {workflow_id} - Built default internal_config: turbo={req.turbo}")
+        else:
+            # Deep merge: default_config as base, user's internal_config overrides
+            merged = _deep_merge(default_config, req.internal_config)
+            req.internal_config = merged
+            logger.info(f"[WORKFLOW_PARAMS] {workflow_id} - Merged user internal_config with defaults: turbo={req.turbo}")
+
+        # Merge top-level mmaudio config into internal_config
+        if req.mmaudio:
+            if "stage4_video" not in req.internal_config:
+                req.internal_config["stage4_video"] = {}
+            if "postprocess" not in req.internal_config["stage4_video"]:
+                req.internal_config["stage4_video"]["postprocess"] = {}
+            req.internal_config["stage4_video"]["postprocess"]["mmaudio"] = req.mmaudio
+            logger.info(f"[WORKFLOW_PARAMS] {workflow_id} - Merged top-level mmaudio config: {req.mmaudio}")
 
         # Process top-level resolution/aspect_ratio/duration fields (from v2 frontend)
         # Merge them into internal_config.stage4_video.generation
@@ -1197,7 +1241,7 @@ async def generate_advanced_workflow(req: WorkflowGenerateRequest, _=Depends(ver
         ]
 
         # Save initial workflow state to Redis
-        await task_manager.redis.hset(f"workflow:{workflow_id}", mapping={
+        redis_mapping = {
             "status": "running",
             "current_stage": "prompt_analysis",
             "mode": req.mode,
@@ -1206,9 +1250,12 @@ async def generate_advanced_workflow(req: WorkflowGenerateRequest, _=Depends(ver
             "reference_image": req.reference_image or "",
             "created_at": str(int(time.time())),
             "internal_config": json.dumps(req.internal_config) if req.internal_config else "{}"
-        })
+        }
+        if req.parent_workflow_id:
+            redis_mapping["parent_workflow_id"] = req.parent_workflow_id
+        await task_manager.redis.hset(f"workflow:{workflow_id}", mapping=redis_mapping)
 
-        logger.info(f"Advanced workflow {workflow_id} created: mode={req.mode}, source={req.first_frame_source}")
+        logger.info(f"Advanced workflow {workflow_id} created: mode={req.mode}, source={req.first_frame_source}, parent={req.parent_workflow_id}")
 
         # Start async orchestration
         asyncio.create_task(_execute_workflow(workflow_id, req, task_manager))
@@ -1377,6 +1424,38 @@ async def get_workflow_status(workflow_id: str, _=Depends(verify_api_key)):
     finally:
         total_time = (time.time() - start_time) * 1000
         logger.info(f"[{workflow_id}] Total request time: {total_time:.2f}ms")
+
+
+@router.post("/workflow/{workflow_id}/cancel")
+async def cancel_workflow(workflow_id: str, _=Depends(verify_api_key)):
+    """Cancel a running workflow."""
+    from api.main import task_manager
+
+    workflow_data = await task_manager.redis.hgetall(f"workflow:{workflow_id}")
+    if not workflow_data:
+        raise HTTPException(404, f"Workflow {workflow_id} not found")
+
+    status = workflow_data.get("status", "running")
+    if status in ("completed", "failed", "cancelled"):
+        return {"status": status, "message": "Workflow already finished"}
+
+    import time as _time
+    await task_manager.redis.hset(f"workflow:{workflow_id}", mapping={
+        "status": "cancelled",
+        "completed_at": str(int(_time.time()))
+    })
+
+    # Cancel underlying chain if exists
+    chain_id = workflow_data.get("chain_id")
+    if chain_id:
+        try:
+            await task_manager.cancel_chain(chain_id)
+            logger.info(f"Cancelled chain {chain_id} for workflow {workflow_id}")
+        except Exception as e:
+            logger.warning(f"Failed to cancel chain {chain_id}: {e}")
+
+    logger.info(f"Workflow {workflow_id} cancelled")
+    return {"status": "cancelled", "workflow_id": workflow_id}
 
 
 # ============================================================================
