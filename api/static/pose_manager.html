@@ -2185,10 +2185,11 @@
           const items = images.map(img => {
             const isVideo = img.image_url && (img.image_url.endsWith('.mp4') || img.image_url.endsWith('.webm'));
             const delBtn = `<button onclick="event.stopPropagation();deleteReferenceImageFromModal(${poseId},${img.id})" style="position:absolute;top:2px;left:2px;background:rgba(220,38,38,0.9);color:#fff;border:none;border-radius:3px;font-size:11px;padding:2px 5px;cursor:pointer;z-index:3;">×</button>`;
+            const skipBtn = `<button onclick="event.stopPropagation();toggleSkipReactor(${poseId},${img.id},${!img.skip_reactor})" style="position:absolute;top:2px;right:2px;background:${img.skip_reactor ? 'rgba(234,179,8,0.9)' : 'rgba(100,100,100,0.6)'};color:#fff;border:none;border-radius:3px;font-size:10px;padding:2px 4px;cursor:pointer;z-index:3;" title="${img.skip_reactor ? '已标记跳过换脸 (点击取消)' : '点击标记跳过换脸'}">${img.skip_reactor ? '🚫脸' : '👤'}</button>`;
             if (isVideo) {
-              return `<div style="position:relative;width:90px;height:90px;border-radius:6px;overflow:hidden;background:#0a0a23;flex-shrink:0;" ondblclick="openImageZoom('${img.image_url}',true)" onmouseenter="playPreviewVideo(this)" onmouseleave="pausePreviewVideo(this)"><video src="${img.image_url}" muted loop playsinline style="width:100%;height:100%;object-fit:cover;pointer-events:none;"></video><span class="pose-preview-badge">视频</span>${delBtn}</div>`;
+              return `<div style="position:relative;width:90px;height:90px;border-radius:6px;overflow:hidden;background:#0a0a23;flex-shrink:0;" ondblclick="openImageZoom('${img.image_url}',true)" onmouseenter="playPreviewVideo(this)" onmouseleave="pausePreviewVideo(this)"><video src="${img.image_url}" muted loop playsinline style="width:100%;height:100%;object-fit:cover;pointer-events:none;"></video><span class="pose-preview-badge">视频</span>${delBtn}${skipBtn}</div>`;
             } else {
-              return `<div style="position:relative;width:90px;height:90px;border-radius:6px;overflow:hidden;background:#0a0a23;flex-shrink:0;" ondblclick="openImageZoom('${img.image_url}',false)"><img src="${img.image_url}" loading="lazy" style="width:100%;height:100%;object-fit:cover;">${delBtn}</div>`;
+              return `<div style="position:relative;width:90px;height:90px;border-radius:6px;overflow:hidden;background:#0a0a23;flex-shrink:0;" ondblclick="openImageZoom('${img.image_url}',false)"><img src="${img.image_url}" loading="lazy" style="width:100%;height:100%;object-fit:cover;">${delBtn}${skipBtn}</div>`;
             }
           }).join('');
           document.getElementById('ref-images-modal-body').innerHTML = `<div style="display:flex;flex-wrap:wrap;gap:8px;padding:4px 0;">${items}</div>`;
@@ -2221,6 +2222,24 @@
       } catch (error) {
         console.error('删除参考图失败:', error);
         alert('删除失败: ' + error.message);
+      }
+    }
+
+    async function toggleSkipReactor(poseId, imageId, newValue) {
+      try {
+        const response = await fetch(`/api/v1/admin/poses/reference-images/${imageId}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json', 'X-API-Key': 'wan22-default-key-change-me' },
+          body: JSON.stringify({ skip_reactor: newValue })
+        });
+        if (!response.ok) {
+          const error = await response.json();
+          throw new Error(error.detail || '更新失败');
+        }
+        await showAllReferenceImages(poseId);
+      } catch (error) {
+        console.error('切换skip_reactor失败:', error);
+        alert('操作失败: ' + error.message);
       }
     }
 

@@ -164,6 +164,7 @@ class LoraItem(BaseModel):
 class WorkflowRecommendResponse(BaseModel):
     optimized_prompt: str
     reference_image: Optional[str]
+    reference_skip_reactor: bool = False
     image_loras: List[LoraItem]
     image_prompt: str
     video_loras: List[LoraItem]
@@ -214,9 +215,12 @@ async def recommend_workflow(
 
         # 从所有参考图片中随机选择一张
         reference_image = None
+        reference_skip_reactor = False
         if all_reference_images:
             import random
-            reference_image = random.choice(all_reference_images).get('image_url')
+            selected_ref = random.choice(all_reference_images)
+            reference_image = selected_ref.get('image_url')
+            reference_skip_reactor = bool(selected_ref.get('skip_reactor', 0))
 
         # 去重并选择LORA（只选择enabled的，即前5个）
         image_loras_dict = {}
@@ -323,6 +327,7 @@ async def recommend_workflow(
         return WorkflowRecommendResponse(
             optimized_prompt=optimized_prompt,
             reference_image=reference_image,
+            reference_skip_reactor=reference_skip_reactor,
             image_loras=image_loras,
             image_prompt=image_prompt,
             video_loras=video_loras,

@@ -228,6 +228,48 @@ async def add_pose_lora(request: PoseLoraRequest):
         conn.close()
 
 
+class PoseReferenceImageUpdateRequest(BaseModel):
+    """更新参考图属性"""
+    skip_reactor: Optional[bool] = None
+    angle: Optional[str] = None
+    style: Optional[str] = None
+
+
+@router.patch("/admin/poses/reference-images/{image_id}")
+async def update_pose_reference_image(image_id: int, request: PoseReferenceImageUpdateRequest):
+    """更新参考图属性 (skip_reactor, angle, style 等)"""
+    conn = _get_connection()
+    cursor = conn.cursor()
+
+    try:
+        updates = []
+        params = []
+        if request.skip_reactor is not None:
+            updates.append("skip_reactor = ?")
+            params.append(1 if request.skip_reactor else 0)
+        if request.angle is not None:
+            updates.append("angle = ?")
+            params.append(request.angle)
+        if request.style is not None:
+            updates.append("style = ?")
+            params.append(request.style)
+        if not updates:
+            raise HTTPException(status_code=400, detail="No fields to update")
+        params.append(image_id)
+        cursor.execute(f"UPDATE pose_reference_images SET {', '.join(updates)} WHERE id = ?", params)
+        conn.commit()
+        if cursor.rowcount == 0:
+            raise HTTPException(status_code=404, detail="Reference image not found")
+        return {"success": True, "message": "Updated successfully"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        conn.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        conn.close()
+
+
 @router.delete("/admin/poses/reference-images/{image_id}")
 async def remove_pose_reference_image(image_id: int):
     """删除姿势首帧图关联"""

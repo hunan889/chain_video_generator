@@ -265,8 +265,40 @@ async def _execute_workflow(workflow_id: str, req, task_manager):
     4. Video generation via Chain workflow
     """
     try:
-        # Validate configuration based on mode
-        if req.mode in ["face_reference", "full_body_reference"]:
+        # =============================================
+        # Story Continuation: load parent workflow data
+        # =============================================
+        is_continuation = bool(getattr(req, 'parent_workflow_id', None))
+        parent_workflow = None
+
+        if is_continuation:
+            parent_workflow = await task_manager.redis.hgetall(f"workflow:{req.parent_workflow_id}")
+            if not parent_workflow:
+                raise Exception(f"Parent workflow {req.parent_workflow_id} not found")
+            if parent_workflow.get("status") != "completed":
+                raise Exception(f"Parent workflow is not completed (status: {parent_workflow.get('status')})")
+            if not parent_workflow.get("final_video_url"):
+                raise Exception("Parent workflow has no video output")
+
+            logger.info(f"[{workflow_id}] Story continuation from parent: {req.parent_workflow_id}")
+            logger.info(f"[{workflow_id}] Parent video: {parent_workflow.get('final_video_url')}")
+
+            # Auto-inherit reference_image from parent if not provided
+            if not req.reference_image and parent_workflow.get("reference_image"):
+                req.reference_image = parent_workflow["reference_image"]
+                logger.info(f"[{workflow_id}] Inherited reference_image from parent")
+
+            # Inherit internal_config from parent if not provided by user
+            if not req.internal_config:
+                parent_config_str = parent_workflow.get("internal_config", "{}")
+                try:
+                    req.internal_config = json.loads(parent_config_str)
+                    logger.info(f"[{workflow_id}] Inherited internal_config from parent")
+                except (json.JSONDecodeError, TypeError):
+                    logger.warning(f"[{workflow_id}] Failed to parse parent internal_config, using defaults")
+
+        # Validate configuration based on mode (skip for continuation - parent already validated)
+        if not is_continuation and req.mode in ["face_reference", "full_body_reference"]:
             # Check if reference_image is provided
             if not req.reference_image:
                 raise Exception(f"{req.mode} mode requires reference_image parameter")
@@ -297,7 +329,53 @@ async def _execute_workflow(workflow_id: str, req, task_manager):
         analysis_result = None
         auto_analyze = _get_config(req, "stage1_prompt_analysis", "auto_analyze", True)
 
-        if auto_analyze:
+        if is_continuation:
+            # Story continuation: inherit LoRAs from parent, only optimize new prompt
+            parent_analysis_str = parent_workflow.get("analysis_result", "{}")
+            try:
+                parent_analysis = json.loads(parent_analysis_str)
+            except (json.JSONDecodeError, TypeError):
+                parent_analysis = {}
+
+            # Inherit LoRAs from parent
+            analysis_result = {
+                "video_loras": parent_analysis.get("video_loras", []),
+                "image_loras": parent_analysis.get("image_loras", []),
+                "images": parent_analysis.get("images", []),
+                "pose_keys": parent_analysis.get("pose_keys", []),
+            }
+
+            # Optimize new prompt (respects turbo mode via auto_prompt)
+            auto_prompt = _get_config(req, "stage1_prompt_analysis", "auto_prompt", True)
+            if auto_prompt:
+                try:
+                    new_analysis = await _analyze_prompt(req, task_manager)
+                    if new_analysis and "_error" not in new_analysis:
+                        analysis_result["optimized_i2v_prompt"] = new_analysis.get("optimized_i2v_prompt")
+                        analysis_result["optimized_t2i_prompt"] = new_analysis.get("optimized_t2i_prompt")
+                    else:
+                        analysis_result["optimized_i2v_prompt"] = req.user_prompt
+                except Exception as e:
+                    logger.warning(f"[{workflow_id}] Continuation prompt optimization failed: {e}")
+                    analysis_result["optimized_i2v_prompt"] = req.user_prompt
+            else:
+                analysis_result["optimized_i2v_prompt"] = req.user_prompt
+
+            await task_manager.redis.hset(f"workflow:{workflow_id}", "analysis_result", json.dumps(analysis_result))
+            details_dict = {
+                "video_loras": analysis_result.get('video_loras', []),
+                "image_loras": analysis_result.get('image_loras', []),
+                "pose_keys": analysis_result.get('pose_keys', []),
+                "original_prompt": req.user_prompt,
+                "optimized_prompt": analysis_result.get('optimized_i2v_prompt'),
+                "continuation": True,
+                "parent_workflow_id": req.parent_workflow_id,
+                "inherited_loras": True
+            }
+            await _update_stage(task_manager, workflow_id, "prompt_analysis", "completed", details_dict=details_dict)
+            logger.info(f"[{workflow_id}] Continuation Stage 1: inherited {len(analysis_result.get('video_loras', []))} video LoRAs from parent")
+
+        elif auto_analyze:
             analysis_result = await _analyze_prompt(req, task_manager)
             if analysis_result and "_error" not in analysis_result:
                 await task_manager.redis.hset(f"workflow:{workflow_id}", mapping={
@@ -326,197 +404,267 @@ async def _execute_workflow(workflow_id: str, req, task_manager):
             await _update_stage(task_manager, workflow_id, "prompt_analysis", "completed", details_dict={"skipped": True, "reason": "未启用"})
 
         # Stage 2: First Frame Acquisition
-        await _update_stage(task_manager, workflow_id, "first_frame_acquisition", "running")
         await task_manager.redis.hset(f"workflow:{workflow_id}", "current_stage", "first_frame_acquisition")
 
-        first_frame_url = await _acquire_first_frame(workflow_id, req, analysis_result, task_manager)
-        if not first_frame_url:
-            raise Exception("Failed to acquire first frame")
-
-        await task_manager.redis.hset(f"workflow:{workflow_id}", "first_frame_url", first_frame_url)
-
-        # 保存结构化详细信息
-        if req.mode == "first_frame":
-            source_text = "upload"
+        if is_continuation:
+            # Skip Stage 2: use parent's edited frame or first frame
+            first_frame_url = parent_workflow.get("edited_frame_url") or parent_workflow.get("first_frame_url")
+            if not first_frame_url:
+                raise Exception("Parent workflow has no first_frame or edited_frame for continuation")
+            await task_manager.redis.hset(f"workflow:{workflow_id}", "first_frame_url", first_frame_url)
+            await _update_stage(task_manager, workflow_id, "first_frame_acquisition", "completed", details_dict={
+                "skipped": True,
+                "reason": "故事续写模式，使用父工作流的首帧",
+                "source": "parent_workflow",
+                "parent_workflow_id": req.parent_workflow_id,
+                "url": first_frame_url
+            })
+            logger.info(f"[{workflow_id}] Continuation Stage 2: skipped, using parent frame: {first_frame_url}")
         else:
-            first_frame_source_for_display = req.first_frame_source or _get_config(req, "stage2_first_frame", "first_frame_source", "select_existing")
-            source_text = first_frame_source_for_display
+            await _update_stage(task_manager, workflow_id, "first_frame_acquisition", "running")
 
-        details_dict = {
-            "source": source_text,
-            "url": first_frame_url,
-            "face_swapped": False
-        }
+            first_frame_url = await _acquire_first_frame(workflow_id, req, analysis_result, task_manager)
+            if not first_frame_url:
+                raise Exception("Failed to acquire first frame")
 
-        # Stage 2.1: 首帧换脸（可选）
-        face_swap_config = _get_config(req, "stage2_first_frame", "face_swap", {})
-        logger.info(f"[{workflow_id}] Face swap check: config={face_swap_config}, enabled={face_swap_config.get('enabled')}, reference_image={req.reference_image}")
+            await task_manager.redis.hset(f"workflow:{workflow_id}", "first_frame_url", first_frame_url)
 
-        if face_swap_config.get("enabled") and req.reference_image:
-            logger.info(f"[{workflow_id}] Applying face swap to first frame: {first_frame_url}")
-            swapped_url = await _apply_face_swap_to_frame(
-                first_frame_url,
-                req.reference_image,
-                strength=face_swap_config.get("strength", 1.0),
-                task_manager=task_manager
-            )
-            if swapped_url:
-                logger.info(f"[{workflow_id}] Face swap succeeded: {swapped_url}")
-                first_frame_url = swapped_url
-                await task_manager.redis.hset(f"workflow:{workflow_id}", "first_frame_url", first_frame_url)
-                details_dict["face_swapped"] = True
-                details_dict["face_swap_strength"] = face_swap_config.get("strength", 1.0)
-                details_dict["url"] = first_frame_url
+            # 保存结构化详细信息
+            if req.mode == "first_frame":
+                source_text = "upload"
             else:
-                logger.warning(f"[{workflow_id}] Face swap returned None (failed)")
-        elif face_swap_config.get("enabled") and not req.reference_image:
-            # Face swap enabled but no reference image provided
-            details_dict["face_swap_skipped"] = True
-            details_dict["face_swap_skip_reason"] = "未提供参考图片 (reference_image)"
-            logger.warning(f"[{workflow_id}] Face swap enabled but no reference_image provided")
-        else:
-            logger.info(f"[{workflow_id}] Face swap not enabled or conditions not met")
+                first_frame_source_for_display = req.first_frame_source or _get_config(req, "stage2_first_frame", "first_frame_source", "select_existing")
+                source_text = first_frame_source_for_display
 
-        await _update_stage(task_manager, workflow_id, "first_frame_acquisition", "completed", details_dict=details_dict)
+            details_dict = {
+                "source": source_text,
+                "url": first_frame_url,
+                "face_swapped": False
+            }
+
+            # Stage 2.1: 首帧换脸（可选）
+            face_swap_config = _get_config(req, "stage2_first_frame", "face_swap", {})
+            logger.info(f"[{workflow_id}] Face swap check: config={face_swap_config}, enabled={face_swap_config.get('enabled')}, reference_image={req.reference_image}")
+
+            # 获取选中图片的 skip_reactor 标记
+            skip_reactor_flag = False
+            if analysis_result:
+                skip_reactor_flag = analysis_result.get("reference_skip_reactor", False)
+
+            # 预判 SeeDream 是否计划运行
+            seedream_planned = False
+            if req.mode == "full_body_reference":
+                seedream_planned = True
+            elif req.mode == "face_reference":
+                seedream_planned = _get_config(req, "stage3_seedream", "enabled", True)
+
+            reactor_configured = face_swap_config.get("enabled") and req.reference_image
+            reactor_deferred = False  # 标记是否因 skip_reactor 而延迟执行
+
+            if reactor_configured:
+                if skip_reactor_flag and seedream_planned:
+                    # 图片有遮挡 + SeeDream 会处理 → 跳过 Reactor
+                    reactor_deferred = True
+                    details_dict["reactor_deferred"] = True
+                    details_dict["skip_reactor_flag"] = True
+                    logger.info(f"[{workflow_id}] Reactor deferred: skip_reactor flag set, SeeDream will handle")
+                else:
+                    # 正常执行 Reactor
+                    logger.info(f"[{workflow_id}] Applying face swap to first frame: {first_frame_url}")
+                    swapped_url = await _apply_face_swap_to_frame(
+                        first_frame_url,
+                        req.reference_image,
+                        strength=face_swap_config.get("strength", 1.0),
+                        task_manager=task_manager
+                    )
+                    if swapped_url:
+                        logger.info(f"[{workflow_id}] Face swap succeeded: {swapped_url}")
+                        first_frame_url = swapped_url
+                        await task_manager.redis.hset(f"workflow:{workflow_id}", "first_frame_url", first_frame_url)
+                        details_dict["face_swapped"] = True
+                        details_dict["face_swap_strength"] = face_swap_config.get("strength", 1.0)
+                        details_dict["url"] = first_frame_url
+                    else:
+                        logger.warning(f"[{workflow_id}] Face swap returned None (failed)")
+            elif face_swap_config.get("enabled") and not req.reference_image:
+                # Face swap enabled but no reference image provided
+                details_dict["face_swap_skipped"] = True
+                details_dict["face_swap_skip_reason"] = "未提供参考图片 (reference_image)"
+                logger.warning(f"[{workflow_id}] Face swap enabled but no reference_image provided")
+            else:
+                logger.info(f"[{workflow_id}] Face swap not enabled or conditions not met")
+
+            await _update_stage(task_manager, workflow_id, "first_frame_acquisition", "completed", details_dict=details_dict)
 
         # Stage 3: SeeDream Editing
-        await _update_stage(task_manager, workflow_id, "seedream_edit", "running")
         await task_manager.redis.hset(f"workflow:{workflow_id}", "current_stage", "seedream_edit")
 
-        edited_frame_url = first_frame_url
-
-        # 检查是否需要执行 SeeDream
-        should_run_seedream = False
-        skip_reason = ""
-
-        if req.mode == "first_frame":
-            # first_frame 模式跳过 SeeDream
-            should_run_seedream = False
-            skip_reason = "跳过（首帧模式）"
-
-        elif req.mode == "full_body_reference":
-            # full_body_reference 必须执行 SeeDream
-            should_run_seedream = True
-
-        elif req.mode == "face_reference":
-            # face_reference 可选执行 SeeDream
-            stage3_enabled = _get_config(req, "stage3_seedream", "enabled", True)
-            should_run_seedream = stage3_enabled
-            if not should_run_seedream:
-                skip_reason = "跳过（未启用）"
-
-        if should_run_seedream and req.reference_image:
-            # 根据宽高比计算 SeeDream 分辨率
-            # turbo 模式使用视频目标分辨率以加速; 非 turbo 使用 1080p 以保证编辑质量
-            try:
-                # 解析宽高比
-                if req.aspect_ratio:
-                    ar_parts = req.aspect_ratio.split(':')
-                    ar_width = int(ar_parts[0])
-                    ar_height = int(ar_parts[1])
-                else:
-                    # Derive aspect ratio from resolution config
-                    video_resolution = _get_config(req, "stage4_video", "generation", {}).get("resolution", "720p_3_4")
-                    if "16_9" in video_resolution or "16:9" in video_resolution:
-                        ar_width, ar_height = 16, 9
-                    elif "3_4" in video_resolution or "3:4" in video_resolution:
-                        ar_width, ar_height = 3, 4
-                    else:
-                        ar_width, ar_height = 3, 4
-                    logger.info(f"[{workflow_id}] SeeDream: aspect_ratio not provided, derived {ar_width}:{ar_height} from resolution {video_resolution}")
-
-                # 使用视频目标分辨率作为 SeeDream 分辨率（无需比视频更大）
-                import re as _re
-                res_str = req.resolution or "480p"
-                _m = _re.match(r'(\d+)', res_str)
-                p_val = int(_m.group(1)) if _m else 480
-                if ar_width >= ar_height:
-                    height = round(p_val / 8) * 8
-                    width = round(p_val * ar_width / ar_height / 8) * 8
-                else:
-                    width = round(p_val / 8) * 8
-                    height = round(p_val * ar_height / ar_width / 8) * 8
-
-                detected_size = f"{width}x{height}"
-                aspect_ratio_str = req.aspect_ratio if req.aspect_ratio else f"{ar_width}:{ar_height}"
-                logger.info(f"[{workflow_id}] SeeDream will use {p_val}p resolution: {detected_size} (aspect ratio: {aspect_ratio_str})")
-            except Exception as e:
-                logger.warning(f"Failed to calculate SeeDream size: {e}, using default")
-                detected_size = "832x1216"
-
-            # 保存 SeeDream 参数（在开始时就显示）
-            swap_face = _get_config(req, "stage3_seedream", "swap_face", None)
-            swap_accessories = _get_config(req, "stage3_seedream", "swap_accessories", None)
-            swap_expression = _get_config(req, "stage3_seedream", "swap_expression", None)
-            swap_clothing = _get_config(req, "stage3_seedream", "swap_clothing", None)
-            edit_mode = _get_config(req, "stage3_seedream", "mode", "face_wearings")
-            # Stage 3 reactor is always disabled — face swap is handled in Stage 2 only
-            enable_reactor = False
-            custom_prompt = _get_config(req, "stage3_seedream", "prompt", None)
-            strength = _get_config(req, "stage3_seedream", "strength", 0.8)
-            seed = _get_config(req, "stage3_seedream", "seed", None)
-            # 优先使用配置的尺寸，如果没有配置则使用检测到的尺寸
-            size = _get_config(req, "stage3_seedream", "size", detected_size)
-
-            # Build display prompt
-            if swap_face is not None:
-                display_prompt = custom_prompt or get_default_seedream_prompt(
-                    swap_face=swap_face, swap_accessories=swap_accessories or False,
-                    swap_expression=swap_expression or False, swap_clothing=swap_clothing or False
-                )
-                mode_label = f"custom(face={swap_face},acc={swap_accessories},expr={swap_expression},cloth={swap_clothing})"
-            else:
-                display_prompt = custom_prompt or get_default_seedream_prompt(mode=edit_mode)
-                mode_label = edit_mode
-            if req.user_prompt:
-                display_prompt = f"{display_prompt}. {req.user_prompt}"
-
-            # 在 running 状态时就保存参数
-            running_details = {
-                "mode": mode_label,
-                "swap_face": swap_face,
-                "swap_accessories": swap_accessories,
-                "swap_expression": swap_expression,
-                "swap_clothing": swap_clothing,
-                "enable_reactor": enable_reactor,
-                "prompt": display_prompt,
-                "strength": strength,
-                "seed": seed,
-                "size": size,
-                "reference_image": req.reference_image,
-                "first_frame_url": first_frame_url
-            }
-            await _update_stage(task_manager, workflow_id, "seedream_edit", "running", details_dict=running_details)
-
-            edit_result = await _edit_first_frame(workflow_id, req, first_frame_url, size, task_manager)
-            if edit_result:
-                edited_frame_url = edit_result.url
-                await task_manager.redis.hset(f"workflow:{workflow_id}", "edited_frame_url", edited_frame_url)
-
-                # 完成时添加结果 URL 和调试信息
-                running_details["url"] = edited_frame_url
-                running_details["model"] = edit_result.model
-                running_details["api_status"] = edit_result.api_status
-                running_details["face_swapped"] = edit_result.face_swapped
-                if edit_result.fallback_used:
-                    running_details["fallback_used"] = edit_result.fallback_used
-                    running_details["fallback_reason"] = edit_result.fallback_reason
-                if edit_result.error:
-                    running_details["error"] = edit_result.error
-                await _update_stage(task_manager, workflow_id, "seedream_edit", "completed", details_dict=running_details)
-            else:
-                running_details["error"] = "SeeDream 编辑失败"
-                running_details["api_status"] = "failed"
-                await _update_stage(task_manager, workflow_id, "seedream_edit", "failed", details_dict=running_details)
-                if req.mode == "full_body_reference":
-                    raise Exception("SeeDream editing failed and is required for full_body_reference mode")
-                # face_reference 模式允许 fallback
-                running_details["fallback_used"] = True
-                running_details["fallback_reason"] = "SeeDream 调用异常，使用原图"
-                edited_frame_url = first_frame_url
-                await _update_stage(task_manager, workflow_id, "seedream_edit", "completed", details_dict=running_details)
+        if is_continuation:
+            # Skip Stage 3: use parent's edited frame directly
+            edited_frame_url = first_frame_url
+            await task_manager.redis.hset(f"workflow:{workflow_id}", "edited_frame_url", edited_frame_url)
+            await _update_stage(task_manager, workflow_id, "seedream_edit", "completed", details_dict={
+                "skipped": True,
+                "reason": "故事续写模式，跳过SeeDream编辑"
+            })
+            logger.info(f"[{workflow_id}] Continuation Stage 3: skipped")
         else:
-            await _update_stage(task_manager, workflow_id, "seedream_edit", "completed", details_dict={"skipped": True, "reason": skip_reason})
+            await _update_stage(task_manager, workflow_id, "seedream_edit", "running")
+
+            edited_frame_url = first_frame_url
+
+            # 检查是否需要执行 SeeDream
+            should_run_seedream = False
+            skip_reason = ""
+
+            if req.mode == "first_frame":
+                # first_frame 模式跳过 SeeDream
+                should_run_seedream = False
+                skip_reason = "跳过（首帧模式）"
+
+            elif req.mode == "full_body_reference":
+                # full_body_reference 必须执行 SeeDream
+                should_run_seedream = True
+
+            elif req.mode == "face_reference":
+                # face_reference 可选执行 SeeDream
+                stage3_enabled = _get_config(req, "stage3_seedream", "enabled", True)
+                should_run_seedream = stage3_enabled
+                if not should_run_seedream:
+                    skip_reason = "跳过（未启用）"
+
+            if should_run_seedream and req.reference_image:
+                # 根据宽高比计算 SeeDream 分辨率
+                # turbo 模式使用视频目标分辨率以加速; 非 turbo 使用 1080p 以保证编辑质量
+                try:
+                    # 解析宽高比
+                    if req.aspect_ratio:
+                        ar_parts = req.aspect_ratio.split(':')
+                        ar_width = int(ar_parts[0])
+                        ar_height = int(ar_parts[1])
+                    else:
+                        # Derive aspect ratio from resolution config
+                        video_resolution = _get_config(req, "stage4_video", "generation", {}).get("resolution", "720p_3_4")
+                        if "16_9" in video_resolution or "16:9" in video_resolution:
+                            ar_width, ar_height = 16, 9
+                        elif "3_4" in video_resolution or "3:4" in video_resolution:
+                            ar_width, ar_height = 3, 4
+                        else:
+                            ar_width, ar_height = 3, 4
+                        logger.info(f"[{workflow_id}] SeeDream: aspect_ratio not provided, derived {ar_width}:{ar_height} from resolution {video_resolution}")
+
+                    # 使用视频目标分辨率作为 SeeDream 分辨率（无需比视频更大）
+                    import re as _re
+                    res_str = req.resolution or "480p"
+                    _m = _re.match(r'(\d+)', res_str)
+                    p_val = int(_m.group(1)) if _m else 480
+                    if ar_width >= ar_height:
+                        height = round(p_val / 8) * 8
+                        width = round(p_val * ar_width / ar_height / 8) * 8
+                    else:
+                        width = round(p_val / 8) * 8
+                        height = round(p_val * ar_height / ar_width / 8) * 8
+
+                    detected_size = f"{width}x{height}"
+                    aspect_ratio_str = req.aspect_ratio if req.aspect_ratio else f"{ar_width}:{ar_height}"
+                    logger.info(f"[{workflow_id}] SeeDream will use {p_val}p resolution: {detected_size} (aspect ratio: {aspect_ratio_str})")
+                except Exception as e:
+                    logger.warning(f"Failed to calculate SeeDream size: {e}, using default")
+                    detected_size = "832x1216"
+
+                # 保存 SeeDream 参数（在开始时就显示）
+                swap_face = _get_config(req, "stage3_seedream", "swap_face", None)
+                swap_accessories = _get_config(req, "stage3_seedream", "swap_accessories", None)
+                swap_expression = _get_config(req, "stage3_seedream", "swap_expression", None)
+                swap_clothing = _get_config(req, "stage3_seedream", "swap_clothing", None)
+                edit_mode = _get_config(req, "stage3_seedream", "mode", "face_wearings")
+                # Stage 3 reactor is always disabled — face swap is handled in Stage 2 only
+                enable_reactor = False
+                custom_prompt = _get_config(req, "stage3_seedream", "prompt", None)
+                strength = _get_config(req, "stage3_seedream", "strength", 0.8)
+                seed = _get_config(req, "stage3_seedream", "seed", None)
+                # 优先使用配置的尺寸，如果没有配置则使用检测到的尺寸
+                size = _get_config(req, "stage3_seedream", "size", detected_size)
+
+                # Build display prompt
+                if swap_face is not None:
+                    display_prompt = custom_prompt or get_default_seedream_prompt(
+                        swap_face=swap_face, swap_accessories=swap_accessories or False,
+                        swap_expression=swap_expression or False, swap_clothing=swap_clothing or False
+                    )
+                    mode_label = f"custom(face={swap_face},acc={swap_accessories},expr={swap_expression},cloth={swap_clothing})"
+                else:
+                    display_prompt = custom_prompt or get_default_seedream_prompt(mode=edit_mode)
+                    mode_label = edit_mode
+                if req.user_prompt:
+                    display_prompt = f"{display_prompt}. {req.user_prompt}"
+
+                # 在 running 状态时就保存参数
+                running_details = {
+                    "mode": mode_label,
+                    "swap_face": swap_face,
+                    "swap_accessories": swap_accessories,
+                    "swap_expression": swap_expression,
+                    "swap_clothing": swap_clothing,
+                    "enable_reactor": enable_reactor,
+                    "prompt": display_prompt,
+                    "strength": strength,
+                    "seed": seed,
+                    "size": size,
+                    "reference_image": req.reference_image,
+                    "first_frame_url": first_frame_url
+                }
+                await _update_stage(task_manager, workflow_id, "seedream_edit", "running", details_dict=running_details)
+
+                edit_result = await _edit_first_frame(workflow_id, req, first_frame_url, size, task_manager)
+                if edit_result:
+                    edited_frame_url = edit_result.url
+                    await task_manager.redis.hset(f"workflow:{workflow_id}", "edited_frame_url", edited_frame_url)
+
+                    # 完成时添加结果 URL 和调试信息
+                    running_details["url"] = edited_frame_url
+                    running_details["model"] = edit_result.model
+                    running_details["api_status"] = edit_result.api_status
+                    running_details["face_swapped"] = edit_result.face_swapped
+                    if edit_result.fallback_used:
+                        running_details["fallback_used"] = edit_result.fallback_used
+                        running_details["fallback_reason"] = edit_result.fallback_reason
+                    if edit_result.error:
+                        running_details["error"] = edit_result.error
+                    await _update_stage(task_manager, workflow_id, "seedream_edit", "completed", details_dict=running_details)
+                else:
+                    running_details["error"] = "SeeDream 编辑失败"
+                    running_details["api_status"] = "failed"
+                    await _update_stage(task_manager, workflow_id, "seedream_edit", "failed", details_dict=running_details)
+                    if req.mode == "full_body_reference":
+                        raise Exception("SeeDream editing failed and is required for full_body_reference mode")
+
+                    # face_reference 模式：检查 Reactor 兜底
+                    if reactor_deferred and reactor_configured:
+                        # skip_reactor 图片 + SeeDream 失败 → Reactor 补救
+                        logger.info(f"[{workflow_id}] SeeDream failed, applying deferred reactor fallback")
+                        swapped_url = await _apply_face_swap_to_frame(
+                            first_frame_url,
+                            req.reference_image,
+                            strength=face_swap_config.get("strength", 1.0),
+                            task_manager=task_manager
+                        )
+                        if swapped_url:
+                            edited_frame_url = swapped_url
+                            running_details["reactor_fallback"] = True
+                        else:
+                            edited_frame_url = first_frame_url
+
+                        running_details["fallback_used"] = True
+                        running_details["fallback_reason"] = "SeeDream 失败，Reactor 兜底"
+                    else:
+                        edited_frame_url = first_frame_url
+                        running_details["fallback_used"] = True
+                        running_details["fallback_reason"] = "SeeDream 调用异常，使用原图"
+
+                    await _update_stage(task_manager, workflow_id, "seedream_edit", "completed", details_dict=running_details)
+            else:
+                await _update_stage(task_manager, workflow_id, "seedream_edit", "completed", details_dict={"skipped": True, "reason": skip_reason})
 
         # Stage 4: Video Generation
         await task_manager.redis.hset(f"workflow:{workflow_id}", "current_stage", "video_generation")
@@ -534,6 +682,7 @@ async def _execute_workflow(workflow_id: str, req, task_manager):
         postprocess_config = _get_config(req, "stage4_video", "postprocess", {})
         upscale_enabled = postprocess_config.get("upscale", {}).get("enabled", False) if isinstance(postprocess_config, dict) else False
         interp_enabled = postprocess_config.get("interpolation", {}).get("enabled", False) if isinstance(postprocess_config, dict) else False
+        mmaudio_enabled = postprocess_config.get("mmaudio", {}).get("enabled", False) if isinstance(postprocess_config, dict) else False
 
         # 在 running 状态时就保存所有参数
         auto_prompt = _get_config(req, "stage1_prompt_analysis", "auto_prompt", True)
@@ -547,12 +696,13 @@ async def _execute_workflow(workflow_id: str, req, task_manager):
             "face_swap_enabled": face_swap_enabled,
             "upscale_enabled": upscale_enabled,
             "interpolation_enabled": interp_enabled,
+            "mmaudio_enabled": mmaudio_enabled,
             "first_frame_url": edited_frame_url,
             "prompt": display_prompt
         }
         await _update_stage(task_manager, workflow_id, "video_generation", "running", details_dict=running_details)
 
-        chain_id, final_video_url, loras_info = await _generate_video(workflow_id, req, edited_frame_url, analysis_result, task_manager)
+        chain_id, final_video_url, loras_info = await _generate_video(workflow_id, req, edited_frame_url, analysis_result, task_manager, is_continuation=is_continuation, parent_workflow=parent_workflow)
 
         if chain_id:
             await task_manager.redis.hset(f"workflow:{workflow_id}", "chain_id", chain_id)
@@ -680,9 +830,10 @@ async def _analyze_prompt(req, task_manager) -> Optional[dict]:
                 "optimized_i2v_prompt": result.video_prompt,
                 "optimized_t2i_prompt": result.image_prompt,
                 "reference_image": result.reference_image,
+                "reference_skip_reactor": result.reference_skip_reactor,
                 "image_loras": image_loras,
                 "video_loras": video_loras,
-                "images": [{"url": result.reference_image}] if result.reference_image else [],
+                "images": [{"url": result.reference_image, "skip_reactor": result.reference_skip_reactor}] if result.reference_image else [],
                 "pose_keys": pose_keys
             }
 
@@ -1065,7 +1216,7 @@ async def _edit_first_frame(workflow_id: str, req, first_frame_url: str, size: s
         return None
 
 
-async def _generate_video(workflow_id: str, req, first_frame_url: str, analysis_result: Optional[dict], task_manager) -> tuple[Optional[str], Optional[str]]:
+async def _generate_video(workflow_id: str, req, first_frame_url: str, analysis_result: Optional[dict], task_manager, is_continuation: bool = False, parent_workflow: dict = None) -> tuple[Optional[str], Optional[str]]:
     """
     Generate video using Chain workflow.
 
@@ -1390,6 +1541,19 @@ async def _generate_video(workflow_id: str, req, first_frame_url: str, analysis_
             )]
         )
 
+        # Story continuation: set parent video/chain references
+        if is_continuation and not parent_workflow:
+            logger.warning(f"[{workflow_id}] is_continuation=True but parent_workflow is None, Story Mode skipped")
+        if is_continuation and parent_workflow:
+            parent_video_url = parent_workflow.get("final_video_url")
+            if parent_video_url:
+                chain_req.parent_video_url = parent_video_url
+                logger.info(f"[{workflow_id}] Story continuation: parent_video_url={parent_video_url}")
+            parent_chain_id = parent_workflow.get("chain_id")
+            if parent_chain_id:
+                chain_req.parent_chain_id = parent_chain_id
+                logger.info(f"[{workflow_id}] Story continuation: parent_chain_id={parent_chain_id}")
+
         # Log video generation parameters
         logger.info(f"[VIDEO_PARAMS] {workflow_id} - Video generation parameters:")
         logger.info(f"[VIDEO_PARAMS] {workflow_id} - model: {video_model} -> {model}")
@@ -1469,6 +1633,16 @@ async def _generate_video(workflow_id: str, req, first_frame_url: str, analysis_
                 chain_req.interpolation_multiplier = interp_config.get("multiplier", 2)
                 chain_req.interpolation_profile = interp_config.get("profile", "auto")
                 logger.info(f"[VIDEO_PARAMS] {workflow_id} - interpolation enabled: multiplier={chain_req.interpolation_multiplier}, profile={chain_req.interpolation_profile}")
+
+            # MMAudio
+            mmaudio_config = postprocess_config.get("mmaudio", {})
+            if mmaudio_config.get("enabled"):
+                chain_req.enable_mmaudio = True
+                chain_req.mmaudio_prompt = mmaudio_config.get("prompt", "")
+                chain_req.mmaudio_negative_prompt = mmaudio_config.get("negative_prompt", "")
+                chain_req.mmaudio_steps = mmaudio_config.get("steps", 25)
+                chain_req.mmaudio_cfg = mmaudio_config.get("cfg", 4.5)
+                logger.info(f"[VIDEO_PARAMS] {workflow_id} - mmaudio enabled: steps={chain_req.mmaudio_steps}, cfg={chain_req.mmaudio_cfg}, prompt='{chain_req.mmaudio_prompt[:50]}'")
 
         # Call chain generation endpoint
         params_json = chain_req.model_dump_json()
