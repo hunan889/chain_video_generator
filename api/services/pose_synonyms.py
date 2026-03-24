@@ -370,7 +370,7 @@ def _normalize(text: str) -> str:
 
 def expand_query(query: str) -> str:
     """扩展查询，添加同义词"""
-    query_lower = query.lower()
+    query_lower = query.lower().replace('-', ' ')
     query_normalized = _normalize(query_lower)
     expanded_terms = [query_lower]
 

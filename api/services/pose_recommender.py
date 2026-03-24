@@ -159,7 +159,7 @@ class PoseRecommender:
             推荐结果列表
         """
         # 阶段1: 同义词扩展
-        original_prompt = prompt.lower()
+        original_prompt = prompt.lower().replace('-', ' ')
         expanded_prompt = expand_query(prompt)
 
         # 阶段2: 选择匹配策略
