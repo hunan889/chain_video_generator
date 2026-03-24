@@ -8,11 +8,6 @@
 </head>
 <body>
 <div class="container">
-<h1>AI Studio</h1>
-<div class="api-key-bar">
-<label>API Key:</label>
-<input type="password" id="apiKey" value="wan22-default-key-change-me" placeholder="Enter API Key" onchange="localStorage.setItem('wan22_api_key', this.value)">
-</div>
 
 <!-- Main Navigation -->
 <div class="main-tabs">
@@ -23,6 +18,7 @@
 <div class="main-tab" data-main="favorites">我的收藏</div>
 <div class="main-tab" data-main="annotate">资源管理</div>
 <div class="main-tab" data-main="poses">姿势管理</div>
+<div class="main-tab" data-main="settings" style="margin-left:auto;color:#888">设置</div>
 </div>
 
 <!-- Dynamic Module Content (video/image/chat loaded here) -->
@@ -30,19 +26,19 @@
 
 <!-- Iframe Sections (lazy-loaded on tab click) -->
 <div class="main-section" id="section-workflow">
-<iframe id="iframe-workflow" style="width:100%;height:calc(100vh - 200px);border:none;border-radius:8px;"></iframe>
+<iframe id="iframe-workflow" class="tab-iframe"></iframe>
 </div>
 
 <div class="main-section" id="section-wf-history">
-<iframe id="iframe-wf-history" style="width:100%;height:calc(100vh - 200px);border:none;border-radius:8px;"></iframe>
+<iframe id="iframe-wf-history" class="tab-iframe"></iframe>
 </div>
 
 <div class="main-section" id="section-favorites">
-<iframe id="iframe-favorites" style="width:100%;height:calc(100vh - 200px);border:none;border-radius:8px;background:#0a0a23"></iframe>
+<iframe id="iframe-favorites" class="tab-iframe" style="background:#0a0a23"></iframe>
 </div>
 
 <div class="main-section" id="section-annotate">
-<iframe id="iframe-annotate" style="width:100%;height:calc(100vh - 180px);border:none;border-radius:8px"></iframe>
+<iframe id="iframe-annotate" class="tab-iframe"></iframe>
 </div>
 
 <div class="main-section" id="section-poses">
@@ -52,13 +48,23 @@
 <div class="tab" data-posetab="pose-synonyms">同义词配置</div>
 </div>
 <div class="panel active" id="panel-pose-manager">
-<iframe id="iframe-pose-manager" style="width:100%;height:calc(100vh - 240px);border:none;border-radius:8px"></iframe>
+<iframe id="iframe-pose-manager" class="tab-iframe tab-iframe-nested"></iframe>
 </div>
 <div class="panel" id="panel-pose-recommend">
-<iframe id="iframe-pose-recommend" style="width:100%;height:calc(100vh - 240px);border:none;border-radius:8px"></iframe>
+<iframe id="iframe-pose-recommend" class="tab-iframe tab-iframe-nested"></iframe>
 </div>
 <div class="panel" id="panel-pose-synonyms">
-<iframe id="iframe-pose-synonyms" style="width:100%;height:calc(100vh - 240px);border:none;border-radius:8px"></iframe>
+<iframe id="iframe-pose-synonyms" class="tab-iframe tab-iframe-nested"></iframe>
+</div>
+</div>
+
+<div class="main-section" id="section-settings">
+<div style="background:#16213e;border:1px solid #333;border-radius:8px;padding:20px;max-width:500px">
+<h3 style="color:#7c83ff;margin-bottom:16px;font-size:15px">设置</h3>
+<div style="margin-bottom:16px">
+<label style="display:block;margin-bottom:6px;font-size:13px;color:#aaa">API Key</label>
+<input type="password" id="apiKey" value="wan22-default-key-change-me" style="width:100%;padding:8px 10px;background:#0a0a23;border:1px solid #444;border-radius:6px;color:#e0e0e0;font-size:14px" placeholder="Enter API Key" onchange="localStorage.setItem('wan22_api_key', this.value)">
+</div>
 </div>
 </div>
 
@@ -86,11 +92,6 @@
 </div>
 </div>
 
-<!-- Tasks -->
-<div class="tasks">
-<h2 style="color:#7c83ff;margin-bottom:12px;font-size:1.1em">任务列表</h2>
-<div id="task-list"></div>
-</div>
 </div>
 
 <script src="/static/js/common.js"></script>
@@ -110,6 +111,10 @@ const IFRAME_SRCS = {
 
 // Module tabs load HTML fragments; iframe tabs show iframes
 const MODULE_TABS = new Set(['video', 'image']);
+
+// Init API Key from localStorage
+const _savedKey = localStorage.getItem('wan22_api_key');
+if (_savedKey) document.getElementById('apiKey').value = _savedKey;
 
 
 // Main tab switching

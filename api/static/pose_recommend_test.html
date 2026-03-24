@@ -24,6 +24,25 @@ textarea{min-height:100px;resize:vertical}
 .match-reason{font-size:13px;color:#aaa;margin-bottom:4px}
 .category{font-size:12px;color:#666}
 .empty{text-align:center;padding:40px;color:#666}
+
+/* Mobile */
+@media screen and (max-width: 768px) {
+  body{padding:12px 10px}
+  .container{max-width:100%}
+  h1{font-size:1.3em;margin-bottom:20px}
+  .test-panel,.results{padding:14px;border-radius:14px}
+  .input-group{margin-bottom:14px}
+  label{font-size:14px;margin-bottom:6px}
+  input,textarea{font-size:16px;padding:12px;border-radius:10px}
+  .btn{width:100%;padding:14px;font-size:16px;border-radius:12px}
+  .result-item{padding:14px;border-radius:10px}
+  .result-header{flex-direction:column;gap:4px;align-items:flex-start}
+  .pose-name{font-size:15px}
+  .score{font-size:13px}
+  .match-reason{font-size:13px}
+  .category{font-size:12px}
+  *{-webkit-tap-highlight-color:transparent}
+}
 </style>
 </head>
 <body>

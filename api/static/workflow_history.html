@@ -214,6 +214,10 @@ function cardHtml(w) {
     </div>
     <div class="card-body">
       <span class="card-status ${statusClass}">${statusLabel}</span>
+      <div class="card-wfid" style="font-size:11px;color:#666;margin-bottom:4px;display:flex;align-items:center;gap:4px">
+        <span style="font-family:monospace;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${w.workflow_id}">${w.workflow_id}</span>
+        <button onclick="event.stopPropagation();copyWfId('${w.workflow_id}')" style="background:none;border:1px solid #444;border-radius:3px;color:#888;font-size:10px;padding:1px 5px;cursor:pointer;flex-shrink:0" title="复制ID">📋</button>
+      </div>
       <div class="card-prompt" title="${(w.user_prompt||'').replace(/"/g,'&quot;')}">${w.user_prompt || '(无 prompt)'}</div>
       <div class="card-meta">
         <span>${timeStr}</span>
@@ -284,6 +288,21 @@ function showDetail(wfId) {
 
   document.getElementById('modalContent').innerHTML = html;
   document.getElementById('detailModal').classList.add('open');
+}
+
+function copyWfId(wfId) {
+  navigator.clipboard.writeText(wfId).then(() => {
+    const btns = document.querySelectorAll('.card-wfid button');
+    btns.forEach(b => { if (b.getAttribute('onclick').includes(wfId)) { b.textContent = '✓'; setTimeout(() => b.textContent = '📋', 1500); } });
+  }).catch(() => {
+    // Fallback for non-HTTPS
+    const ta = document.createElement('textarea');
+    ta.value = wfId;
+    document.body.appendChild(ta);
+    ta.select();
+    document.execCommand('copy');
+    document.body.removeChild(ta);
+  });
 }
 
 function closeModal(e) {
