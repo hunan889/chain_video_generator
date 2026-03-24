@@ -1325,6 +1325,12 @@ def _inject_story_postproc(workflow: dict, seg: dict) -> dict:
             rife_profile = _select_rife_profile(rife_w, rife_h)
         else:
             rife_profile = seg.get("interpolation_profile", "small")
+            # Map UI profile names to valid RIFE TRT profiles
+            _VALID_RIFE_TRT_PROFILES = {"small", "medium", "large", "custom"}
+            if rife_profile not in _VALID_RIFE_TRT_PROFILES:
+                rife_profile = _select_rife_profile(
+                    seg.get("width", 480), seg.get("height", 848)
+                )
         workflow["pp_rife_loader"] = {
             "class_type": "AutoLoadRifeTensorrtModel",
             "inputs": {
@@ -1967,6 +1973,10 @@ def build_merged_story_workflow(
             rife_profile = _select_rife_profile(rife_w, rife_h)
         else:
             rife_profile = interpolation_profile
+            # Map UI profile names to valid RIFE TRT profiles
+            _VALID_RIFE_TRT_PROFILES = {"small", "medium", "large", "custom"}
+            if rife_profile not in _VALID_RIFE_TRT_PROFILES:
+                rife_profile = _select_rife_profile(width, height)
         workflow["pp_rife_loader"] = {
             "class_type": "AutoLoadRifeTensorrtModel",
             "inputs": {
@@ -2146,7 +2156,9 @@ def build_interpolate_workflow(
                 "large": (720, 1920),
             }
 
-            # Validate and auto-correct profile
+            # Map UI profile names (fast/quality/auto) to valid RIFE TRT profiles
+            if resolution_profile not in profile_ranges:
+                resolution_profile = _select_rife_profile(width, height)
             if resolution_profile in profile_ranges:
                 min_res, max_res = profile_ranges[resolution_profile]
                 if max_dim < min_res or max_dim > max_res:

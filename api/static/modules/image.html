@@ -153,6 +153,30 @@
 <div class="field"><label><input type="checkbox" id="sceneswap-skip-reactor" onchange="onSceneSwapModeChange()"> 跳过换脸</label>
 <div style="font-size:11px;color:#666;margin-top:2px">不做 Reactor 换脸，仅靠 AI 大模型理解提示词替换人物</div>
 </div>
+<div class="field" id="sceneswap-occlusion-pct-group" style="display:none"><label>遮挡恢复强度</label>
+<input type="range" id="sceneswap-occlusion-pct" min="20" max="90" step="5" value="60" oninput="document.getElementById('sceneswap-occlusion-pct-val').textContent=this.value">
+<span id="sceneswap-occlusion-pct-val" style="color:#7c83ff;font-size:13px">60</span>
+<div style="font-size:11px;color:#666;margin-top:2px">越低恢复越多原图（保留更多遮挡物）| 越高越信任换脸结果 | 默认 60</div>
+</div>
+</div>
+<div class="row" id="sceneswap-reactor-params">
+<div class="field"><label>CodeFormer 修复权重</label>
+<input type="range" id="sceneswap-codeformer" min="0" max="1" step="0.1" value="0.7" oninput="document.getElementById('sceneswap-codeformer-val').textContent=this.value">
+<span id="sceneswap-codeformer-val" style="color:#7c83ff;font-size:13px">0.7</span>
+<div style="font-size:11px;color:#666;margin-top:2px">越高面部修复越强，可能丢失细节 | 默认 0.7</div>
+</div>
+<div class="field"><label>修复可见度</label>
+<input type="range" id="sceneswap-visibility" min="0" max="1" step="0.05" value="1" oninput="document.getElementById('sceneswap-visibility-val').textContent=this.value">
+<span id="sceneswap-visibility-val" style="color:#7c83ff;font-size:13px">1</span>
+<div style="font-size:11px;color:#666;margin-top:2px">CodeFormer 修复结果的混合程度 | 默认 1</div>
+</div>
+<div class="field"><label>人脸检测阈值</label>
+<input type="range" id="sceneswap-det-thresh" min="0.1" max="0.9" step="0.05" value="0.5" oninput="document.getElementById('sceneswap-det-thresh-val').textContent=this.value">
+<span id="sceneswap-det-thresh-val" style="color:#7c83ff;font-size:13px">0.5</span>
+<div style="font-size:11px;color:#666;margin-top:2px">越低越容易检测到脸，越高越严格 | 默认 0.5</div>
+</div>
+</div>
+<div class="row">
 <div class="field"><label>输出尺寸</label>
 <select id="sceneswap-size">
 <option value="1024x1024">1024×1024 方形</option>
@@ -631,13 +655,23 @@ function onSceneSwapModeChange() {
   const skip = document.getElementById('sceneswap-skip-reactor').checked;
   const occl = document.getElementById('sceneswap-occlusion').checked;
   const reactorOnly = document.getElementById('sceneswap-reactor-only');
+  const occlCheckbox = document.getElementById('sceneswap-occlusion');
   const expr = document.getElementById('sceneswap-expr');
-  // Occlusion mode auto-skips Reactor, incompatible with reactor-only
-  if (occl) { reactorOnly.checked = false; reactorOnly.disabled = true; }
-  else { reactorOnly.disabled = skip; }
-  // Skip reactor disables reactor-only
-  if (skip) { reactorOnly.checked = false; reactorOnly.disabled = true; }
-  expr.disabled = skip || occl || reactorOnly.checked;
+  const reactorParams = document.getElementById('sceneswap-reactor-params');
+  // skip_reactor is incompatible with reactor_only and preserve_occlusion (both need Reactor)
+  if (skip) {
+    reactorOnly.checked = false; reactorOnly.disabled = true;
+    occlCheckbox.checked = false; occlCheckbox.disabled = true;
+  } else {
+    reactorOnly.disabled = false;
+    occlCheckbox.disabled = false;
+  }
+  // Expression: disabled only when skip (no swap to blend with)
+  expr.disabled = skip;
+  // Reactor params: hidden only when reactor is actually skipped
+  reactorParams.style.display = skip ? 'none' : '';
+  // Occlusion percentile: shown when preserve_occlusion is checked
+  document.getElementById('sceneswap-occlusion-pct-group').style.display = (occl && !skip) ? '' : 'none';
 }
 
 async function submitSceneSwap() {
@@ -665,9 +699,18 @@ async function submitSceneSwap() {
   fd.append('reactor_only', reactorOnly ? 'true' : 'false');
   fd.append('expression_keep', (skipReactor || occlusion || reactorOnly) ? '0' : document.getElementById('sceneswap-expr').value);
   fd.append('preserve_occlusion', occlusion ? 'true' : 'false');
+  if (occlusion) {
+    fd.append('occlusion_percentile', document.getElementById('sceneswap-occlusion-pct').value);
+  }
   fd.append('size', size);
   fd.append('model', document.getElementById('sceneswap-model').value);
   if (seed >= 0) fd.append('seed', seed);
+  // Reactor 参数
+  if (!skipReactor && !occlusion) {
+    fd.append('reactor_codeformer_weight', document.getElementById('sceneswap-codeformer').value);
+    fd.append('reactor_restorer_visibility', document.getElementById('sceneswap-visibility').value);
+    fd.append('reactor_det_thresh', document.getElementById('sceneswap-det-thresh').value);
+  }
   try {
     const modeText = skipReactor ? 'SeedDream 编辑' : reactorOnly ? 'Reactor 换脸' : 'Reactor换脸 + SeedDream编辑';
     statusEl.textContent = `正在处理 (${modeText})，请稍候...`;

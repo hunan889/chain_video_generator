@@ -799,7 +799,7 @@ function getDefaultConfig(mode, turbo) {
         generation = { steps: 5, cfg: 1, scheduler: 'euler', shift: 5.0, model_preset: 'nsfw_v2' };
         postprocess = { upscale: { enabled: true, model: '4x-UltraSharp', resize: 2.0 }, interpolation: { enabled: false }, mmaudio: { enabled: false } };
     } else {
-        generation = { steps: 5, cfg: 2, scheduler: 'euler', shift: 5.0, model_preset: 'nsfw_v2' };
+        generation = { steps: 5, cfg: 1, scheduler: 'euler', shift: 5.0, model_preset: 'nsfw_v2' };
         postprocess = { upscale: { enabled: true, model: '4x-UltraSharp', resize: 1.5 }, interpolation: { enabled: true, multiplier: 2, profile: 'fast' }, mmaudio: { enabled: false } };
     }
 

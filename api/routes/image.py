@@ -416,7 +416,7 @@ def _blend_expression(original_data: bytes, swapped_data: bytes, keep: float) ->
     return buf.getvalue()
 
 
-def _overlay_face_only(original_data: bytes, swapped_data: bytes) -> bytes:
+def _overlay_face_only(original_data: bytes, swapped_data: bytes, occlusion_percentile: float = 60) -> bytes:
     """Overlay only the core face skin from swapped onto original, preserving occlusions.
 
     Two-layer approach:
@@ -424,6 +424,12 @@ def _overlay_face_only(original_data: bytes, swapped_data: bytes) -> bytes:
     2. Pixel-diff occlusion detection: within the face region, finds areas where
        Reactor over-modified (removed occlusions like hands, objects in mouth,
        glasses, etc.) and restores those from the original.
+
+    Args:
+        occlusion_percentile: Percentile threshold for occlusion detection (0-100).
+            Lower = more aggressive restoration (keeps more of original).
+            Higher = less restoration (trusts Reactor swap more).
+            Default 60 means top ~40% of diff pixels are treated as occlusion.
     """
     from PIL import Image, ImageFilter, ImageDraw
     import io
@@ -499,12 +505,12 @@ def _overlay_face_only(original_data: bytes, swapped_data: bytes) -> bytes:
     # Use a percentile so the top N% of pixels get restored from original.
     face_pixels = diff[np.array(face_mask) > 128]
     if len(face_pixels) > 0:
-        # 60th percentile: top ~40% of face-region diffs treated as occlusion
-        occlusion_thresh = np.percentile(face_pixels, 60)
+        occlusion_thresh = np.percentile(face_pixels, occlusion_percentile)
         # Ensure a minimum threshold to avoid false positives on low-diff faces
         occlusion_thresh = max(occlusion_thresh, 30)
-        logger.info("Occlusion detection: median=%.1f, p60=%.1f, thresh=%.1f",
-                     np.median(face_pixels), np.percentile(face_pixels, 60), occlusion_thresh)
+        logger.info("Occlusion detection: median=%.1f, p%.0f=%.1f, thresh=%.1f",
+                     np.median(face_pixels), occlusion_percentile,
+                     np.percentile(face_pixels, occlusion_percentile), occlusion_thresh)
     else:
         occlusion_thresh = 80
 
@@ -547,6 +553,10 @@ async def scene_swap(
     size: str = Form("1024x1024"),
     seed: Optional[int] = Form(None),
     model: Optional[str] = Form(None),
+    reactor_codeformer_weight: Optional[float] = Form(None),
+    reactor_restorer_visibility: Optional[float] = Form(None),
+    reactor_det_thresh: Optional[float] = Form(None),
+    occlusion_percentile: Optional[float] = Form(None),
     _user=Depends(verify_api_key),
 ):
     """Scene character replacement: swap the person in scene_image to face_image's identity.
@@ -601,15 +611,15 @@ async def scene_swap(
             "face_index": [0],
             "model": "inswapper_128.onnx",
             "face_restorer": "CodeFormer",
-            "restorer_visibility": 1,
-            "codeformer_weight": 0.7,
+            "restorer_visibility": reactor_restorer_visibility if reactor_restorer_visibility is not None else 1,
+            "codeformer_weight": reactor_codeformer_weight if reactor_codeformer_weight is not None else 0.7,
             "restore_first": 1,
             "upscaler": "None",
             "scale": 1,
             "upscale_visibility": 1,
             "device": "CUDA",
             "mask_face": 1,
-            "det_thresh": 0.5,
+            "det_thresh": reactor_det_thresh if reactor_det_thresh is not None else 0.5,
             "det_maxnum": 0,
         }
 
@@ -636,9 +646,10 @@ async def scene_swap(
         # Step 1.5: Post-process swapped face
         if preserve_occlusion:
             logger.info("SceneSwap: preserving occlusions (face-only overlay)...")
-            swapped_data = _overlay_face_only(scene_cropped, swapped_data)
+            swapped_data = _overlay_face_only(scene_cropped, swapped_data,
+                                              occlusion_percentile=occlusion_percentile if occlusion_percentile is not None else 60)
             logger.info("SceneSwap: occlusion preservation done")
-        elif expression_keep > 0:
+        if expression_keep > 0:
             logger.info("SceneSwap blending expression (keep=%.2f)...", expression_keep)
             swapped_data = _blend_expression(scene_cropped, swapped_data, expression_keep)
             logger.info("SceneSwap expression blend done")

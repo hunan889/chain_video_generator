@@ -1601,8 +1601,8 @@ async def _generate_video(workflow_id: str, req, first_frame_url: str, analysis_
                 chain_req.upscale_resize = f"{int(resize_factor)}x" if resize_factor == int(resize_factor) else f"{resize_factor}x"
                 gen_width = max(16, int(round(width / resize_factor / 16)) * 16)
                 gen_height = max(16, int(round(height / resize_factor / 16)) * 16)
-                # Ensure minimum generation size (Wan2.2 needs at least 480px)
-                MIN_GEN_DIM = 480
+                # Ensure minimum generation size (avoid too-small gen dims, e.g. 480p+2x=240p)
+                MIN_GEN_DIM = 320
                 if gen_width < MIN_GEN_DIM or gen_height < MIN_GEN_DIM:
                     # Clamp resize_factor so neither dimension falls below minimum
                     max_factor_w = width / MIN_GEN_DIM
