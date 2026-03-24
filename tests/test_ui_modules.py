@@ -15,15 +15,15 @@ MODULE_LOAD_TIMEOUT = 30000
 
 
 def _switch_to_image(page):
-    """Helper: click image tab and wait for image module to load."""
+    """Helper: click image tab and wait for image module to be visible."""
     page.locator('.main-tab[data-main="image"]').click()
-    page.wait_for_selector("#section-image", state="attached", timeout=MODULE_LOAD_TIMEOUT)
+    page.wait_for_selector("#section-image", state="visible", timeout=MODULE_LOAD_TIMEOUT)
 
 
 def _switch_to_video(page):
-    """Helper: click video tab and wait for video module to load."""
+    """Helper: click video tab and wait for video module to be visible."""
     page.locator('.main-tab[data-main="video"]').click()
-    page.wait_for_selector("#section-video", state="attached", timeout=MODULE_LOAD_TIMEOUT)
+    page.wait_for_selector("#section-video", state="visible", timeout=MODULE_LOAD_TIMEOUT)
 
 
 # ---------------------------------------------------------------------------
@@ -34,16 +34,15 @@ class TestShellLoads:
     """Verify the shell HTML (index.html) loads correctly."""
 
     def test_shell_loads(self, page):
-        """Title, API key input, and all 7 main tabs exist."""
+        """Title, API key input, and all 8 main tabs exist."""
         expect(page).to_have_title("AI Studio")
-        expect(page.locator("h1")).to_have_text("AI Studio")
-        expect(page.locator("#apiKey")).to_be_visible()
+        expect(page.locator("#apiKey")).to_be_attached()
 
         main_tabs = page.locator(".main-tab")
-        expect(main_tabs).to_have_count(7)
+        expect(main_tabs).to_have_count(8)
 
         expected = ["video", "image", "workflow", "wf-history",
-                    "favorites", "annotate", "poses"]
+                    "favorites", "annotate", "poses", "settings"]
         for val in expected:
             expect(page.locator(f'.main-tab[data-main="{val}"]')).to_be_attached()
 
@@ -173,16 +172,16 @@ class TestTabSwitching:
         expect(page.locator("#t2v-prompt")).to_be_attached()
 
     def test_module_content_isolation(self, page):
-        """When image module active, video DOM is replaced; and vice versa."""
-        expect(page.locator("#section-video")).to_be_attached()
+        """When image module active, video is hidden; and vice versa."""
+        expect(page.locator("#section-video")).to_be_visible()
 
-        # Switch to image — video section replaced by ModuleLoader
+        # Switch to image — video section hidden by ModuleLoader
         _switch_to_image(page)
-        expect(page.locator("#section-video")).not_to_be_attached()
+        expect(page.locator("#section-video")).not_to_be_visible()
 
-        # Switch back — image section replaced
+        # Switch back — image section hidden
         _switch_to_video(page)
-        expect(page.locator("#section-image")).not_to_be_attached()
+        expect(page.locator("#section-image")).not_to_be_visible()
 
 
 # ---------------------------------------------------------------------------
@@ -236,6 +235,10 @@ class TestSharedInfrastructure:
         """Set API key -> change event -> verify localStorage."""
         test_key = "test-e2e-key-12345"
 
+        # Switch to settings tab to make #apiKey visible
+        page.locator('.main-tab[data-main="settings"]').click()
+        page.wait_for_selector("#section-settings.active", timeout=5000)
+
         page.locator("#apiKey").fill(test_key)
         page.locator("#apiKey").dispatch_event("change")
 
@@ -247,6 +250,10 @@ class TestSharedInfrastructure:
 
         # Cleanup
         page.evaluate("localStorage.removeItem('wan22_api_key')")
+
+        # Switch back to video so page fixture state is consistent
+        page.locator('.main-tab[data-main="video"]').click()
+        page.wait_for_selector("#section-video", state="visible", timeout=MODULE_LOAD_TIMEOUT)
 
 
 # ---------------------------------------------------------------------------

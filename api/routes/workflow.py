@@ -177,19 +177,21 @@ async def _search_image_loras(
 
         # Query database for LORA details
         conn = pymysql.connect(**DB_CONFIG)
-        cursor = conn.cursor(pymysql.cursors.DictCursor)
+        try:
+            cursor = conn.cursor(pymysql.cursors.DictCursor)
 
-        placeholders = ','.join(['%s'] * len(image_lora_ids))
-        cursor.execute(f"""
-            SELECT id, name, description, trigger_prompt, category, tags
-            FROM image_lora_metadata
-            WHERE id IN ({placeholders})
-            AND (enabled = 1 OR enabled = TRUE)
-        """, image_lora_ids)
+            placeholders = ','.join(['%s'] * len(image_lora_ids))
+            cursor.execute(f"""
+                SELECT id, name, description, trigger_prompt, category, tags
+                FROM image_lora_metadata
+                WHERE id IN ({placeholders})
+                AND (enabled = 1 OR enabled = TRUE)
+            """, image_lora_ids)
 
-        lora_data = cursor.fetchall()
-        cursor.close()
-        conn.close()
+            lora_data = cursor.fetchall()
+            cursor.close()
+        finally:
+            conn.close()
 
         if not lora_data:
             logger.info("No enabled image LORAs found in database")
@@ -359,19 +361,21 @@ async def _search_video_loras(
         similarity_map = {item['lora_id']: item['similarity'] for item in filtered_results}
 
         conn = pymysql.connect(**DB_CONFIG)
-        cursor = conn.cursor(pymysql.cursors.DictCursor)
+        try:
+            cursor = conn.cursor(pymysql.cursors.DictCursor)
 
-        placeholders = ','.join(['%s'] * len(lora_ids))
-        cursor.execute(f"""
-            SELECT id, name, description, trigger_words, trigger_prompt, mode, noise_stage, category, preview_url
-            FROM lora_metadata
-            WHERE id IN ({placeholders})
-            AND (enabled = 1 OR enabled = TRUE)
-        """, lora_ids)
+            placeholders = ','.join(['%s'] * len(lora_ids))
+            cursor.execute(f"""
+                SELECT id, name, description, trigger_words, trigger_prompt, mode, noise_stage, category, preview_url
+                FROM lora_metadata
+                WHERE id IN ({placeholders})
+                AND (enabled = 1 OR enabled = TRUE)
+            """, lora_ids)
 
-        lora_data = cursor.fetchall()
-        cursor.close()
-        conn.close()
+            lora_data = cursor.fetchall()
+            cursor.close()
+        finally:
+            conn.close()
 
         # Build response
         video_loras = []
@@ -423,12 +427,14 @@ async def _search_reference_images(
         resource_search_keywords = None
         if BOOST_WEIGHT > 0:
             conn = pymysql.connect(**DB_CONFIG)
-            cursor = conn.cursor(pymysql.cursors.DictCursor)
-            cursor.execute("SELECT id, search_keywords FROM resources")
-            rows = cursor.fetchall()
-            resource_search_keywords = {row['id']: row['search_keywords'] or "" for row in rows}
-            cursor.close()
-            conn.close()
+            try:
+                cursor = conn.cursor(pymysql.cursors.DictCursor)
+                cursor.execute("SELECT id, search_keywords FROM resources")
+                rows = cursor.fetchall()
+                resource_search_keywords = {row['id']: row['search_keywords'] or "" for row in rows}
+                cursor.close()
+            finally:
+                conn.close()
 
         # Search using existing embedding service with keyword boosting
         results = await embedding_service.search_similar_resources(
@@ -455,18 +461,20 @@ async def _search_reference_images(
         similarity_map = {item['resource_id']: item['similarity'] for item in filtered_results}
 
         conn = pymysql.connect(**DB_CONFIG)
-        cursor = conn.cursor(pymysql.cursors.DictCursor)
+        try:
+            cursor = conn.cursor(pymysql.cursors.DictCursor)
 
-        placeholders = ','.join(['%s'] * len(resource_ids))
-        cursor.execute(f"""
-            SELECT id, prompt, url
-            FROM resources
-            WHERE id IN ({placeholders})
-        """, resource_ids)
+            placeholders = ','.join(['%s'] * len(resource_ids))
+            cursor.execute(f"""
+                SELECT id, prompt, url
+                FROM resources
+                WHERE id IN ({placeholders})
+            """, resource_ids)
 
-        resources = cursor.fetchall()
-        cursor.close()
-        conn.close()
+            resources = cursor.fetchall()
+            cursor.close()
+        finally:
+            conn.close()
 
         # Build response
         images = []
@@ -1253,11 +1261,33 @@ async def generate_advanced_workflow(req: WorkflowGenerateRequest, _=Depends(ver
         if req.parent_workflow_id:
             redis_mapping["parent_workflow_id"] = req.parent_workflow_id
         await task_manager.redis.hset(f"workflow:{workflow_id}", mapping=redis_mapping)
+        from api.config import TASK_EXPIRY
+        await task_manager.redis.expire(f"workflow:{workflow_id}", TASK_EXPIRY)
 
         logger.info(f"Advanced workflow {workflow_id} created: mode={req.mode}, source={req.first_frame_source}, parent={req.parent_workflow_id}")
 
-        # Start async orchestration
-        asyncio.create_task(_execute_workflow(workflow_id, req, task_manager))
+        # Start async orchestration with safety net (C4)
+        def _workflow_done_callback(task: asyncio.Task, wf_id=workflow_id):
+            if task.cancelled():
+                logger.warning(f"Workflow task {wf_id} was cancelled")
+            elif task.exception():
+                exc = task.exception()
+                logger.error(f"Workflow task {wf_id} raised unhandled exception: {exc}", exc_info=exc)
+                # Best-effort: mark workflow as failed in Redis
+                try:
+                    import asyncio as _aio
+                    loop = _aio.get_event_loop()
+                    if loop.is_running():
+                        loop.create_task(task_manager.redis.hset(f"workflow:{wf_id}", mapping={
+                            "status": "failed",
+                            "error": f"Unhandled error: {exc}",
+                            "completed_at": str(int(time.time())),
+                        }))
+                except Exception as cb_err:
+                    logger.error(f"Failed to mark workflow {wf_id} as failed in callback: {cb_err}")
+
+        wf_task = asyncio.create_task(_execute_workflow(workflow_id, req, task_manager))
+        wf_task.add_done_callback(_workflow_done_callback)
 
         return WorkflowGenerateResponse(
             workflow_id=workflow_id,

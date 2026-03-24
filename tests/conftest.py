@@ -36,7 +36,9 @@ def shared_page(browser, base_url):
     for attempt in range(3):
         try:
             p.goto(base_url, wait_until="domcontentloaded", timeout=60000)
-            p.wait_for_selector("#section-video", state="attached", timeout=MODULE_LOAD_TIMEOUT)
+            p.wait_for_selector("#section-video", state="visible", timeout=MODULE_LOAD_TIMEOUT)
+            # Wait for video.js to fully execute (attaches tab click handlers)
+            p.wait_for_function("typeof submitT2V === 'function'", timeout=MODULE_LOAD_TIMEOUT)
             break
         except Exception:
             if attempt == 2:
@@ -51,10 +53,10 @@ def shared_page(browser, base_url):
 
 @pytest.fixture
 def page(shared_page):
-    """Per-test fixture: ensure video module is loaded (default state)."""
-    if shared_page.locator("#section-video").count() == 0:
+    """Per-test fixture: ensure video module is loaded and visible (default state)."""
+    if not shared_page.locator("#section-video").is_visible():
         shared_page.locator('.main-tab[data-main="video"]').click()
         shared_page.wait_for_selector(
-            "#section-video", state="attached", timeout=MODULE_LOAD_TIMEOUT
+            "#section-video", state="visible", timeout=MODULE_LOAD_TIMEOUT
         )
     return shared_page

@@ -4,6 +4,7 @@ import logging
 import time
 import uuid
 from typing import Optional
+from urllib.parse import urlparse
 import redis.asyncio as aioredis
 from api.config import REDIS_URL, COMFYUI_URLS, VIDEO_BASE_URL, TASK_EXPIRY, COS_ENABLED
 from api.models.enums import TaskStatus, ModelType, GenerateMode
@@ -14,6 +15,8 @@ from api.services import storage
 
 logger = logging.getLogger(__name__)
 
+REDIS_INSTANCES_PREFIX = "comfyui_instances"
+
 
 class _HistoryReady(Exception):
     """Internal signal: ComfyUI history has outputs ready."""
@@ -21,34 +24,63 @@ class _HistoryReady(Exception):
         self.history = history
 
 
+def _worker_id_from_url(model_key: str, url: str) -> str:
+    """Derive worker_id from model_key and URL, e.g. 'a14b:8188'."""
+    parsed = urlparse(url)
+    port = parsed.port or (443 if parsed.scheme == "https" else 80)
+    return f"{model_key}:{port}"
+
+
 class TaskManager:
     def __init__(self):
         self.redis: Optional[aioredis.Redis] = None
         self._worker_redis: Optional[aioredis.Redis] = None
         self.clients: dict[str, list[ComfyUIClient]] = {}
-        self._workers: list[asyncio.Task] = []
+        self._workers: dict[str, dict] = {}  # worker_id -> {model_key, url, client, task, started_at}
         self._chain_workers: dict[str, asyncio.Task] = {}  # chain_id -> asyncio.Task
 
     async def start(self):
         self.redis = aioredis.from_url(REDIS_URL, decode_responses=True)
         self._worker_redis = aioredis.from_url(REDIS_URL, decode_responses=True)
-        for model_key, urls in COMFYUI_URLS.items():
-            self.clients[model_key] = [ComfyUIClient(url) for url in urls]
+        # Load worker URLs: Redis (persisted) merged with .env (seed)
+        for model_key in COMFYUI_URLS:
+            self.clients.setdefault(model_key, [])
+        for model_key, env_urls in COMFYUI_URLS.items():
+            redis_key = f"{REDIS_INSTANCES_PREFIX}:{model_key}"
+            redis_urls = await self.redis.smembers(redis_key)
+            # Merge: Redis takes priority, .env URLs are seeds added if Redis is empty
+            if redis_urls:
+                urls = list(redis_urls)
+                # Also add any .env URLs not yet in Redis (new seeds)
+                for u in env_urls:
+                    if u not in redis_urls:
+                        urls.append(u)
+                        await self.redis.sadd(redis_key, u)
+            else:
+                urls = list(env_urls)
+                # Seed Redis with .env URLs
+                if urls:
+                    await self.redis.sadd(redis_key, *urls)
+            for url in urls:
+                try:
+                    await self.add_worker(model_key, url)
+                except Exception as e:
+                    logger.warning("Failed to add worker %s %s at startup: %s", model_key, url, e)
         # Recover orphan running tasks (from previous crash/restart)
         await self._recover_orphan_tasks()
-        # Start worker tasks for each model — one worker per ComfyUI instance
-        for model_key, urls in COMFYUI_URLS.items():
-            for idx, url in enumerate(urls):
-                client = self.clients[model_key][idx]
-                worker_name = f"{model_key}#{idx}"
-                task = asyncio.create_task(self._worker_loop(model_key, client, worker_name))
-                self._workers.append(task)
+        await self._recover_orphan_chains()
+        await self._recover_orphan_workflows()
         logger.info("TaskManager started with workers: %s",
                      {k: len(v) for k, v in self.clients.items()})
 
     async def stop(self):
-        for w in self._workers:
-            w.cancel()
+        # Cancel chain workers first (C2)
+        for chain_task in self._chain_workers.values():
+            chain_task.cancel()
+        self._chain_workers.clear()
+        for info in self._workers.values():
+            info["task"].cancel()
+        self._workers.clear()
         for client_list in self.clients.values():
             for client in client_list:
                 await client.close()
@@ -56,6 +88,74 @@ class TaskManager:
             await self.redis.close()
         if self._worker_redis:
             await self._worker_redis.close()
+
+    # ── Dynamic worker management ────────────────────────────────────
+
+    async def add_worker(self, model_key: str, url: str) -> str:
+        """Add a new ComfyUI worker at runtime. Returns worker_id."""
+        url = url.rstrip("/")
+        worker_id = _worker_id_from_url(model_key, url)
+        if worker_id in self._workers:
+            raise ValueError(f"Worker {worker_id} already exists")
+        # Create client and verify it's reachable
+        client = ComfyUIClient(url)
+        alive = await client.is_alive()
+        if not alive:
+            await client.close()
+            raise RuntimeError(f"ComfyUI instance at {url} is not reachable")
+        # Register client
+        self.clients.setdefault(model_key, [])
+        self.clients[model_key].append(client)
+        # Start worker loop
+        task = asyncio.create_task(self._worker_loop(model_key, client, worker_id))
+        self._workers[worker_id] = {
+            "model_key": model_key,
+            "url": url,
+            "client": client,
+            "task": task,
+            "started_at": time.time(),
+        }
+        # Persist to Redis
+        redis_key = f"{REDIS_INSTANCES_PREFIX}:{model_key}"
+        await self.redis.sadd(redis_key, url)
+        logger.info("Worker %s added (%s)", worker_id, url)
+        return worker_id
+
+    async def remove_worker(self, worker_id: str, force: bool = False) -> bool:
+        """Remove a worker. Cancels its loop task and cleans up."""
+        info = self._workers.pop(worker_id, None)
+        if not info:
+            return False
+        # Cancel the worker loop
+        info["task"].cancel()
+        # Remove client from clients list
+        model_key = info["model_key"]
+        client = info["client"]
+        if model_key in self.clients:
+            try:
+                self.clients[model_key].remove(client)
+            except ValueError:
+                pass
+        await client.close()
+        # Remove from Redis
+        redis_key = f"{REDIS_INSTANCES_PREFIX}:{model_key}"
+        await self.redis.srem(redis_key, info["url"])
+        logger.info("Worker %s removed", worker_id)
+        return True
+
+    async def list_workers(self) -> list[dict]:
+        """List all active workers with status."""
+        results = []
+        for wid, info in self._workers.items():
+            alive = await info["client"].is_alive()
+            results.append({
+                "id": wid,
+                "model_key": info["model_key"],
+                "url": info["url"],
+                "alive": alive,
+                "started_at": info["started_at"],
+            })
+        return results
 
     def _get_client(self, model_key: str) -> "ComfyUIClient | None":
         """Get first ComfyUI client for a model key (shared filesystem — any instance works)."""
@@ -266,6 +366,163 @@ class TaskManager:
             if cursor == 0:
                 break
 
+    async def _recover_orphan_chains(self):
+        """Recover chains stuck in running/queued after API restart (C1)."""
+        cursor = 0
+        recovered = 0
+        while True:
+            cursor, keys = await self.redis.scan(cursor, match="chain:*", count=100)
+            for key in keys:
+                parts = key.split(":")
+                if len(parts) != 2:
+                    continue
+                chain_id = parts[1]
+                status = await self.redis.hget(key, "status")
+                if status not in ("running", "queued"):
+                    continue
+
+                task_ids_raw = await self.redis.hget(key, "segment_task_ids") or "[]"
+                try:
+                    task_ids = json.loads(task_ids_raw)
+                except Exception:
+                    task_ids = []
+
+                if not task_ids:
+                    # No tasks ever created — mark failed
+                    await self.redis.hset(key, mapping={
+                        "status": "failed",
+                        "error": "Service restarted before any segment task was created",
+                        "completed_at": str(int(time.time())),
+                    })
+                    logger.info("Orphan chain %s: no tasks, marked failed", chain_id)
+                    recovered += 1
+                    continue
+
+                # Check all segment task statuses
+                all_completed = True
+                any_failed = False
+                any_running = False
+                fail_error = ""
+                for tid in task_ids:
+                    t_status = await self.redis.hget(f"task:{tid}", "status")
+                    if t_status == TaskStatus.RUNNING.value or t_status == TaskStatus.QUEUED.value:
+                        any_running = True
+                        all_completed = False
+                    elif t_status == TaskStatus.FAILED.value:
+                        any_failed = True
+                        all_completed = False
+                        fail_error = await self.redis.hget(f"task:{tid}", "error") or "Unknown"
+                    elif t_status != TaskStatus.COMPLETED.value:
+                        all_completed = False
+
+                if any_running:
+                    # Tasks still being recovered by _recover_orphan_tasks, leave chain alone
+                    logger.info("Orphan chain %s: has running tasks, deferring recovery", chain_id)
+                    continue
+
+                if all_completed:
+                    # All tasks done but chain wasn't finalized — get last task's video
+                    last_task_data = await self.redis.hgetall(f"task:{task_ids[-1]}")
+                    video_url = last_task_data.get("video_url", "")
+                    completed_count = len(task_ids)
+                    await self.redis.hset(key, mapping={
+                        "status": "completed",
+                        "completed_segments": str(completed_count),
+                        "final_video_url": video_url,
+                        "completed_at": str(int(time.time())),
+                    })
+                    logger.info("Orphan chain %s: all %d tasks completed, recovered with video %s",
+                                chain_id, completed_count, video_url)
+                elif any_failed:
+                    completed_count = 0
+                    for tid in task_ids:
+                        t_st = await self.redis.hget(f"task:{tid}", "status")
+                        if t_st == TaskStatus.COMPLETED.value:
+                            completed_count += 1
+                    chain_status = "partial" if completed_count > 0 else "failed"
+                    await self.redis.hset(key, mapping={
+                        "status": chain_status,
+                        "completed_segments": str(completed_count),
+                        "error": f"Service restarted; segment failed: {fail_error}",
+                        "completed_at": str(int(time.time())),
+                    })
+                    logger.info("Orphan chain %s: marked %s (%d/%d completed)", chain_id,
+                                chain_status, completed_count, len(task_ids))
+                else:
+                    # Unknown task states — mark failed
+                    await self.redis.hset(key, mapping={
+                        "status": "failed",
+                        "error": "Service restarted, chain state unrecoverable",
+                        "completed_at": str(int(time.time())),
+                    })
+                    logger.info("Orphan chain %s: unknown task states, marked failed", chain_id)
+                recovered += 1
+            if cursor == 0:
+                break
+        if recovered:
+            logger.info("Recovered %d orphan chains", recovered)
+
+    async def _recover_orphan_workflows(self):
+        """Recover workflows stuck in running after API restart (C1)."""
+        cursor = 0
+        recovered = 0
+        while True:
+            cursor, keys = await self.redis.scan(cursor, match="workflow:wf_*", count=100)
+            for key in keys:
+                # Skip sub-keys like workflow:wf_xxx:req
+                if key.count(":") > 1:
+                    continue
+                status = await self.redis.hget(key, "status")
+                if status != "running":
+                    continue
+
+                workflow_id = key.split(":", 1)[1]
+                chain_id = await self.redis.hget(key, "chain_id")
+
+                if chain_id:
+                    # Has a chain — sync workflow status with chain
+                    chain_status = await self.redis.hget(f"chain:{chain_id}", "status")
+                    if chain_status == "completed":
+                        chain_video = await self.redis.hget(f"chain:{chain_id}", "final_video_url") or ""
+                        await self.redis.hset(key, mapping={
+                            "status": "completed",
+                            "final_video_url": chain_video,
+                            "completed_at": str(int(time.time())),
+                        })
+                        logger.info("Orphan workflow %s: chain completed, recovered", workflow_id)
+                    elif chain_status in ("failed", "partial"):
+                        chain_error = await self.redis.hget(f"chain:{chain_id}", "error") or "Chain failed"
+                        await self.redis.hset(key, mapping={
+                            "status": "failed",
+                            "error": f"Service restarted; {chain_error}",
+                            "completed_at": str(int(time.time())),
+                        })
+                        logger.info("Orphan workflow %s: chain %s, marked failed", workflow_id, chain_status)
+                    elif chain_status in ("running", "queued"):
+                        # Chain still being processed (task recovery will handle it)
+                        logger.info("Orphan workflow %s: chain still %s, deferring", workflow_id, chain_status)
+                        continue
+                    else:
+                        await self.redis.hset(key, mapping={
+                            "status": "failed",
+                            "error": "Service restarted, chain state unknown",
+                            "completed_at": str(int(time.time())),
+                        })
+                        logger.info("Orphan workflow %s: chain status=%s, marked failed", workflow_id, chain_status)
+                else:
+                    # No chain_id — stuck in Stage 1-3
+                    await self.redis.hset(key, mapping={
+                        "status": "failed",
+                        "error": "Service restarted during pre-video stages",
+                        "completed_at": str(int(time.time())),
+                    })
+                    logger.info("Orphan workflow %s: no chain_id, marked failed", workflow_id)
+                recovered += 1
+            if cursor == 0:
+                break
+        if recovered:
+            logger.info("Recovered %d orphan workflows", recovered)
+
     async def _collect_result(self, task_id: str, prompt_id: str, client: ComfyUIClient):
         """Collect output from an already-completed ComfyUI prompt."""
         try:
@@ -356,6 +613,14 @@ class TaskManager:
                 "comfyui_url": client.base_url,
             })
             workflow_json = await self.redis.hget(f"task:{task_id}", "workflow")
+            if not workflow_json:
+                logger.warning("Task %s has no workflow data, skipping", task_id)
+                await self.redis.hset(f"task:{task_id}", mapping={
+                    "status": TaskStatus.FAILED.value,
+                    "error": "No workflow data found",
+                    "completed_at": str(int(time.time())),
+                })
+                return
             workflow = json.loads(workflow_json)
 
             # Submit to ComfyUI
@@ -419,13 +684,17 @@ class TaskManager:
 
         except Exception as e:
             logger.exception("Task %s failed: %s", task_id, e)
-            await self.redis.hset(f"task:{task_id}", mapping={
-                "status": TaskStatus.FAILED.value,
-                "error": str(e),
-                "completed_at": str(int(__import__('time').time())),
-            })
+            try:
+                await self.redis.hset(f"task:{task_id}", mapping={
+                    "status": TaskStatus.FAILED.value,
+                    "error": str(e),
+                    "completed_at": str(int(time.time())),
+                })
+            except Exception as redis_err:
+                logger.error("Failed to mark task %s as failed in Redis: %s", task_id, redis_err)
 
     async def _wait_with_progress(self, client: ComfyUIClient, prompt_id: str, task_id: str, timeout: float = 600) -> dict:
+        overall_start = asyncio.get_event_loop().time()
         ws_url = client.base_url.replace("http://", "ws://").replace("https://", "wss://")
         try:
             import websockets
@@ -512,9 +781,12 @@ class TaskManager:
             if isinstance(e, RuntimeError):
                 raise
             logger.warning("Task %s: WebSocket failed, falling back to polling: %s", task_id, e)
-        # Polling fallback
-        logger.info("Task %s: entering polling fallback for prompt %s", task_id, prompt_id)
-        deadline = asyncio.get_event_loop().time() + timeout
+        # Polling fallback — use remaining time, not full timeout (M4)
+        remaining = timeout - (asyncio.get_event_loop().time() - overall_start)
+        if remaining <= 0:
+            raise TimeoutError(f"Prompt {prompt_id} timed out after {timeout}s (no time left for polling)")
+        logger.info("Task %s: entering polling fallback for prompt %s (%.0fs remaining)", task_id, prompt_id, remaining)
+        deadline = asyncio.get_event_loop().time() + remaining
         while asyncio.get_event_loop().time() < deadline:
             history = await client.get_history(prompt_id)
             if history:
@@ -787,11 +1059,8 @@ class TaskManager:
                 task_ids.append(task_id)
                 await self.redis.hset(f"chain:{chain_id}", "segment_task_ids", json.dumps(task_ids))
 
-                # Wait for this segment to complete
+                # Wait for this segment to complete (raises on failure/timeout)
                 video_path = await self._wait_for_task_completion(task_id, timeout=1800)
-                if not video_path:
-                    raise RuntimeError(f"Segment {i+1}/{total} (task {task_id}) failed")
-
                 video_paths.append(video_path)
                 segment_filenames.append(video_path.name)
 
@@ -840,17 +1109,25 @@ class TaskManager:
             })
             logger.info("Chain %s completed: %s", chain_id, final_url)
 
-        except Exception as e:
-            logger.exception("Chain %s failed at segment %d: %s", chain_id,
-                             int(await self.redis.hget(f"chain:{chain_id}", "current_segment") or 0), e)
-            completed = int(await self.redis.hget(f"chain:{chain_id}", "completed_segments") or 0)
-            status = "partial" if completed > 0 else "failed"
-            await self.redis.hset(f"chain:{chain_id}", mapping={
-                "status": status,
-                "error": str(e),
-                "completed_at": str(int(time.time())),
-                "segment_task_ids": json.dumps(task_ids),
-            })
+        except BaseException as e:
+            # C3: catch CancelledError (BaseException) alongside regular exceptions
+            error_msg = "Cancelled" if isinstance(e, asyncio.CancelledError) else str(e)
+            try:
+                current_seg = int(await self.redis.hget(f"chain:{chain_id}", "current_segment") or 0)
+                logger.exception("Chain %s failed at segment %d: %s", chain_id, current_seg, error_msg)
+                completed = int(await self.redis.hget(f"chain:{chain_id}", "completed_segments") or 0)
+                status = "partial" if completed > 0 else "failed"
+                await self.redis.hset(f"chain:{chain_id}", mapping={
+                    "status": status,
+                    "error": error_msg,
+                    "completed_at": str(int(time.time())),
+                    "segment_task_ids": json.dumps(task_ids),
+                })
+            except Exception as redis_err:
+                logger.error("Failed to mark chain %s as failed in Redis: %s", chain_id, redis_err)
+            # Re-raise CancelledError to not swallow cancellation
+            if isinstance(e, asyncio.CancelledError):
+                raise
 
     async def _chain_worker_merged_story(
         self, chain_id: str, segments: list[dict], segment_prompts: list[str],
@@ -932,9 +1209,6 @@ class TaskManager:
             })
 
             video_path = await self._wait_for_task_completion(task_id, timeout=1800)
-            if not video_path:
-                raise RuntimeError(f"I2V face_reference workflow (task {task_id}) failed")
-
             task_data = await self.redis.hgetall(f"task:{task_id}")
             video_url = task_data.get("video_url", "")
 
@@ -1000,8 +1274,6 @@ class TaskManager:
         # (timeout scales with segment count: ~120s base + ~30s per segment)
         merged_timeout = 120 + total * 60
         video_path = await self._wait_for_task_completion(task_id, timeout=max(merged_timeout, 1800))
-        if not video_path:
-            raise RuntimeError(f"Merged story workflow (task {task_id}) failed")
 
         # With ImageBatchMulti optimization, merged workflow now outputs only 1 video
         # (all segments merged in ComfyUI, no need for external ffmpeg concat)
@@ -1294,20 +1566,24 @@ class TaskManager:
         return workflow
 
     async def _wait_for_task_completion(self, task_id: str, timeout: float = 1800) -> Optional['Path']:
-        """Poll Redis until task completes. Returns local video path or None."""
+        """Poll Redis until task completes. Returns local video path.
+
+        Raises TimeoutError on timeout, RuntimeError on task failure.
+        """
         deadline = asyncio.get_event_loop().time() + timeout
         while asyncio.get_event_loop().time() < deadline:
             data = await self.redis.hgetall(f"task:{task_id}")
             if not data:
-                return None
+                raise RuntimeError(f"Task {task_id} not found in Redis")
             status = data.get("status")
             if status == TaskStatus.COMPLETED.value:
                 video_url = data.get("video_url", "")
                 return await storage.get_video_path_from_url(video_url)
             if status == TaskStatus.FAILED.value:
-                return None
+                error = data.get("error", "Unknown error")
+                raise RuntimeError(f"Task {task_id} failed: {error}")
             await asyncio.sleep(3)
-        return None
+        raise TimeoutError(f"Task {task_id} timed out after {timeout}s")
 
     def _check_history_result(self, history: dict, task_id: str, source: str):
         """Check ComfyUI history and return/raise appropriately.

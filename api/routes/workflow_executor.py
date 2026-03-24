@@ -158,7 +158,7 @@ async def _apply_face_swap_to_frame(
 
         # Download frame image
         async with aiohttp.ClientSession() as session:
-            async with session.get(frame_url) as resp:
+            async with session.get(frame_url, timeout=aiohttp.ClientTimeout(total=30)) as resp:
                 if resp.status != 200:
                     logger.error(f"Failed to download frame: {resp.status}")
                     return None
@@ -171,7 +171,7 @@ async def _apply_face_swap_to_frame(
             face_b64 = reference_face.split(',')[1]
         elif reference_face.startswith('http://') or reference_face.startswith('https://'):
             async with aiohttp.ClientSession() as session:
-                async with session.get(reference_face) as resp:
+                async with session.get(reference_face, timeout=aiohttp.ClientTimeout(total=30)) as resp:
                     if resp.status != 200:
                         logger.error(f"Failed to download reference face: {resp.status}")
                         return None
@@ -424,9 +424,6 @@ async def _execute_workflow(workflow_id: str, req, task_manager):
             await _update_stage(task_manager, workflow_id, "first_frame_acquisition", "running")
 
             first_frame_url = await _acquire_first_frame(workflow_id, req, analysis_result, task_manager)
-            if not first_frame_url:
-                raise Exception("Failed to acquire first frame")
-
             await task_manager.redis.hset(f"workflow:{workflow_id}", "first_frame_url", first_frame_url)
 
             # 保存结构化详细信息
@@ -616,8 +613,8 @@ async def _execute_workflow(workflow_id: str, req, task_manager):
                 }
                 await _update_stage(task_manager, workflow_id, "seedream_edit", "running", details_dict=running_details)
 
-                edit_result = await _edit_first_frame(workflow_id, req, first_frame_url, size, task_manager)
-                if edit_result:
+                try:
+                    edit_result = await _edit_first_frame(workflow_id, req, first_frame_url, size, task_manager)
                     edited_frame_url = edit_result.url
                     await task_manager.redis.hset(f"workflow:{workflow_id}", "edited_frame_url", edited_frame_url)
 
@@ -632,12 +629,12 @@ async def _execute_workflow(workflow_id: str, req, task_manager):
                     if edit_result.error:
                         running_details["error"] = edit_result.error
                     await _update_stage(task_manager, workflow_id, "seedream_edit", "completed", details_dict=running_details)
-                else:
-                    running_details["error"] = "SeeDream 编辑失败"
+                except Exception as seedream_exc:
+                    running_details["error"] = f"SeeDream 编辑失败: {seedream_exc}"
                     running_details["api_status"] = "failed"
                     await _update_stage(task_manager, workflow_id, "seedream_edit", "failed", details_dict=running_details)
                     if req.mode == "full_body_reference":
-                        raise Exception("SeeDream editing failed and is required for full_body_reference mode")
+                        raise Exception(f"SeeDream editing failed and is required for full_body_reference mode: {seedream_exc}")
 
                     # face_reference 模式：检查 Reactor 兜底
                     if reactor_deferred and reactor_configured:
@@ -733,22 +730,48 @@ async def _execute_workflow(workflow_id: str, req, task_manager):
 
         await _update_stage(task_manager, workflow_id, "video_generation", "completed", details_dict=running_details)
 
-        # Mark workflow as completed
+        # M2: Check if workflow was cancelled during execution before overwriting status
         import time as _time
+        current_status = await task_manager.redis.hget(f"workflow:{workflow_id}", "status")
+        if current_status in ("cancelled", "failed"):
+            logger.info(f"Workflow {workflow_id} was {current_status} during execution, not overwriting")
+            return
         await task_manager.redis.hset(f"workflow:{workflow_id}", mapping={
             "status": "completed",
             "completed_at": str(int(_time.time()))
         })
+        # M1: Refresh TTL on completion
+        from api.config import TASK_EXPIRY
+        await task_manager.redis.expire(f"workflow:{workflow_id}", TASK_EXPIRY)
         logger.info(f"Workflow {workflow_id} completed successfully")
 
     except Exception as e:
         logger.error(f"Workflow {workflow_id} failed: {e}", exc_info=True)
         import time as _time
+        # M2: Don't overwrite cancelled status
+        current_status = await task_manager.redis.hget(f"workflow:{workflow_id}", "status")
+        if current_status == "cancelled":
+            logger.info(f"Workflow {workflow_id} was cancelled, not overwriting with failed")
+            return
+        # Mark the current running stage as failed so it doesn't stay in "running"
+        try:
+            current_stage = await task_manager.redis.hget(f"workflow:{workflow_id}", "current_stage")
+            if current_stage:
+                await _update_stage(task_manager, workflow_id, current_stage, "failed",
+                                    details_dict={"error": str(e)})
+        except Exception:
+            pass
         await task_manager.redis.hset(f"workflow:{workflow_id}", mapping={
             "status": "failed",
             "error": str(e),
             "completed_at": str(int(_time.time()))
         })
+        # M1: Refresh TTL on failure
+        try:
+            from api.config import TASK_EXPIRY
+            await task_manager.redis.expire(f"workflow:{workflow_id}", TASK_EXPIRY)
+        except Exception:
+            pass
 
 
 async def _update_stage(task_manager, workflow_id: str, stage_name: str, status: str, error: str = None, details: str = None, details_dict: dict = None):
@@ -814,12 +837,14 @@ async def _analyze_prompt(req, task_manager) -> Optional[dict]:
                     import pymysql
                     from api.routes.recommend import DB_CONFIG
                     conn = pymysql.connect(**DB_CONFIG)
-                    cursor = conn.cursor(pymysql.cursors.DictCursor)
-                    placeholders = ','.join(['%s'] * len(all_lora_ids))
-                    cursor.execute(f"SELECT id, preview_url FROM lora_metadata WHERE id IN ({placeholders})", all_lora_ids)
-                    preview_map = {row['id']: row['preview_url'] for row in cursor.fetchall()}
-                    cursor.close()
-                    conn.close()
+                    try:
+                        cursor = conn.cursor(pymysql.cursors.DictCursor)
+                        placeholders = ','.join(['%s'] * len(all_lora_ids))
+                        cursor.execute(f"SELECT id, preview_url FROM lora_metadata WHERE id IN ({placeholders})", all_lora_ids)
+                        preview_map = {row['id']: row['preview_url'] for row in cursor.fetchall()}
+                        cursor.close()
+                    finally:
+                        conn.close()
                     for l in image_loras + video_loras:
                         l['preview_url'] = preview_map.get(l['lora_id'])
                 except Exception as e:
@@ -1004,7 +1029,7 @@ async def _acquire_first_frame(workflow_id: str, req, analysis_result: Optional[
 
     except Exception as e:
         logger.error(f"First frame acquisition failed: {e}", exc_info=True)
-        return None
+        raise
 
 
 async def _generate_t2i_image(req, analysis_result: Optional[dict], task_manager) -> Optional[str]:
@@ -1212,8 +1237,7 @@ async def _edit_first_frame(workflow_id: str, req, first_frame_url: str, size: s
 
     except Exception as e:
         logger.error(f"SeeDream editing failed: {e}", exc_info=True)
-        # Return None to indicate failure
-        return None
+        raise
 
 
 async def _generate_video(workflow_id: str, req, first_frame_url: str, analysis_result: Optional[dict], task_manager, is_continuation: bool = False, parent_workflow: dict = None) -> tuple[Optional[str], Optional[str]]:
@@ -1668,13 +1692,14 @@ async def _generate_video(workflow_id: str, req, first_frame_url: str, analysis_
         # Save chain_id immediately so workflow status can track Stage 4 progress
         await task_manager.redis.hset(f"workflow:{workflow_id}", "chain_id", chain_id)
         final_video_url = None
+        status = "unknown"
 
         import asyncio
         for _ in range(180):  # Poll for up to 15 minutes
             await asyncio.sleep(5)
 
             chain_data = await task_manager.redis.hgetall(f"chain:{chain_id}")
-            status = chain_data.get("status")
+            status = chain_data.get("status", "unknown")
 
             if status == "completed":
                 final_video_url = chain_data.get("final_video_url")
@@ -1684,9 +1709,15 @@ async def _generate_video(workflow_id: str, req, first_frame_url: str, analysis_
                 error = chain_data.get("error", "Unknown error")
                 logger.error(f"[{workflow_id}] Chain failed: {error}")
                 raise Exception(f"Chain generation failed: {error}")
+            elif status == "partial":
+                # Some segments completed but chain failed — extract partial video if any
+                error = chain_data.get("error", "Unknown error")
+                final_video_url = chain_data.get("final_video_url")
+                logger.warning(f"[{workflow_id}] Chain partial: {error}, video: {final_video_url}")
+                break
 
         if not final_video_url:
-            logger.warning(f"[{workflow_id}] Chain polling timeout, status: {status}")
+            raise TimeoutError(f"[{workflow_id}] Chain {chain_id} polling timeout after 15min, last status: {status}")
 
         # Return chain_id, final_video_url, and loras list (with trigger_words for display)
         loras_info = [{"name": l.name, "strength": l.strength, "trigger_words": l.trigger_words, "trigger_prompt": l.trigger_prompt} for l in loras]
@@ -1694,4 +1725,4 @@ async def _generate_video(workflow_id: str, req, first_frame_url: str, analysis_
 
     except Exception as e:
         logger.error(f"[{workflow_id}] Video generation failed: {e}", exc_info=True)
-        return None, None, []
+        raise

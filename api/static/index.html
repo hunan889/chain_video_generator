@@ -126,8 +126,8 @@ document.querySelectorAll('.main-tab').forEach(t => {
     document.querySelectorAll('.main-tab').forEach(x => x.classList.remove('active'));
     t.classList.add('active');
 
-    // Hide all iframe sections
-    document.querySelectorAll('.main-section').forEach(x => x.classList.remove('active'));
+    // Hide all iframe sections (only direct children of .container, not module internals)
+    document.querySelectorAll('.container > .main-section').forEach(x => x.classList.remove('active'));
 
     if (MODULE_TABS.has(target)) {
       // Show module container, load/show module (DOM cached, scripts run only once)
