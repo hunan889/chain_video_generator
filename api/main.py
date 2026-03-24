@@ -9,7 +9,7 @@ from pathlib import Path
 from urllib.parse import urlparse
 from api.config import API_HOST, API_PORT, VIDEOS_DIR, UPLOADS_DIR
 from api.services.task_manager import TaskManager
-from api.routes import generate, generate_i2v, tasks, loras, civitai, prompt, lora_recommend, extend, workflow, tts, postprocess, image, chat, resources, lora_admin, search, recommend, embeddings, resource_admin, pose_images, poses, pose_admin, pose_synonyms_admin, dashscope
+from api.routes import generate, generate_i2v, tasks, loras, civitai, prompt, lora_recommend, extend, workflow, tts, postprocess, image, chat, resources, lora_admin, search, recommend, embeddings, resource_admin, pose_images, poses, pose_admin, pose_synonyms_admin, dashscope, worker_admin
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
 logger = logging.getLogger(__name__)
@@ -72,6 +72,7 @@ app.include_router(poses.router, prefix="/api/v1", tags=["poses"])
 app.include_router(pose_admin.router, prefix="/api/v1", tags=["pose_admin"])
 app.include_router(pose_synonyms_admin.router)
 app.include_router(dashscope.router, prefix="/api/v1", tags=["dashscope"])
+app.include_router(worker_admin.router, prefix="/api/v1", tags=["worker_admin"])
 
 STATIC_DIR = Path(__file__).parent / "static"
 
@@ -165,21 +166,19 @@ async def proxy_media(url: str = Query(...)):
 @app.get("/health")
 async def health():
     from api.models.schemas import HealthResponse
-    # Check all A14B instances
-    a14b_clients = task_manager.clients.get("a14b", [])
-    a14b_statuses = [await c.is_alive() for c in a14b_clients] if a14b_clients else [False]
-    a14b_ok = all(a14b_statuses)
-    # Check 5B instances
-    five_b_clients = task_manager.clients.get("5b", [])
-    five_b_statuses = [await c.is_alive() for c in five_b_clients] if five_b_clients else [False]
-    five_b_ok = all(five_b_statuses)
+    workers = await task_manager.list_workers()
+    # Derive per-model status from dynamic worker list
+    a14b_workers = [w for w in workers if w["model_key"] == "a14b"]
+    five_b_workers = [w for w in workers if w["model_key"] == "5b"]
+    a14b_ok = all(w["alive"] for w in a14b_workers) if a14b_workers else False
+    five_b_ok = all(w["alive"] for w in five_b_workers) if five_b_workers else False
     redis_ok = await task_manager.redis_alive()
     return HealthResponse(
         status="ok",
         comfyui_a14b=a14b_ok,
         comfyui_5b=five_b_ok,
         redis=redis_ok,
-        comfyui_a14b_instances=[{"url": c.base_url, "alive": s} for c, s in zip(a14b_clients, a14b_statuses)],
+        comfyui_a14b_instances=[{"url": w["url"], "alive": w["alive"]} for w in a14b_workers],
     )
 
 

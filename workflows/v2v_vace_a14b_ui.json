@@ -1,0 +1,333 @@
+{
+  "last_node_id": 19,
+  "last_link_id": 22,
+  "nodes": [
+    {
+      "id": 1,
+      "type": "WanVideoVACEModelSelect",
+      "pos": [50, 50],
+      "size": [400, 60],
+      "flags": {},
+      "order": 0,
+      "mode": 0,
+      "outputs": [{"name": "vace_model", "type": "VACEPATH", "links": [1], "slot_index": 0}],
+      "properties": {"Node name for S&R": "WanVideoVACEModelSelect"},
+      "widgets_values": ["Wan2_2_Fun_VACE_module_A14B_HIGH_fp8_e4m3fn_scaled_KJ.safetensors"]
+    },
+    {
+      "id": 2,
+      "type": "WanVideoVACEModelSelect",
+      "pos": [50, 200],
+      "size": [400, 60],
+      "flags": {},
+      "order": 1,
+      "mode": 0,
+      "outputs": [{"name": "vace_model", "type": "VACEPATH", "links": [2], "slot_index": 0}],
+      "properties": {"Node name for S&R": "WanVideoVACEModelSelect"},
+      "widgets_values": ["Wan2_2_Fun_VACE_module_A14B_LOW_fp8_e4m3fn_scaled_KJ.safetensors"]
+    },
+    {
+      "id": 3,
+      "type": "WanVideoModelLoader",
+      "pos": [500, 50],
+      "size": [400, 200],
+      "flags": {},
+      "order": 2,
+      "mode": 0,
+      "inputs": [
+        {"name": "extra_model", "type": "VACEPATH", "link": 1}
+      ],
+      "outputs": [{"name": "model", "type": "WANVIDEOMODEL", "links": [3], "slot_index": 0}],
+      "properties": {"Node name for S&R": "WanVideoModelLoader"},
+      "widgets_values": ["Wan2_2-T2V-A14B_HIGH_fp8_e4m3fn_scaled_KJ.safetensors", "bf16", "fp8_e4m3fn_scaled", "offload_device", "sageattn"]
+    },
+    {
+      "id": 4,
+      "type": "WanVideoModelLoader",
+      "pos": [500, 300],
+      "size": [400, 200],
+      "flags": {},
+      "order": 3,
+      "mode": 0,
+      "inputs": [
+        {"name": "extra_model", "type": "VACEPATH", "link": 2}
+      ],
+      "outputs": [{"name": "model", "type": "WANVIDEOMODEL", "links": [5], "slot_index": 0}],
+      "properties": {"Node name for S&R": "WanVideoModelLoader"},
+      "widgets_values": ["Wan2_2-T2V-A14B-LOW_fp8_e4m3fn_scaled_KJ.safetensors", "bf16", "fp8_e4m3fn_scaled", "offload_device", "sageattn"]
+    },
+    {
+      "id": 5,
+      "type": "WanVideoBlockSwap",
+      "pos": [50, 400],
+      "size": [300, 150],
+      "flags": {},
+      "order": 4,
+      "mode": 0,
+      "outputs": [{"name": "block_swap_args", "type": "BLOCKSWAPARGS", "links": [4, 6], "slot_index": 0}],
+      "properties": {"Node name for S&R": "WanVideoBlockSwap"},
+      "widgets_values": [10, false, false, 5]
+    },
+    {
+      "id": 6,
+      "type": "WanVideoSetBlockSwap",
+      "pos": [950, 50],
+      "size": [300, 80],
+      "flags": {},
+      "order": 5,
+      "mode": 0,
+      "inputs": [
+        {"name": "model", "type": "WANVIDEOMODEL", "link": 3},
+        {"name": "block_swap_args", "type": "BLOCKSWAPARGS", "link": 4}
+      ],
+      "outputs": [{"name": "model", "type": "WANVIDEOMODEL", "links": [11], "slot_index": 0}],
+      "properties": {"Node name for S&R": "WanVideoSetBlockSwap"}
+    },
+    {
+      "id": 7,
+      "type": "WanVideoSetBlockSwap",
+      "pos": [950, 200],
+      "size": [300, 80],
+      "flags": {},
+      "order": 6,
+      "mode": 0,
+      "inputs": [
+        {"name": "model", "type": "WANVIDEOMODEL", "link": 5},
+        {"name": "block_swap_args", "type": "BLOCKSWAPARGS", "link": 6}
+      ],
+      "outputs": [{"name": "model", "type": "WANVIDEOMODEL", "links": [14], "slot_index": 0}],
+      "properties": {"Node name for S&R": "WanVideoSetBlockSwap"}
+    },
+    {
+      "id": 8,
+      "type": "LoadWanVideoT5TextEncoder",
+      "pos": [50, 600],
+      "size": [400, 150],
+      "flags": {},
+      "order": 7,
+      "mode": 0,
+      "outputs": [{"name": "t5", "type": "WANTEXTENCODER", "links": [7], "slot_index": 0}],
+      "properties": {"Node name for S&R": "LoadWanVideoT5TextEncoder"},
+      "widgets_values": ["umt5-xxl-enc-fp8_e4m3fn.safetensors", "bf16", "offload_device", "disabled"]
+    },
+    {
+      "id": 9,
+      "type": "WanVideoTextEncode",
+      "pos": [500, 600],
+      "size": [450, 250],
+      "flags": {},
+      "order": 8,
+      "mode": 0,
+      "inputs": [
+        {"name": "t5", "type": "WANTEXTENCODER", "link": 7}
+      ],
+      "outputs": [{"name": "text_embeds", "type": "WANVIDEOTEXTEMBEDS", "links": [13, 16], "slot_index": 0}],
+      "properties": {"Node name for S&R": "WanVideoTextEncode"},
+      "widgets_values": ["", "\u8272\u8c03\u8273\u4e3d\uff0c\u8fc7\u66dd\uff0c\u9759\u6001\uff0c\u7ec6\u8282\u6a21\u7cca\u4e0d\u6e05\uff0c\u5b57\u5e55\uff0c\u98ce\u683c\uff0c\u4f5c\u54c1\uff0c\u753b\u4f5c\uff0c\u753b\u9762\uff0c\u9759\u6b62\uff0c\u6574\u4f53\u53d1\u7070\uff0c\u6700\u5dee\u8d28\u91cf\uff0c\u4f4e\u8d28\u91cf\uff0cJPEG\u538b\u7f29\u6b8b\u7559\uff0c\u4e11\u964b\u7684\uff0c\u6b8b\u7f3a\u7684\uff0c\u591a\u4f59\u7684\u624b\u6307\uff0c\u753b\u5f97\u4e0d\u597d\u7684\u624b\u90e8\uff0c\u753b\u5f97\u4e0d\u597d\u7684\u8138\u90e8\uff0c\u7578\u5f62\u7684\uff0c\u6bc1\u5bb9\u7684\uff0c\u5f62\u6001\u7578\u5f62\u7684\u80a2\u4f53\uff0c\u624b\u6307\u878d\u5408\uff0c\u9759\u6b62\u4e0d\u52a8\u7684\u753b\u9762\uff0c\u6742\u4e71\u7684\u80cc\u666f\uff0c\u4e09\u6761\u817f\uff0c\u80cc\u666f\u4eba\u5f88\u591a\uff0c\u5012\u7740\u8d70", true]
+    },
+    {
+      "id": 10,
+      "type": "WanVideoVAELoader",
+      "pos": [50, 850],
+      "size": [350, 80],
+      "flags": {},
+      "order": 9,
+      "mode": 0,
+      "outputs": [{"name": "vae", "type": "WANVAE", "links": [8, 18], "slot_index": 0}],
+      "properties": {"Node name for S&R": "WanVideoVAELoader"},
+      "widgets_values": ["Wan2_1_VAE_bf16.safetensors", "bf16"]
+    },
+    {
+      "id": 11,
+      "type": "VHS_LoadVideo",
+      "pos": [50, 1000],
+      "size": [350, 250],
+      "flags": {},
+      "order": 10,
+      "mode": 0,
+      "outputs": [
+        {"name": "IMAGE", "type": "IMAGE", "links": [9], "slot_index": 0},
+        {"name": "frame_count", "type": "INT", "links": null, "slot_index": 1},
+        {"name": "audio", "type": "AUDIO", "links": null, "slot_index": 2},
+        {"name": "video_info", "type": "VHS_VIDEOINFO", "links": null, "slot_index": 3}
+      ],
+      "properties": {"Node name for S&R": "VHS_LoadVideo"},
+      "widgets_values": ["input_video.mp4", 0, 0, 0, 81, 0, 1, "Disabled", 1, "image", "", false]
+    },
+    {
+      "id": 12,
+      "type": "LoadImage",
+      "pos": [50, 1300],
+      "size": [350, 350],
+      "flags": {},
+      "order": 11,
+      "mode": 0,
+      "outputs": [
+        {"name": "IMAGE", "type": "IMAGE", "links": [10], "slot_index": 0},
+        {"name": "MASK", "type": "MASK", "links": null, "slot_index": 1}
+      ],
+      "properties": {"Node name for S&R": "LoadImage"},
+      "widgets_values": ["reference_style.png"]
+    },
+    {
+      "id": 13,
+      "type": "WanVideoVACEEncode",
+      "pos": [500, 950],
+      "size": [400, 250],
+      "flags": {},
+      "order": 12,
+      "mode": 0,
+      "inputs": [
+        {"name": "vae", "type": "WANVAE", "link": 8},
+        {"name": "input_frames", "type": "IMAGE", "link": 9},
+        {"name": "ref_images", "type": "IMAGE", "link": 10}
+      ],
+      "outputs": [{"name": "image_embeds", "type": "WANVIDIMAGE_EMBEDS", "links": [12, 15], "slot_index": 0}],
+      "properties": {"Node name for S&R": "WanVideoVACEEncode"},
+      "widgets_values": [832, 480, 81, 1.0, 0.0, 1.0]
+    },
+    {
+      "id": 18,
+      "type": "WanVideoTeaCache",
+      "pos": [950, 350],
+      "size": [300, 150],
+      "flags": {},
+      "order": 13,
+      "mode": 0,
+      "outputs": [{"name": "cache_args", "type": "CACHEARGS", "links": [21], "slot_index": 0}],
+      "properties": {"Node name for S&R": "WanVideoTeaCache"},
+      "widgets_values": [0.25, 1, -1, "offload_device", true]
+    },
+    {
+      "id": 19,
+      "type": "WanVideoTeaCache",
+      "pos": [950, 550],
+      "size": [300, 150],
+      "flags": {},
+      "order": 14,
+      "mode": 0,
+      "outputs": [{"name": "cache_args", "type": "CACHEARGS", "links": [22], "slot_index": 0}],
+      "properties": {"Node name for S&R": "WanVideoTeaCache"},
+      "widgets_values": [0.25, 1, -1, "offload_device", true]
+    },
+    {
+      "id": 14,
+      "type": "WanVideoSampler",
+      "pos": [1350, 50],
+      "size": [350, 400],
+      "flags": {},
+      "order": 15,
+      "mode": 0,
+      "inputs": [
+        {"name": "model", "type": "WANVIDEOMODEL", "link": 11},
+        {"name": "image_embeds", "type": "WANVIDIMAGE_EMBEDS", "link": 12},
+        {"name": "text_embeds", "type": "WANVIDEOTEXTEMBEDS", "link": 13},
+        {"name": "cache_args", "type": "CACHEARGS", "link": 21}
+      ],
+      "outputs": [
+        {"name": "samples", "type": "LATENT", "links": [17], "slot_index": 0},
+        {"name": "denoised_samples", "type": "LATENT", "links": null, "slot_index": 1}
+      ],
+      "title": "WanVideoSampler (HIGH 0-15)",
+      "properties": {"Node name for S&R": "WanVideoSampler"},
+      "widgets_values": [30, 6.0, 5.0, 0, "fixed", true, "dpm++_sde", 0, 1.0, false, "default", 0, 15, false]
+    },
+    {
+      "id": 15,
+      "type": "WanVideoSampler",
+      "pos": [1350, 500],
+      "size": [350, 450],
+      "flags": {},
+      "order": 16,
+      "mode": 0,
+      "inputs": [
+        {"name": "model", "type": "WANVIDEOMODEL", "link": 14},
+        {"name": "image_embeds", "type": "WANVIDIMAGE_EMBEDS", "link": 15},
+        {"name": "text_embeds", "type": "WANVIDEOTEXTEMBEDS", "link": 16},
+        {"name": "samples", "type": "LATENT", "link": 17},
+        {"name": "cache_args", "type": "CACHEARGS", "link": 22}
+      ],
+      "outputs": [
+        {"name": "samples", "type": "LATENT", "links": [19], "slot_index": 0},
+        {"name": "denoised_samples", "type": "LATENT", "links": null, "slot_index": 1}
+      ],
+      "title": "WanVideoSampler (LOW 15-end)",
+      "properties": {"Node name for S&R": "WanVideoSampler"},
+      "widgets_values": [30, 6.0, 5.0, 0, "fixed", true, "dpm++_sde", 0, 1.0, false, "default", 15, -1, false]
+    },
+    {
+      "id": 16,
+      "type": "WanVideoDecode",
+      "pos": [1800, 300],
+      "size": [350, 200],
+      "flags": {},
+      "order": 17,
+      "mode": 0,
+      "inputs": [
+        {"name": "vae", "type": "WANVAE", "link": 18},
+        {"name": "samples", "type": "LATENT", "link": 19}
+      ],
+      "outputs": [{"name": "images", "type": "IMAGE", "links": [20], "slot_index": 0}],
+      "properties": {"Node name for S&R": "WanVideoDecode"},
+      "widgets_values": [false, 272, 272, 144, 128]
+    },
+    {
+      "id": 17,
+      "type": "VHS_VideoCombine",
+      "pos": [1800, 600],
+      "size": [350, 300],
+      "flags": {},
+      "order": 18,
+      "mode": 0,
+      "inputs": [
+        {"name": "images", "type": "IMAGE", "link": 20}
+      ],
+      "properties": {"Node name for S&R": "VHS_VideoCombine"},
+      "widgets_values": [16, 0, "wan22_v2v_vace", "video/h264-mp4", false, true, "", "", 0, false]
+    }
+  ],
+  "links": [
+    [1, 1, 0, 3, 0, "VACEPATH"],
+    [2, 2, 0, 4, 0, "VACEPATH"],
+    [3, 3, 0, 6, 0, "WANVIDEOMODEL"],
+    [4, 5, 0, 6, 1, "BLOCKSWAPARGS"],
+    [5, 4, 0, 7, 0, "WANVIDEOMODEL"],
+    [6, 5, 0, 7, 1, "BLOCKSWAPARGS"],
+    [7, 8, 0, 9, 0, "WANTEXTENCODER"],
+    [8, 10, 0, 13, 0, "WANVAE"],
+    [9, 11, 0, 13, 1, "IMAGE"],
+    [10, 12, 0, 13, 2, "IMAGE"],
+    [11, 6, 0, 14, 0, "WANVIDEOMODEL"],
+    [12, 13, 0, 14, 1, "WANVIDIMAGE_EMBEDS"],
+    [13, 9, 0, 14, 2, "WANVIDEOTEXTEMBEDS"],
+    [14, 7, 0, 15, 0, "WANVIDEOMODEL"],
+    [15, 13, 0, 15, 1, "WANVIDIMAGE_EMBEDS"],
+    [16, 9, 0, 15, 2, "WANVIDEOTEXTEMBEDS"],
+    [17, 14, 0, 15, 3, "LATENT"],
+    [18, 10, 0, 16, 0, "WANVAE"],
+    [19, 15, 0, 16, 1, "LATENT"],
+    [20, 16, 0, 17, 0, "IMAGE"],
+    [21, 18, 0, 14, 3, "CACHEARGS"],
+    [22, 19, 0, 15, 4, "CACHEARGS"]
+  ],
+  "groups": [
+    {
+      "title": "Model Loading (HIGH + LOW)",
+      "bounding": [30, -20, 1230, 580],
+      "color": "#3f789e"
+    },
+    {
+      "title": "Input (Video + Style Reference)",
+      "bounding": [30, 820, 920, 850],
+      "color": "#88A"
+    },
+    {
+      "title": "Sampling (Two-Stage with TeaCache)",
+      "bounding": [1330, 20, 390, 950],
+      "color": "#8A8"
+    }
+  ],
+  "config": {},
+  "extra": {},
+  "version": 0.4
+}
