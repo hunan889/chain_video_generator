@@ -943,7 +943,7 @@ class TaskManager:
             loras=None,
             match_image_ratio=seg0.get("match_image_ratio", False),
             enable_upscale=seg0.get("enable_upscale", False),
-            upscale_model=seg0.get("upscale_model", "4x-UltraSharp"),
+            upscale_model=seg0.get("upscale_model", "4x_foolhardy_Remacri"),
             upscale_resize=seg0.get("upscale_resize", "2x"),
             enable_interpolation=seg0.get("enable_interpolation", False),
             interpolation_multiplier=seg0.get("interpolation_multiplier", 2),

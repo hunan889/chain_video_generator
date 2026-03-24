@@ -1582,12 +1582,13 @@ async def _generate_video(workflow_id: str, req, first_frame_url: str, analysis_
             upscale_config = postprocess_config.get("upscale", {})
             if upscale_config.get("enabled"):
                 chain_req.enable_upscale = True
-                raw_model = upscale_config.get("model", "4x-UltraSharp")
-                # Map legacy/invalid model names to valid TRT engine names
+                raw_model = upscale_config.get("model", "4x_foolhardy_Remacri")
+                # Map legacy model names to supported models
                 _upscale_model_map = {
-                    "RealESRGAN_x4plus": "4x-UltraSharp",
-                    "RealESRGAN_x2plus": "4x-UltraSharp",
-                    "realesrgan-x4plus": "4x-UltraSharp",
+                    "4x-UltraSharp": "4x_NMKD-Siax_200k",
+                    "RealESRGAN_x4plus": "4x_NMKD-Siax_200k",
+                    "RealESRGAN_x2plus": "RealESRGAN_x2plus.pth",  # PyTorch path
+                    "realesrgan-x4plus": "4x_NMKD-Siax_200k",
                 }
                 chain_req.upscale_model = _upscale_model_map.get(raw_model, raw_model)
                 if chain_req.upscale_model != raw_model:
@@ -1598,6 +1599,10 @@ async def _generate_video(workflow_id: str, req, first_frame_url: str, analysis_
                     resize_factor = float(raw_resize.lower().rstrip('x'))
                 else:
                     resize_factor = float(raw_resize)
+                # Snap to 0.5 steps (TRT supports 1x, 1.5x, 2x, 2.5x, ...)
+                resize_factor = round(resize_factor * 2) / 2
+                if resize_factor < 1.0:
+                    resize_factor = 1.5
                 chain_req.upscale_resize = f"{int(resize_factor)}x" if resize_factor == int(resize_factor) else f"{resize_factor}x"
                 gen_width = max(16, int(round(width / resize_factor / 16)) * 16)
                 gen_height = max(16, int(round(height / resize_factor / 16)) * 16)
@@ -1608,7 +1613,7 @@ async def _generate_video(workflow_id: str, req, first_frame_url: str, analysis_
                     max_factor_w = width / MIN_GEN_DIM
                     max_factor_h = height / MIN_GEN_DIM
                     resize_factor = min(resize_factor, max_factor_w, max_factor_h)
-                    resize_factor = max(1.0, round(resize_factor * 4) / 4)  # round to 0.25 steps
+                    resize_factor = max(1.0, round(resize_factor * 2) / 2)  # round to 0.5 steps (TRT supports 1x,1.5x,2x,...)
                     if resize_factor <= 1.0:
                         # 1.0x means no actual upscaling — disable to avoid UpscalerTensorrt validation failure
                         chain_req.enable_upscale = False

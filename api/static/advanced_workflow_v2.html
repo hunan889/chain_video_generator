@@ -628,9 +628,10 @@ h2{color:#7c83ff;margin-bottom:20px;font-size:1.4em}
 </div>
 <div class="field">
 <label>超分模型</label>
-<select id="s4_upscaleModel">
-<option value="4x-UltraSharp">4x-UltraSharp (TRT)</option>
-<option value="RealESRGAN_x2plus">RealESRGAN_x2plus (不支持)</option>
+<select id="s4_upscaleModel" onchange="document.getElementById('s4_upscaleResize').disabled = this.value === 'RealESRGAN_x2plus.pth'">
+<option value="4x_foolhardy_Remacri">Remacri (TRT 自然)</option>
+<option value="4x_NMKD-Siax_200k">NMKD-Siax (TRT 锐利)</option>
+<option value="RealESRGAN_x2plus.pth">RealESRGAN (柔和 慢)</option>
 </select>
 </div>
 <div class="field">
@@ -797,10 +798,10 @@ function getDefaultConfig(mode, turbo) {
     let generation, postprocess;
     if (turbo) {
         generation = { steps: 5, cfg: 1, scheduler: 'euler', shift: 5.0, model_preset: 'nsfw_v2' };
-        postprocess = { upscale: { enabled: true, model: '4x-UltraSharp', resize: 2.0 }, interpolation: { enabled: false }, mmaudio: { enabled: false } };
+        postprocess = { upscale: { enabled: true, model: '4x_NMKD-Siax_200k', resize: 2.0 }, interpolation: { enabled: false }, mmaudio: { enabled: false } };
     } else {
         generation = { steps: 5, cfg: 1, scheduler: 'euler', shift: 5.0, model_preset: 'nsfw_v2' };
-        postprocess = { upscale: { enabled: true, model: '4x-UltraSharp', resize: 1.5 }, interpolation: { enabled: true, multiplier: 2, profile: 'fast' }, mmaudio: { enabled: false } };
+        postprocess = { upscale: { enabled: true, model: '4x_NMKD-Siax_200k', resize: 2.0 }, interpolation: { enabled: true, multiplier: 2, profile: 'fast' }, mmaudio: { enabled: false } };
     }
 
     return {

@@ -45,31 +45,44 @@ def _calc_upscaled_size(width: int, height: int, resize_to: str) -> tuple[int, i
     return int(fw), int(fh)
 
 
-def _select_rife_profile(width: int, height: int) -> str:
-    """Select RIFE TRT profile based on actual frame dimensions.
+def _select_rife_profile(width: int, height: int) -> tuple[str, int, int]:
+    """Select RIFE TRT profile and safe dimensions for the given frame size.
 
-    Returns the first profile where both dimensions fit within [min, max].
-    Falls back to the profile covering max_dim if no perfect match.
+    Returns (profile_name, safe_width, safe_height).
+    If dimensions fit a profile exactly, safe_w/h equal the input.
+    If not, dimensions are scaled down proportionally to fit the best profile.
     """
     min_dim = min(width, height)
     max_dim = max(width, height)
 
+    # Perfect match
     for name, p_min, p_max in _RIFE_PROFILES:
         if min_dim >= p_min and max_dim <= p_max:
-            return name
+            return name, width, height
 
-    # No perfect match — pick the profile that covers max_dim
-    if max_dim <= 1080:
-        profile = "small"
-    elif max_dim <= 1312:
-        profile = "medium"
-    else:
-        profile = "large"
-    logger.warning(
-        "No RIFE profile perfectly covers %dx%d (min=%d, max=%d), using '%s'",
-        width, height, min_dim, max_dim, profile,
-    )
-    return profile
+    # No perfect match — find best profile and scale to fit
+    # Pick the largest profile whose p_min <= min_dim (safe for TRT min bound)
+    best = None
+    for name, p_min, p_max in _RIFE_PROFILES:
+        if min_dim >= p_min:
+            best = (name, p_min, p_max)
+    if not best:
+        best = _RIFE_PROFILES[0]  # "small" as last resort
+
+    name, p_min, p_max = best
+    safe_w, safe_h = width, height
+
+    # Scale down if max_dim exceeds profile max
+    if max_dim > p_max:
+        scale = p_max / max_dim
+        safe_w = int(width * scale)
+        safe_h = int(height * scale)
+        logger.warning(
+            "RIFE: scaling %dx%d → %dx%d to fit '%s' profile (max=%d)",
+            width, height, safe_w, safe_h, name, p_max,
+        )
+
+    return name, safe_w, safe_h
 
 # Cache for LoRA file metadata (civitai_id -> filename mapping)
 _lora_id_cache: dict[str, str] = {}
@@ -600,7 +613,12 @@ def _bypass_color_match(workflow: dict):
     del workflow[cm_id]
 
 
-UPSCALE_MODEL = "RealESRGAN_x2plus.pth"
+UPSCALE_MODEL = "4x_foolhardy_Remacri"
+UPSCALE_MODEL_PYTORCH = "RealESRGAN_x2plus.pth"
+
+# Models that use PyTorch path (UpscaleModelLoader + ImageUpscaleWithModelBatched)
+_PYTORCH_UPSCALE_MODELS = {"RealESRGAN_x2plus.pth", "RealESRGAN_x2plus"}
+# All others assumed to be TRT (LoadUpscalerTensorrtModel + UpscalerTensorrt)
 
 
 def _inject_reactor(workflow: dict, face_image_path: str, strength: float) -> dict:
@@ -677,7 +695,11 @@ def _inject_reactor(workflow: dict, face_image_path: str, strength: float) -> di
 
 
 def _inject_upscale(workflow: dict) -> dict:
-    """Insert UpscaleModelLoader + ImageUpscaleWithModel between decode and VHS_VideoCombine."""
+    """Insert upscale nodes between decode and VHS_VideoCombine.
+
+    Uses PyTorch (RealESRGAN_x2plus) for inline upscale — fixed native 2x,
+    softer/more natural result especially for faces.
+    """
     # Find VHS_VideoCombine and its image source
     combine_id = None
     for nid, node in workflow.items():
@@ -697,18 +719,17 @@ def _inject_upscale(workflow: dict) -> dict:
     max_id = 0
     for k in workflow.keys():
         if ':' in k:
-            # Extract all numeric parts from IDs like "1252:1299"
             for part in k.split(':'):
                 if part.isdigit():
                     max_id = max(max_id, int(part))
         elif k.isdigit():
             max_id = max(max_id, int(k))
 
-    # Add UpscaleModelLoader
+    # Add UpscaleModelLoader (PyTorch path — RealESRGAN_x2plus.pth)
     loader_id = str(max_id + 1)
     workflow[loader_id] = {
         "class_type": "UpscaleModelLoader",
-        "inputs": {"model_name": UPSCALE_MODEL},
+        "inputs": {"model_name": UPSCALE_MODEL_PYTORCH},
     }
 
     # Add ImageUpscaleWithModelBatched — processes video frames in sub-batches for VRAM efficiency
@@ -717,7 +738,7 @@ def _inject_upscale(workflow: dict) -> dict:
         "class_type": "ImageUpscaleWithModelBatched",
         "inputs": {
             "upscale_model": [loader_id, 0],
-            "images": images_input,  # was pointing to decode output
+            "images": images_input,
             "per_batch": 4,
         },
     }
@@ -1289,48 +1310,85 @@ def _inject_story_postproc(workflow: dict, seg: dict) -> dict:
         }
         current_image_ref = ["pp_vram_cleanup", 0]
 
-    # TRT Upscale
+    # Upscale (TRT or PyTorch depending on model)
     if seg.get("enable_upscale"):
-        workflow["pp_upscale_loader"] = {
-            "class_type": "LoadUpscalerTensorrtModel",
-            "inputs": {
-                "model": seg.get("upscale_model", "4x-UltraSharp"),
-                "precision": "fp16",
-            },
-            "_meta": {"title": "Load Upscaler TRT"},
-        }
-        workflow["pp_upscale"] = {
-            "class_type": "UpscalerTensorrt",
-            "inputs": {
-                "images": current_image_ref,
-                "upscaler_trt_model": ["pp_upscale_loader", 0],
-                "resize_to": seg.get("upscale_resize", "2x"),
-                "resize_width": 1024,
-                "resize_height": 1024,
-            },
-            "_meta": {"title": "Upscaler TensorRT"},
-        }
+        upscale_model_name = seg.get("upscale_model", UPSCALE_MODEL)
+        if upscale_model_name in _PYTORCH_UPSCALE_MODELS:
+            # PyTorch path: RealESRGAN_x2plus (native 2x, softer)
+            workflow["pp_upscale_loader"] = {
+                "class_type": "UpscaleModelLoader",
+                "inputs": {"model_name": UPSCALE_MODEL_PYTORCH},
+                "_meta": {"title": "Load Upscaler (PyTorch)"},
+            }
+            workflow["pp_upscale"] = {
+                "class_type": "ImageUpscaleWithModelBatched",
+                "inputs": {
+                    "upscale_model": ["pp_upscale_loader", 0],
+                    "images": current_image_ref,
+                    "per_batch": 4,
+                },
+                "_meta": {"title": "Upscale RealESRGAN 2x"},
+            }
+        else:
+            # TRT path: fast, configurable resize_to
+            workflow["pp_upscale_loader"] = {
+                "class_type": "LoadUpscalerTensorrtModel",
+                "inputs": {
+                    "model": upscale_model_name,
+                    "precision": "fp16",
+                },
+                "_meta": {"title": "Load Upscaler TRT"},
+            }
+            workflow["pp_upscale"] = {
+                "class_type": "UpscalerTensorrt",
+                "inputs": {
+                    "images": current_image_ref,
+                    "upscaler_trt_model": ["pp_upscale_loader", 0],
+                    "resize_to": seg.get("upscale_resize", "2x"),
+                    "resize_width": 1024,
+                    "resize_height": 1024,
+                },
+                "_meta": {"title": "Upscaler TensorRT"},
+            }
         current_image_ref = ["pp_upscale", 0]
 
     # RIFE Frame Interpolation
     multiplier = seg.get("interpolation_multiplier", 2)
     if seg.get("enable_interpolation") and multiplier > 1:
         output_fps = fps * multiplier
-        # Select RIFE profile based on actual frame dimensions
+        # Select RIFE profile based on actual post-upscale frame dimensions
         if seg.get("enable_upscale"):
+            upscale_model_name = seg.get("upscale_model", UPSCALE_MODEL)
+            # PyTorch RealESRGAN is always native 2x regardless of upscale_resize setting
+            effective_resize = "2x" if upscale_model_name in _PYTORCH_UPSCALE_MODELS else seg.get("upscale_resize", "2x")
             rife_w, rife_h = _calc_upscaled_size(
                 seg.get("width", 480), seg.get("height", 848),
-                seg.get("upscale_resize", "2x"),
+                effective_resize,
             )
-            rife_profile = _select_rife_profile(rife_w, rife_h)
+            rife_profile, safe_w, safe_h = _select_rife_profile(rife_w, rife_h)
         else:
             rife_profile = seg.get("interpolation_profile", "small")
-            # Map UI profile names to valid RIFE TRT profiles
             _VALID_RIFE_TRT_PROFILES = {"small", "medium", "large", "custom"}
             if rife_profile not in _VALID_RIFE_TRT_PROFILES:
-                rife_profile = _select_rife_profile(
+                rife_profile, safe_w, safe_h = _select_rife_profile(
                     seg.get("width", 480), seg.get("height", 848)
                 )
+            else:
+                safe_w, safe_h = 0, 0  # no resize needed
+        # Add resize node if dimensions need adjustment to fit RIFE profile
+        if safe_w and safe_h and (safe_w != rife_w or safe_h != rife_h):
+            workflow["pp_rife_resize"] = {
+                "class_type": "ImageScale",
+                "inputs": {
+                    "image": current_image_ref,
+                    "upscale_method": "lanczos",
+                    "width": safe_w,
+                    "height": safe_h,
+                    "crop": "disabled",
+                },
+                "_meta": {"title": f"Resize for RIFE ({safe_w}x{safe_h})"},
+            }
+            current_image_ref = ["pp_rife_resize", 0]
         workflow["pp_rife_loader"] = {
             "class_type": "AutoLoadRifeTensorrtModel",
             "inputs": {
@@ -1425,7 +1483,7 @@ def build_merged_story_workflow(
     loras: Optional[list[LoraInput]] = None,
     match_image_ratio: bool = False,
     enable_upscale: bool = False,
-    upscale_model: str = "4x-UltraSharp",
+    upscale_model: str = "4x_foolhardy_Remacri",
     upscale_resize: str = "2x",
     enable_interpolation: bool = False,
     interpolation_multiplier: int = 2,
@@ -1940,27 +1998,45 @@ def build_merged_story_workflow(
         }
         current_image_ref = ["pp_vram_cleanup", 0]
 
-    # ── Optional: TensorRT Upscale ───────────────────────────────────────
+    # ── Optional: Upscale (TRT or PyTorch) ──────────────────────────────
     if enable_upscale:
-        workflow["pp_upscale_loader"] = {
-            "class_type": "LoadUpscalerTensorrtModel",
-            "inputs": {
-                "model": upscale_model,
-                "precision": "fp16",
-            },
-            "_meta": {"title": "Load Upscaler TRT"},
-        }
-        workflow["pp_upscale"] = {
-            "class_type": "UpscalerTensorrt",
-            "inputs": {
-                "images": current_image_ref,
-                "upscaler_trt_model": ["pp_upscale_loader", 0],
-                "resize_to": upscale_resize,
-                "resize_width": 1024,
-                "resize_height": 1024,
-            },
-            "_meta": {"title": "Upscaler TensorRT"},
-        }
+        if upscale_model in _PYTORCH_UPSCALE_MODELS:
+            # PyTorch path: RealESRGAN_x2plus (native 2x, softer)
+            workflow["pp_upscale_loader"] = {
+                "class_type": "UpscaleModelLoader",
+                "inputs": {"model_name": UPSCALE_MODEL_PYTORCH},
+                "_meta": {"title": "Load Upscaler (PyTorch)"},
+            }
+            workflow["pp_upscale"] = {
+                "class_type": "ImageUpscaleWithModelBatched",
+                "inputs": {
+                    "upscale_model": ["pp_upscale_loader", 0],
+                    "images": current_image_ref,
+                    "per_batch": 4,
+                },
+                "_meta": {"title": "Upscale RealESRGAN 2x"},
+            }
+        else:
+            # TRT path: fast, configurable resize_to
+            workflow["pp_upscale_loader"] = {
+                "class_type": "LoadUpscalerTensorrtModel",
+                "inputs": {
+                    "model": upscale_model,
+                    "precision": "fp16",
+                },
+                "_meta": {"title": "Load Upscaler TRT"},
+            }
+            workflow["pp_upscale"] = {
+                "class_type": "UpscalerTensorrt",
+                "inputs": {
+                    "images": current_image_ref,
+                    "upscaler_trt_model": ["pp_upscale_loader", 0],
+                    "resize_to": upscale_resize,
+                    "resize_width": 1024,
+                    "resize_height": 1024,
+                },
+                "_meta": {"title": "Upscaler TensorRT"},
+            }
         current_image_ref = ["pp_upscale", 0]
 
     # ── Optional: RIFE TensorRT Frame Interpolation ──────────────────────
@@ -1968,15 +2044,34 @@ def build_merged_story_workflow(
     if enable_interpolation and interpolation_multiplier > 1:
         output_fps = fps * interpolation_multiplier
         # Auto-select RIFE profile based on actual post-upscale dimensions
+        rife_w, rife_h = 0, 0
         if enable_upscale:
-            rife_w, rife_h = _calc_upscaled_size(width, height, upscale_resize)
-            rife_profile = _select_rife_profile(rife_w, rife_h)
+            # PyTorch RealESRGAN is always native 2x regardless of upscale_resize setting
+            effective_resize = "2x" if upscale_model in _PYTORCH_UPSCALE_MODELS else upscale_resize
+            rife_w, rife_h = _calc_upscaled_size(width, height, effective_resize)
+            rife_profile, safe_w, safe_h = _select_rife_profile(rife_w, rife_h)
         else:
             rife_profile = interpolation_profile
-            # Map UI profile names to valid RIFE TRT profiles
             _VALID_RIFE_TRT_PROFILES = {"small", "medium", "large", "custom"}
             if rife_profile not in _VALID_RIFE_TRT_PROFILES:
-                rife_profile = _select_rife_profile(width, height)
+                rife_profile, safe_w, safe_h = _select_rife_profile(width, height)
+                rife_w, rife_h = width, height
+            else:
+                safe_w, safe_h = 0, 0
+        # Add resize node if dimensions need adjustment to fit RIFE profile
+        if safe_w and safe_h and rife_w and rife_h and (safe_w != rife_w or safe_h != rife_h):
+            workflow["pp_rife_resize"] = {
+                "class_type": "ImageScale",
+                "inputs": {
+                    "image": current_image_ref,
+                    "upscale_method": "lanczos",
+                    "width": safe_w,
+                    "height": safe_h,
+                    "crop": "disabled",
+                },
+                "_meta": {"title": f"Resize for RIFE ({safe_w}x{safe_h})"},
+            }
+            current_image_ref = ["pp_rife_resize", 0]
         workflow["pp_rife_loader"] = {
             "class_type": "AutoLoadRifeTensorrtModel",
             "inputs": {
@@ -2135,6 +2230,10 @@ def build_interpolate_workflow(
     fps: float = 16.0,
 ) -> dict:
     """Build a ComfyUI workflow for standalone RIFE frame interpolation."""
+    # Safe dimensions for RIFE (set by ffprobe detection below)
+    _interp_safe_w = _interp_safe_h = None
+    _interp_orig_w = _interp_orig_h = None
+
     # Auto-detect video resolution and validate profile
     try:
         import subprocess
@@ -2146,37 +2245,14 @@ def build_interpolate_workflow(
         )
         if result.returncode == 0:
             width, height = map(int, result.stdout.strip().split(','))
-            max_dim = max(width, height)
 
-            # Resolution profiles from RIFE config
-            # small: 384-1080, medium: 672-1312, large: 720-1920
-            profile_ranges = {
-                "small": (384, 1080),
-                "medium": (672, 1312),
-                "large": (720, 1920),
-            }
-
-            # Map UI profile names (fast/quality/auto) to valid RIFE TRT profiles
-            if resolution_profile not in profile_ranges:
-                resolution_profile = _select_rife_profile(width, height)
-            if resolution_profile in profile_ranges:
-                min_res, max_res = profile_ranges[resolution_profile]
-                if max_dim < min_res or max_dim > max_res:
-                    # Auto-select appropriate profile
-                    if max_dim < 672:
-                        resolution_profile = "small"
-                    elif max_dim < 720:
-                        resolution_profile = "medium"
-                    elif max_dim <= 1080:
-                        resolution_profile = "small"  # small can handle up to 1080
-                    elif max_dim <= 1312:
-                        resolution_profile = "medium"
-                    else:
-                        resolution_profile = "large"
-                    logger.warning(
-                        f"Video resolution {width}x{height} incompatible with requested profile, "
-                        f"auto-selected '{resolution_profile}'"
-                    )
+            # Use _select_rife_profile for profile selection and safe dimensions
+            selected_profile, safe_w, safe_h = _select_rife_profile(width, height)
+            if resolution_profile not in ("small", "medium", "large"):
+                resolution_profile = selected_profile
+            # Store safe dimensions for potential resize node
+            _interp_safe_w, _interp_safe_h = safe_w, safe_h
+            _interp_orig_w, _interp_orig_h = width, height
     except Exception as e:
         logger.warning(f"Could not detect video resolution: {e}, using profile '{resolution_profile}'")
 
@@ -2207,11 +2283,30 @@ def build_interpolate_workflow(
         "_meta": {"title": "Load RIFE TRT"},
     }
 
+    # Optional resize for RIFE profile compatibility
+    rife_frames_ref = ["load_video", 0]
+    if (_interp_safe_w and _interp_safe_h and _interp_orig_w and _interp_orig_h
+            and (_interp_safe_w != _interp_orig_w or _interp_safe_h != _interp_orig_h)):
+        workflow["rife_resize"] = {
+            "class_type": "ImageScale",
+            "inputs": {
+                "image": ["load_video", 0],
+                "upscale_method": "lanczos",
+                "width": _interp_safe_w,
+                "height": _interp_safe_h,
+                "crop": "disabled",
+            },
+            "_meta": {"title": f"Resize for RIFE ({_interp_safe_w}x{_interp_safe_h})"},
+        }
+        rife_frames_ref = ["rife_resize", 0]
+        logger.info("RIFE interpolate: added resize %dx%d → %dx%d for profile compatibility",
+                     _interp_orig_w, _interp_orig_h, _interp_safe_w, _interp_safe_h)
+
     # RIFE interpolation
     workflow["rife"] = {
         "class_type": "AutoRifeTensorrt",
         "inputs": {
-            "frames": ["load_video", 0],
+            "frames": rife_frames_ref,
             "rife_trt_model": ["rife_loader", 0],
             "clear_cache_after_n_frames": 100,
             "multiplier": multiplier,
@@ -2246,11 +2341,11 @@ def build_interpolate_workflow(
 
 def build_upscale_workflow(
     video_path: str,
-    model: str = "4x-UltraSharp",
-    resize_to: str = "FHD",
+    model: str = "4x_foolhardy_Remacri",
+    resize_to: str = "2x",
     fps: float = 16.0,
 ) -> dict:
-    """Build a ComfyUI workflow for standalone TRT video upscaling."""
+    """Build a ComfyUI workflow for standalone video upscaling (TRT or PyTorch)."""
     workflow = {}
 
     # Load video
@@ -2267,28 +2362,43 @@ def build_upscale_workflow(
         "_meta": {"title": "Load Video"},
     }
 
-    # TRT upscaler model
-    workflow["upscale_loader"] = {
-        "class_type": "LoadUpscalerTensorrtModel",
-        "inputs": {
-            "model": model,
-            "precision": "fp16",
-        },
-        "_meta": {"title": "Load Upscaler TRT"},
-    }
-
-    # Upscale
-    workflow["upscale"] = {
-        "class_type": "UpscalerTensorrt",
-        "inputs": {
-            "images": ["load_video", 0],
-            "upscaler_trt_model": ["upscale_loader", 0],
-            "resize_to": resize_to,
-            "resize_width": 1024,
-            "resize_height": 1024,
-        },
-        "_meta": {"title": f"Upscale {resize_to}"},
-    }
+    if model in _PYTORCH_UPSCALE_MODELS:
+        # PyTorch path: RealESRGAN_x2plus (native 2x, softer)
+        workflow["upscale_loader"] = {
+            "class_type": "UpscaleModelLoader",
+            "inputs": {"model_name": UPSCALE_MODEL_PYTORCH},
+            "_meta": {"title": "Load Upscaler (PyTorch)"},
+        }
+        workflow["upscale"] = {
+            "class_type": "ImageUpscaleWithModelBatched",
+            "inputs": {
+                "upscale_model": ["upscale_loader", 0],
+                "images": ["load_video", 0],
+                "per_batch": 4,
+            },
+            "_meta": {"title": "Upscale RealESRGAN 2x"},
+        }
+    else:
+        # TRT path: fast, configurable resize_to
+        workflow["upscale_loader"] = {
+            "class_type": "LoadUpscalerTensorrtModel",
+            "inputs": {
+                "model": model,
+                "precision": "fp16",
+            },
+            "_meta": {"title": "Load Upscaler TRT"},
+        }
+        workflow["upscale"] = {
+            "class_type": "UpscalerTensorrt",
+            "inputs": {
+                "images": ["load_video", 0],
+                "upscaler_trt_model": ["upscale_loader", 0],
+                "resize_to": resize_to,
+                "resize_width": 1024,
+                "resize_height": 1024,
+            },
+            "_meta": {"title": f"Upscale {resize_to}"},
+        }
 
     # Output
     workflow["output"] = {
@@ -2309,7 +2419,7 @@ def build_upscale_workflow(
         "_meta": {"title": "Output"},
     }
 
-    logger.info(f"Built upscale workflow: {video_path}, model={model}, resize={resize_to}")
+    logger.info(f"Built upscale workflow: {video_path}, model={model}")
     return workflow
 
 

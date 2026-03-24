@@ -241,7 +241,8 @@
 </div>
 <!-- Post-processing: Upscale / Frame Interpolation / MMAudio -->
 <div class="row" id="chain-postproc-row">
-<div class="field" style="min-width:auto;flex:none"><label><input type="checkbox" id="chain-enable-upscale" onchange="togglePostProc()" style="accent-color:#7c83ff;width:16px;height:16px;vertical-align:middle;margin-right:6px">TRT 超分</label></div>
+<div class="field" style="min-width:auto;flex:none"><label><input type="checkbox" id="chain-enable-upscale" onchange="togglePostProc()" style="accent-color:#7c83ff;width:16px;height:16px;vertical-align:middle;margin-right:6px">超分</label></div>
+<div class="field" id="chain-upscale-model-field" style="display:none;min-width:120px"><label>模型</label><select id="chain-upscale-model" onchange="onChainUpscaleModelChange()"><option value="4x_foolhardy_Remacri">Remacri (TRT 自然)</option><option value="4x_NMKD-Siax_200k">NMKD-Siax (TRT 锐利)</option><option value="RealESRGAN_x2plus.pth">RealESRGAN (柔和 慢)</option></select></div>
 <div class="field" id="chain-upscale-resize-field" style="display:none;min-width:80px"><label>倍率</label><select id="chain-upscale-resize"><option value="1.5x">1.5x</option><option value="2x" selected>2x</option><option value="3x">3x</option><option value="4x">4x</option></select></div>
 <div class="field" style="min-width:auto;flex:none"><label><input type="checkbox" id="chain-enable-interpolation" onchange="togglePostProc()" style="accent-color:#7c83ff;width:16px;height:16px;vertical-align:middle;margin-right:6px">RIFE 插帧</label></div>
 <div class="field" id="chain-interpolation-mult-field" style="display:none;min-width:80px"><label>倍率</label><select id="chain-interpolation-multiplier"><option value="2" selected>2x</option><option value="3">3x</option><option value="4">4x</option></select></div>
@@ -539,7 +540,7 @@
 <div style="color:#7c83ff;font-weight:600;margin-bottom:12px">TRT 超分</div>
 <div class="row">
 <div class="field"><label>超分模型</label>
-<select id="pp-upscale-model"><option value="4x-UltraSharp">4x-UltraSharp</option><option value="4x-AnimeSharp">4x-AnimeSharp</option></select>
+<select id="pp-upscale-model" onchange="onPpUpscaleModelChange()"><option value="4x_foolhardy_Remacri">Remacri (TRT 自然)</option><option value="4x_NMKD-Siax_200k">NMKD-Siax (TRT 锐利)</option><option value="RealESRGAN_x2plus.pth">RealESRGAN (柔和 慢)</option><option value="4x-UltraSharp">UltraSharp (TRT 极锐)</option></select>
 </div>
 <div class="field"><label>目标分辨率</label>
 <select id="pp-upscale-resize"><option value="FHD">FHD (1080p)</option><option value="HD">HD (720p)</option><option value="2k">2K</option><option value="4k">4K</option><option value="1.5x">1.5x</option><option value="2x">2x</option></select>

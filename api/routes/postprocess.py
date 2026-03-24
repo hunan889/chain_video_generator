@@ -96,7 +96,7 @@ async def interpolate_video(
 async def upscale_video(
     video: UploadFile = File(None),
     task_id: Optional[str] = Form(None),
-    model: str = Form("4x-UltraSharp"),
+    model: str = Form("4x_foolhardy_Remacri"),
     resize_to: str = Form("FHD"),
     fps: float = Form(16.0),
     _=Depends(verify_api_key),

@@ -1010,13 +1010,14 @@ def _deep_merge(base: dict, override: dict) -> dict:
     return result
 
 
-def _build_default_internal_config(mode: str, turbo: bool = False) -> dict:
+def _build_default_internal_config(mode: str, turbo: bool = False, resolution: str = None) -> dict:
     """
-    Build default internal_config based on mode and turbo flag.
+    Build default internal_config based on mode, turbo flag, and resolution.
 
     Args:
         mode: Workflow mode (first_frame, face_reference, full_body_reference)
         turbo: Whether to use turbo (fewer steps, no interpolation)
+        resolution: Target resolution (e.g. "480p", "720p", "1080p")
 
     Returns:
         Complete internal_config dict
@@ -1083,19 +1084,6 @@ def _build_default_internal_config(mode: str, turbo: bool = False) -> dict:
             "shift": 5.0,
             "model_preset": "nsfw_v2",
         }
-        postprocess = {
-            "upscale": {
-                "enabled": True,
-                "model": "4x-UltraSharp",
-                "resize": 2.0,
-            },
-            "interpolation": {
-                "enabled": False,
-            },
-            "mmaudio": {
-                "enabled": False,
-            },
-        }
     else:
         generation = {
             "steps": 5,
@@ -1104,21 +1092,31 @@ def _build_default_internal_config(mode: str, turbo: bool = False) -> dict:
             "shift": 5.0,
             "model_preset": "nsfw_v2",
         }
-        postprocess = {
-            "upscale": {
-                "enabled": True,
-                "model": "4x-UltraSharp",
-                "resize": 1.5,
-            },
-            "interpolation": {
-                "enabled": True,
-                "multiplier": 2,
-                "profile": "fast",
-            },
-            "mmaudio": {
-                "enabled": False,
-            },
-        }
+
+    # Upscale strategy based on target resolution:
+    #   480p  → no upscale (already native)
+    #   720p  → 1.5x upscale
+    #   1080p → 2x upscale (default)
+    res = (resolution or "").lower()
+    if res == "480p":
+        upscale_config = {"enabled": False}
+    elif res == "720p":
+        upscale_config = {"enabled": True, "model": "4x_foolhardy_Remacri", "resize": 1.5}
+    else:
+        # 1080p and above: 2x
+        upscale_config = {"enabled": True, "model": "4x_foolhardy_Remacri", "resize": 2.0}
+
+    postprocess = {
+        "upscale": upscale_config,
+        "interpolation": {
+            "enabled": not turbo,
+            "multiplier": 2,
+            "profile": "fast",
+        },
+        "mmaudio": {
+            "enabled": False,
+        },
+    }
 
     stage4 = {
         "generation": generation,
@@ -1137,12 +1135,13 @@ def _build_default_internal_config(mode: str, turbo: bool = False) -> dict:
 async def get_default_config(
     mode: str = Query(..., description="Workflow mode"),
     turbo: bool = Query(False, description="Turbo mode"),
+    resolution: str = Query("1080p", description="Target resolution (480p, 720p, 1080p)"),
     _=Depends(verify_api_key)
 ):
     """Return the computed default internal_config for a given mode and turbo setting."""
     if mode not in ("first_frame", "face_reference", "full_body_reference"):
         raise HTTPException(400, f"Invalid mode: {mode}")
-    return _build_default_internal_config(mode, turbo)
+    return _build_default_internal_config(mode, turbo, resolution)
 
 
 @router.post("/workflow/generate-advanced", response_model=WorkflowGenerateResponse)
@@ -1191,7 +1190,7 @@ async def generate_advanced_workflow(req: WorkflowGenerateRequest, _=Depends(ver
 
         # Always build default internal_config, then merge user overrides on top
         # This ensures turbo-mode defaults (steps, cfg, etc.) are always applied
-        default_config = _build_default_internal_config(req.mode, req.turbo or False)
+        default_config = _build_default_internal_config(req.mode, req.turbo or False, req.resolution)
         if req.internal_config is None:
             req.internal_config = default_config
             logger.info(f"[WORKFLOW_PARAMS] {workflow_id} - Built default internal_config: turbo={req.turbo}")

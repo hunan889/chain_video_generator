@@ -1127,9 +1127,29 @@ function toggleStoryMode(setDefaults) {
 
 // Toggle post-processing sub-options visibility
 function togglePostProc() {
-  document.getElementById('chain-upscale-resize-field').style.display = document.getElementById('chain-enable-upscale').checked ? '' : 'none';
+  const upscaleOn = document.getElementById('chain-enable-upscale').checked;
+  document.getElementById('chain-upscale-model-field').style.display = upscaleOn ? '' : 'none';
+  // Show resize dropdown only for TRT models (PyTorch RealESRGAN is fixed 2x)
+  const model = document.getElementById('chain-upscale-model').value;
+  const isTRT = model !== 'RealESRGAN_x2plus.pth';
+  document.getElementById('chain-upscale-resize-field').style.display = (upscaleOn && isTRT) ? '' : 'none';
   document.getElementById('chain-interpolation-mult-field').style.display = document.getElementById('chain-enable-interpolation').checked ? '' : 'none';
   document.getElementById('chain-mmaudio-row').style.display = document.getElementById('chain-enable-mmaudio').checked ? '' : 'none';
+}
+
+// When chain upscale model changes, toggle resize field visibility
+function onChainUpscaleModelChange() {
+  const model = document.getElementById('chain-upscale-model').value;
+  const isTRT = model !== 'RealESRGAN_x2plus.pth';
+  document.getElementById('chain-upscale-resize-field').style.display = isTRT ? '' : 'none';
+}
+
+// When post-processing upscale model changes, toggle resize field
+function onPpUpscaleModelChange() {
+  const model = document.getElementById('pp-upscale-model').value;
+  const isTRT = model !== 'RealESRGAN_x2plus.pth';
+  document.getElementById('pp-upscale-resize').disabled = !isTRT;
+  if (!isTRT) document.getElementById('pp-upscale-resize').value = '2x';
 }
 
 // Toggle collapsible sections
@@ -1592,7 +1612,7 @@ async function generateSingleSegment(segId) {
         clip_preset: document.getElementById('chain-story-clip').value,
         match_image_ratio: document.getElementById('chain-story-match-ratio').checked,
         enable_upscale: document.getElementById('chain-enable-upscale').checked,
-        upscale_model: '4x-UltraSharp',
+        upscale_model: document.getElementById('chain-upscale-model').value,
         upscale_resize: document.getElementById('chain-upscale-resize').value,
         enable_interpolation: document.getElementById('chain-enable-interpolation').checked,
         interpolation_multiplier: parseInt(document.getElementById('chain-interpolation-multiplier').value),
@@ -1650,7 +1670,7 @@ async function generateSingleSegment(segId) {
           clip_preset: document.getElementById('chain-story-clip').value,
           match_image_ratio: document.getElementById('chain-story-match-ratio').checked,
           enable_upscale: document.getElementById('chain-enable-upscale').checked,
-          upscale_model: '4x-UltraSharp',
+          upscale_model: document.getElementById('chain-upscale-model').value,
           upscale_resize: document.getElementById('chain-upscale-resize').value,
           enable_interpolation: document.getElementById('chain-enable-interpolation').checked,
           interpolation_multiplier: parseInt(document.getElementById('chain-interpolation-multiplier').value),
@@ -2486,7 +2506,7 @@ async function submitChain() {
     clip_preset: document.getElementById('chain-story-clip').value,
     match_image_ratio: document.getElementById('chain-story-match-ratio').checked,
     enable_upscale: document.getElementById('chain-enable-upscale').checked,
-    upscale_model: '4x-UltraSharp',
+    upscale_model: document.getElementById('chain-upscale-model').value,
     upscale_resize: document.getElementById('chain-upscale-resize').value,
     enable_interpolation: document.getElementById('chain-enable-interpolation').checked,
     interpolation_multiplier: parseInt(document.getElementById('chain-interpolation-multiplier').value),
