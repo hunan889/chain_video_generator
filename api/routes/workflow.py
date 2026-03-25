@@ -33,7 +33,7 @@ DB_CONFIG = {
 class WorkflowAnalyzeRequest(BaseModel):
     """Workflow analysis request"""
     prompt: str = Field(..., min_length=1, max_length=2000, description="User prompt")
-    mode: Literal["face_reference", "full_body_reference", "first_frame"] = Field(
+    mode: Literal["t2v", "first_frame", "face_reference", "full_body_reference"] = Field(
         ..., description="Workflow mode"
     )
     top_k_image_loras: int = Field(default=5, ge=1, le=20, description="Top K image LORAs")
@@ -913,7 +913,7 @@ class FirstFrameSource(str, Enum):
 
 class WorkflowGenerateRequest(BaseModel):
     """Advanced workflow generation request"""
-    mode: Literal["face_reference", "full_body_reference", "first_frame"] = Field(
+    mode: Literal["t2v", "first_frame", "face_reference", "full_body_reference"] = Field(
         ..., description="Workflow mode"
     )
     user_prompt: str = Field(..., min_length=1, max_length=2000, description="User prompt")
@@ -1031,7 +1031,7 @@ def _build_default_internal_config(mode: str, turbo: bool = False, resolution: s
     Build default internal_config based on mode, turbo flag, and resolution.
 
     Args:
-        mode: Workflow mode (first_frame, face_reference, full_body_reference)
+        mode: Workflow mode (t2v, first_frame, face_reference, full_body_reference)
         turbo: Whether to use turbo (fewer steps, no interpolation)
         resolution: Target resolution (e.g. "480p", "720p", "1080p")
 
@@ -1055,7 +1055,7 @@ def _build_default_internal_config(mode: str, turbo: bool = False, resolution: s
         # full_body: always reactor first for face similarity, then seedream
         stage2_face_swap = {"enabled": True, "strength": 0.4}
     else:
-        # first_frame: no face swap
+        # first_frame / t2v: no face swap
         stage2_face_swap = {"enabled": False, "strength": 0.4}
 
     stage2 = {
@@ -1064,7 +1064,7 @@ def _build_default_internal_config(mode: str, turbo: bool = False, resolution: s
     }
 
     # Stage 3: SeeDream config depends on mode
-    if mode == "first_frame":
+    if mode in ("first_frame", "t2v"):
         stage3 = {"enabled": False}
     elif mode == "face_reference":
         if turbo:
@@ -1155,7 +1155,7 @@ async def get_default_config(
     _=Depends(verify_api_key)
 ):
     """Return the computed default internal_config for a given mode and turbo setting."""
-    if mode not in ("first_frame", "face_reference", "full_body_reference"):
+    if mode not in ("t2v", "first_frame", "face_reference", "full_body_reference"):
         raise HTTPException(400, f"Invalid mode: {mode}")
     return _build_default_internal_config(mode, turbo, resolution)
 
@@ -1203,6 +1203,11 @@ async def generate_advanced_workflow(req: WorkflowGenerateRequest, _=Depends(ver
             logger.info(f"[WORKFLOW_PARAMS] {workflow_id} - video_params: {json.dumps(req.video_params, ensure_ascii=False)}")
         if req.internal_config:
             logger.info(f"[WORKFLOW_PARAMS] {workflow_id} - internal_config: {json.dumps(req.internal_config, ensure_ascii=False)}")
+
+        # Backward compat: first_frame without image auto-converts to t2v
+        if req.mode == "first_frame" and not req.uploaded_first_frame and not req.parent_workflow_id:
+            logger.warning(f"[WORKFLOW_PARAMS] {workflow_id} - mode=first_frame without image, auto-converting to t2v")
+            req.mode = "t2v"
 
         # Always build default internal_config, then merge user overrides on top
         # This ensures turbo-mode defaults (steps, cfg, etc.) are always applied

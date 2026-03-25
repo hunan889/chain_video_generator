@@ -37,7 +37,7 @@ class DashScopeParameters(BaseModel):
     duration: Optional[int] = None      # seconds
     prompt_extend: Optional[bool] = None
     # Extended parameters (beyond standard DashScope)
-    mode: Optional[str] = None          # e.g. "face_reference", "full_body_reference", "first_frame"
+    mode: Optional[str] = None          # e.g. "t2v", "first_frame", "face_reference", "full_body_reference"
     resolution: Optional[str] = None    # e.g. "480p", "720p", "1080p"
     aspect_ratio: Optional[str] = None  # e.g. "16:9", "9:16", "3:4"
     turbo: Optional[bool] = None
@@ -187,7 +187,7 @@ async def dashscope_submit(
         reference_image = req.input.img_url
     else:
         # Pure text-to-video
-        mode = "first_frame"
+        mode = "t2v"
         uploaded_first_frame = None
         reference_image = None
 
@@ -214,7 +214,7 @@ async def dashscope_submit(
         auto_prompt=params.prompt_extend if params.prompt_extend is not None else True,
         turbo=params.turbo if params.turbo is not None else False,
         mmaudio=mmaudio,
-        first_frame_source="generate" if mode != "first_frame" or not uploaded_first_frame else None,
+        first_frame_source=None,  # Deprecated: unified logic in _find_base_image()
     )
 
     logger.info(f"[DASHSCOPE] Submit: model={req.model}, mode={mode}, has_image={has_image}")

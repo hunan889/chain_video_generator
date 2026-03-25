@@ -338,8 +338,9 @@ h2{color:#7c83ff;margin-bottom:20px;font-size:1.4em}
 
 <div class="row" style="margin-top:16px">
 <div class="field">
-<label>上传图片作用</label>
+<label>生成模式</label>
 <select id="imageRole">
+<option value="t2v">文生视频（纯文本）</option>
 <option value="first_frame">首帧（直接作为视频第一帧）</option>
 <option value="full_body_reference">全身参考（换脸+换装）</option>
 <option value="face_reference">仅换脸（只换脸部）</option>
@@ -456,44 +457,6 @@ h2{color:#7c83ff;margin-bottom:20px;font-size:1.4em}
 </div>
 <div class="collapsible-content">
 <div class="section">
-<div class="subsection">
-<div class="subsection-title">首帧来源</div>
-<div class="field">
-<label>首帧来源策略</label>
-<select id="s2_firstFrameSource">
-<option value="generate">T2I生成</option>
-<option value="select_existing">选择已有图片</option>
-</select>
-</div>
-</div>
-
-<div class="subsection">
-<div class="subsection-title">T2I 生成参数（仅当来源=T2I生成时生效）</div>
-<div class="row">
-<div class="field">
-<label>采样步数</label>
-<input type="number" id="s2_t2iSteps" value="20" min="10" max="50">
-</div>
-<div class="field">
-<label>CFG Scale</label>
-<input type="number" id="s2_t2iCfg" value="7.0" min="1" max="20" step="0.5">
-</div>
-<div class="field">
-<label>采样器</label>
-<select id="s2_t2iSampler">
-<option value="DPM++ 2M Karras">DPM++ 2M Karras</option>
-<option value="Euler">Euler</option>
-<option value="Euler a">Euler a</option>
-<option value="DDIM">DDIM</option>
-</select>
-</div>
-<div class="field">
-<label>随机种子</label>
-<input type="number" id="s2_t2iSeed" value="-1" placeholder="-1 表示随机">
-</div>
-</div>
-</div>
-
 <div class="subsection" id="s2_faceSwapSection">
 <div class="subsection-title">首帧换脸（可选）</div>
 <div class="row">
@@ -782,10 +745,10 @@ function getDefaultConfig(mode, turbo) {
     } else {
         stage2FaceSwap = { enabled: false, strength: 0.4 };
     }
-    const stage2 = { first_frame_source: 'select_existing', face_swap: stage2FaceSwap };
+    const stage2 = { face_swap: stage2FaceSwap };
 
     let stage3;
-    if (mode === 'first_frame') {
+    if (mode === 'first_frame' || mode === 't2v') {
         stage3 = { enabled: false };
     } else if (mode === 'face_reference') {
         stage3 = turbo ? { enabled: false } : { enabled: true, swap_face: true, swap_accessories: true, swap_expression: false, swap_clothing: false };
@@ -842,7 +805,6 @@ function applyDefaultsToForm() {
     document.getElementById('s1_autoPrompt').checked = cfg.stage1_prompt_analysis.auto_prompt;
 
     // Stage 2
-    document.getElementById('s2_firstFrameSource').value = cfg.stage2_first_frame.first_frame_source;
     document.getElementById('s2_faceSwapEnabled').checked = cfg.stage2_first_frame.face_swap.enabled;
 
     // Stage 3
@@ -955,7 +917,8 @@ function loadHistoryList() {
         const statusText = task.status === 'completed' ? '完成' :
                           task.status === 'failed' ? '失败' : '进行中';
 
-        const modeText = task.mode === 'first_frame' ? '首帧' :
+        const modeText = task.mode === 't2v' ? '文生视频' :
+                        task.mode === 'first_frame' ? '首帧' :
                         task.mode === 'full_body_reference' ? '全身参考' : '仅换脸';
 
         return `
@@ -1120,11 +1083,6 @@ function saveFormParams() {
         s1_autoPrompt: document.getElementById('s1_autoPrompt').checked,
         s1_topKImage: document.getElementById('s1_topKImage').value,
         s1_topKVideo: document.getElementById('s1_topKVideo').value,
-        s2_firstFrameSource: document.getElementById('s2_firstFrameSource').value,
-        s2_t2iSteps: document.getElementById('s2_t2iSteps').value,
-        s2_t2iCfg: document.getElementById('s2_t2iCfg').value,
-        s2_t2iSampler: document.getElementById('s2_t2iSampler').value,
-        s2_t2iSeed: document.getElementById('s2_t2iSeed').value,
         s2_faceSwapEnabled: document.getElementById('s2_faceSwapEnabled').checked,
         s2_faceSwapStrength: document.getElementById('s2_faceSwapStrength').value,
         s3_enabled: document.getElementById('s3_enabled').checked,
@@ -1210,11 +1168,6 @@ function loadFormParams() {
         if (params.s1_topKVideo) document.getElementById('s1_topKVideo').value = params.s1_topKVideo;
 
         // Stage 2
-        if (params.s2_firstFrameSource) document.getElementById('s2_firstFrameSource').value = params.s2_firstFrameSource;
-        if (params.s2_t2iSteps) document.getElementById('s2_t2iSteps').value = params.s2_t2iSteps;
-        if (params.s2_t2iCfg) document.getElementById('s2_t2iCfg').value = params.s2_t2iCfg;
-        if (params.s2_t2iSampler) document.getElementById('s2_t2iSampler').value = params.s2_t2iSampler;
-        if (params.s2_t2iSeed) document.getElementById('s2_t2iSeed').value = params.s2_t2iSeed;
         if (params.s2_faceSwapEnabled !== undefined) document.getElementById('s2_faceSwapEnabled').checked = params.s2_faceSwapEnabled;
         if (params.s2_faceSwapStrength) document.getElementById('s2_faceSwapStrength').value = params.s2_faceSwapStrength;
 
@@ -1343,16 +1296,22 @@ function updateModeRelatedUI() {
     const s3EnabledHint = document.getElementById('s3_enabledHint');
     const s3Header = document.getElementById('s3_header');
 
-    // Stage 2 face swap: 仅在非 first_frame 模式下显示
-    if (mode === 'first_frame') {
+    // Upload area: hide for t2v mode
+    const uploadRow = document.getElementById('uploadArea')?.closest('.row');
+    if (uploadRow) {
+        uploadRow.style.display = (mode === 't2v') ? 'none' : '';
+    }
+
+    // Stage 2 face swap: 仅在 reference 模式下显示
+    if (mode === 'first_frame' || mode === 't2v') {
         s2FaceSwapSection.style.display = 'none';
     } else {
         s2FaceSwapSection.style.display = 'block';
     }
 
     // Stage 3 SeeDream: 根据模式更新提示和必选状态
-    if (mode === 'first_frame') {
-        // first_frame 模式：不显示 Stage 3
+    if (mode === 'first_frame' || mode === 't2v') {
+        // first_frame / T2V 模式：不显示 Stage 3
         s3Header.style.display = 'none';
         document.getElementById('s3_content').style.display = 'none';
     } else if (mode === 'full_body_reference') {
@@ -1508,18 +1467,19 @@ async function generateVideo() {
     }
 
     const imageRole = document.getElementById('imageRole').value;
-    const firstFrameSource = document.getElementById('s2_firstFrameSource').value;
 
-    // Story续写模式不需要上传图片
+    // Story续写模式和T2V模式不需要上传图片
     if (!parentWorkflowId) {
-        // 检查是否需要上传图片
         if (!uploadedImageUrl) {
-            if (imageRole === 'first_frame') {
+            if (imageRole === 't2v') {
+                // T2V doesn't need image, OK
+            } else if (imageRole === 'first_frame') {
                 alert('请上传首帧图片');
+                return;
             } else {
                 alert('请上传参考图片');
+                return;
             }
-            return;
         }
     }
 
@@ -1637,15 +1597,6 @@ function buildRequestData() {
             inject_trigger_words: document.getElementById('s1_injectTriggerWords').checked
         },
         stage2_first_frame: {
-            first_frame_source: document.getElementById('s2_firstFrameSource').value,
-            t2i: {
-                steps: parseInt(document.getElementById('s2_t2iSteps').value),
-                cfg_scale: parseFloat(document.getElementById('s2_t2iCfg').value),
-                sampler: document.getElementById('s2_t2iSampler').value,
-                seed: parseInt(document.getElementById('s2_t2iSeed').value) || -1,
-                width: width,
-                height: height
-            },
             face_swap: {
                 enabled: document.getElementById('s2_faceSwapEnabled').checked,
                 strength: parseFloat(document.getElementById('s2_faceSwapStrength').value)
@@ -1731,7 +1682,9 @@ function buildRequestData() {
 
     // 根据模式设置图片字段（续写模式下不发送，由后端从父视频提取）
     if (!parentWorkflowId) {
-        if (imageRole === 'first_frame') {
+        if (imageRole === 't2v') {
+            // T2V模式：不需要图片
+        } else if (imageRole === 'first_frame') {
             // 首帧模式：上传的图片作为首帧
             requestData.uploaded_first_frame = uploadedImageUrl;
         } else if (imageRole === 'face_reference' || imageRole === 'full_body_reference') {

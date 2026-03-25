@@ -486,18 +486,22 @@ async def _execute_workflow(workflow_id: str, req, task_manager, resume: bool = 
                 await task_manager.redis.hset(f"workflow:{workflow_id}", "first_frame_url", first_frame_url)
 
             # 保存结构化详细信息
-            if req.mode == "first_frame":
-                if req.uploaded_first_frame:
-                    source_text = "upload"
-                elif first_frame_url and analysis_result and analysis_result.get("reference_image"):
-                    source_text = "pose_reference"
-                elif first_frame_url is None:
-                    source_text = "t2v_fallback"
+            if req.mode == "t2v":
+                if first_frame_url:
+                    source_text = "pose_reference"  # T2V found a pose -> internal I2V
                 else:
-                    source_text = req.first_frame_source or "unknown"
-            else:
-                first_frame_source_for_display = req.first_frame_source or _get_config(req, "stage2_first_frame", "first_frame_source", "select_existing")
-                source_text = first_frame_source_for_display
+                    source_text = "t2v"  # pure T2V
+            elif req.mode == "first_frame":
+                source_text = "upload"
+            else:  # face_reference / full_body_reference
+                if first_frame_url and analysis_result and analysis_result.get("reference_image"):
+                    source_text = "pose_reference"
+                elif first_frame_url and req.reference_image and first_frame_url == req.reference_image:
+                    source_text = "reference_image_fallback"
+                elif first_frame_url:
+                    source_text = "recommend"
+                else:
+                    source_text = "unknown"
 
             details_dict = {
                 "source": source_text,
@@ -587,10 +591,10 @@ async def _execute_workflow(workflow_id: str, req, task_manager, resume: bool = 
             should_run_seedream = False
             skip_reason = ""
 
-            if req.mode == "first_frame":
-                # first_frame 模式跳过 SeeDream
+            if req.mode in ("first_frame", "t2v"):
+                # first_frame / T2V 模式跳过 SeeDream
                 should_run_seedream = False
-                skip_reason = "跳过（首帧模式）"
+                skip_reason = "跳过（首帧/T2V模式）"
 
             elif req.mode == "full_body_reference":
                 # full_body_reference 必须执行 SeeDream
@@ -972,166 +976,157 @@ async def _analyze_prompt(req, task_manager) -> Optional[dict]:
         return {"_error": str(e)}
 
 
+async def _find_base_image(workflow_id: str, req, analysis_result: Optional[dict], task_manager) -> Optional[str]:
+    """
+    Unified base image acquisition logic.
+    Priority: 1) pose reference_image -> 2) recommend library (ref modes only) -> 3) fallback
+
+    Returns: URL of base image, or None for pure T2V
+    """
+    from api.services.video_frame_extractor import convert_video_url_to_frame
+
+    # 1) Pose reference image (shared by all modes)
+    if analysis_result and analysis_result.get("reference_image"):
+        pose_url = analysis_result["reference_image"]
+        logger.info(f"[{workflow_id}] Base image from pose reference: {pose_url}")
+        # Convert video URL to frame if needed (pose library may contain video URLs)
+        pose_url = await convert_video_url_to_frame(pose_url)
+        return pose_url
+
+    # 2) Recommend library (only for face_reference / full_body_reference)
+    if req.mode in ("face_reference", "full_body_reference"):
+        try:
+            from api.routes.recommend import smart_recommend, RecommendRequest
+            min_similarity = 0.3  # lenient for reference modes
+            recommend_req = RecommendRequest(
+                prompt=req.user_prompt,
+                mode=req.mode,
+                include_images=True,
+                include_loras=False,
+                top_k_images=5,
+                min_similarity=min_similarity,
+            )
+            recommend_result = await smart_recommend(recommend_req, _=None)
+            recommended_images = [img.model_dump() for img in recommend_result.images]
+            logger.info(f"[{workflow_id}] Recommend API returned {len(recommended_images)} images")
+
+            if recommended_images:
+                import random
+                selected = random.choice(recommended_images)
+                selected_url = selected.get("url")
+                logger.info(f"[{workflow_id}] Selected recommended image: {selected_url} (similarity: {selected.get('similarity', 0):.3f})")
+
+                # Convert video URL to frame if needed, at high resolution
+                # Calculate dimensions from aspect ratio
+                ar_width, ar_height = 3, 4  # default
+                if req.aspect_ratio:
+                    ar_parts = req.aspect_ratio.split(':')
+                    ar_width, ar_height = int(ar_parts[0]), int(ar_parts[1])
+                else:
+                    video_resolution = _get_config(req, "stage4_video", "generation", {}).get("resolution", "720p_3_4")
+                    if "16_9" in video_resolution or "16:9" in video_resolution:
+                        ar_width, ar_height = 16, 9
+
+                base_res = {'width': 1920, 'height': 1080}
+                if ar_width / ar_height > base_res['width'] / base_res['height']:
+                    width = base_res['width']
+                    height = round(base_res['width'] * ar_height / ar_width)
+                else:
+                    height = base_res['height']
+                    width = round(base_res['height'] * ar_width / ar_height)
+                width = round(width / 8) * 8
+                height = round(height / 8) * 8
+
+                selected_url = await convert_video_url_to_frame(selected_url, width, height)
+                return selected_url
+        except Exception as e:
+            logger.warning(f"[{workflow_id}] Recommend API failed: {e}")
+
+        # 3) Fallback for reference modes: use user's reference_image as base
+        if req.reference_image:
+            logger.info(f"[{workflow_id}] No pose/recommend match, using user reference_image as base")
+            return req.reference_image
+
+    # T2V mode or no base image found -> pure T2V
+    logger.info(f"[{workflow_id}] No base image found, will use pure T2V")
+    return None
+
+
+async def _process_uploaded_first_frame(workflow_id: str, req, task_manager) -> str:
+    """Process uploaded first frame (base64, URL, or path) and return a usable URL."""
+    from api.services import storage
+    from api.services.video_frame_extractor import convert_video_url_to_frame
+
+    if req.uploaded_first_frame.startswith('data:image'):
+        # Base64 data URL
+        image_b64 = req.uploaded_first_frame.split(',')[1]
+        image_data = base64.b64decode(image_b64)
+        filename = f"first_frame_{workflow_id}.png"
+        local_path, url = await storage.save_upload(image_data, filename)
+        return url
+    elif req.uploaded_first_frame.startswith('http://') or req.uploaded_first_frame.startswith('https://'):
+        # Remote URL — if it's a video, extract the first frame
+        frame_url = await convert_video_url_to_frame(req.uploaded_first_frame)
+        if frame_url != req.uploaded_first_frame:
+            logger.info(f"[{workflow_id}] Extracted first frame from video URL: {req.uploaded_first_frame}")
+            return frame_url
+        # Otherwise download the image
+        async with aiohttp.ClientSession() as session:
+            async with session.get(req.uploaded_first_frame) as resp:
+                if resp.status != 200:
+                    raise Exception(f"Failed to download uploaded frame: {resp.status}")
+                image_data = await resp.read()
+        filename = f"first_frame_{workflow_id}.png"
+        local_path, url = await storage.save_upload(image_data, filename)
+        return url
+    elif req.uploaded_first_frame.startswith('/api/v1/'):
+        logger.info(f"[{workflow_id}] Using already uploaded image: {req.uploaded_first_frame}")
+        return req.uploaded_first_frame
+    elif req.uploaded_first_frame.startswith('/uploads/'):
+        converted_path = '/api/v1' + req.uploaded_first_frame
+        logger.info(f"[{workflow_id}] Converting {req.uploaded_first_frame} to {converted_path}")
+        return converted_path
+    elif '/' not in req.uploaded_first_frame and '.' in req.uploaded_first_frame:
+        logger.info(f"[{workflow_id}] Using local filename: {req.uploaded_first_frame}")
+        return req.uploaded_first_frame
+    else:
+        # Fallback: try base64 decode
+        try:
+            image_data = base64.b64decode(req.uploaded_first_frame)
+            filename = f"first_frame_{workflow_id}.png"
+            local_path, url = await storage.save_upload(image_data, filename)
+            return url
+        except Exception as e:
+            raise Exception(f"Invalid uploaded_first_frame format: not a data URL, http URL, file path, or valid base64. Error: {e}")
+
+
 async def _acquire_first_frame(workflow_id: str, req, analysis_result: Optional[dict], task_manager) -> Optional[str]:
     """
-    Acquire first frame based on first_frame_source.
+    Acquire first frame based on mode.
 
-    Returns: URL of the first frame image
+    Returns: URL of the first frame image, or None for pure T2V
     """
     try:
-        from api.services import storage
-        import uuid
+        if req.mode == "t2v":
+            # T2V: use unified base image search (pose only, no recommend library)
+            return await _find_base_image(workflow_id, req, analysis_result, task_manager)
 
-        # Import video frame extractor
-        from api.services.video_frame_extractor import convert_video_url_to_frame
+        if req.mode == "first_frame":
+            # I2V: user provided uploaded_first_frame
+            if req.uploaded_first_frame:
+                return await _process_uploaded_first_frame(workflow_id, req, task_manager)
+            # No upload — shouldn't happen (auto-converted to t2v), but handle gracefully
+            logger.warning(f"[{workflow_id}] first_frame mode without upload, falling back to _find_base_image")
+            return await _find_base_image(workflow_id, req, analysis_result, task_manager)
 
-        # Determine first_frame_source based on mode
-        # In first_frame mode with upload, use uploaded image directly
-        # Without upload, fall back to first_frame_source from config
-        first_frame_source = req.first_frame_source or _get_config(req, "stage2_first_frame", "first_frame_source", "select_existing")
-        logger.info(f"[{workflow_id}] Mode is {req.mode}, first_frame_source: {first_frame_source}")
+        if req.mode in ("face_reference", "full_body_reference"):
+            # Reference modes: use unified base image search (pose -> recommend -> reference_image)
+            return await _find_base_image(workflow_id, req, analysis_result, task_manager)
 
-        if req.mode == "first_frame" and req.uploaded_first_frame:
-
-            # Handle different input formats
-            if req.uploaded_first_frame.startswith('data:image'):
-                # Base64 data URL
-                image_b64 = req.uploaded_first_frame.split(',')[1]
-                image_data = base64.b64decode(image_b64)
-                filename = f"first_frame_{workflow_id}.png"
-                local_path, url = await storage.save_upload(image_data, filename)
-                return url
-            elif req.uploaded_first_frame.startswith('http://') or req.uploaded_first_frame.startswith('https://'):
-                # Remote URL — if it's a video, extract the first frame
-                frame_url = await convert_video_url_to_frame(req.uploaded_first_frame)
-                if frame_url != req.uploaded_first_frame:
-                    # Was a video, convert_video_url_to_frame returned a frame URL
-                    logger.info(f"[{workflow_id}] Extracted first frame from video URL: {req.uploaded_first_frame}")
-                    return frame_url
-                # Otherwise download the image
-                async with aiohttp.ClientSession() as session:
-                    async with session.get(req.uploaded_first_frame) as resp:
-                        if resp.status != 200:
-                            raise Exception(f"Failed to download uploaded frame: {resp.status}")
-                        image_data = await resp.read()
-                filename = f"first_frame_{workflow_id}.png"
-                local_path, url = await storage.save_upload(image_data, filename)
-                return url
-            elif req.uploaded_first_frame.startswith('/api/v1/'):
-                # Already uploaded, return as-is (relative URL path)
-                logger.info(f"[{workflow_id}] Using already uploaded image: {req.uploaded_first_frame}")
-                return req.uploaded_first_frame
-            elif req.uploaded_first_frame.startswith('/uploads/'):
-                # Short uploads path - convert to /api/v1/uploads/
-                converted_path = '/api/v1' + req.uploaded_first_frame
-                logger.info(f"[{workflow_id}] Converting {req.uploaded_first_frame} to {converted_path}")
-                return converted_path
-            elif '/' not in req.uploaded_first_frame and '.' in req.uploaded_first_frame:
-                # Local filename (e.g., "abc123.png") - assume it's in uploads directory
-                logger.info(f"[{workflow_id}] Using local filename: {req.uploaded_first_frame}")
-                return req.uploaded_first_frame
-            else:
-                # Fallback: try base64 decode
-                try:
-                    image_data = base64.b64decode(req.uploaded_first_frame)
-                    filename = f"first_frame_{workflow_id}.png"
-                    local_path, url = await storage.save_upload(image_data, filename)
-                    return url
-                except Exception as e:
-                    raise Exception(f"Invalid uploaded_first_frame format: not a data URL, http URL, file path, or valid base64. Error: {e}")
-
-        elif first_frame_source == "generate":
-            # Use pose reference image if available; otherwise return None for T2V fallback
-            if analysis_result and analysis_result.get("reference_image"):
-                pose_url = analysis_result["reference_image"]
-                logger.info(f"[{workflow_id}] Using pose reference image as first frame: {pose_url}")
-                return pose_url
-            else:
-                logger.info(f"[{workflow_id}] No pose reference image, returning None for T2V fallback")
-                return None
-
-        elif first_frame_source == "select_existing":
-            # Auto-select from recommended images
-            logger.info(f"[{workflow_id}] Auto-selecting from recommended images")
-
-            # Call recommend API to get recommended images
-            if analysis_result and analysis_result.get("images"):
-                # Use images from analysis_result if available
-                recommended_images = analysis_result.get("images", [])
-                logger.info(f"[{workflow_id}] Using {len(recommended_images)} images from analysis_result")
-            else:
-                # Call recommend API with lower threshold
-                logger.info(f"[{workflow_id}] No images in analysis_result, calling recommend API")
-                from api.routes.recommend import smart_recommend, RecommendRequest
-                recommend_req = RecommendRequest(
-                    prompt=req.user_prompt,
-                    mode=req.mode,
-                    include_images=True,
-                    include_loras=False,
-                    top_k_images=5,
-                    min_similarity=0.3  # Lower threshold to get more results
-                )
-                recommend_result = await smart_recommend(recommend_req, _=None)
-                recommended_images = [img.model_dump() for img in recommend_result.images]
-                logger.info(f"[{workflow_id}] Recommend API returned {len(recommended_images)} images")
-
-            if not recommended_images:
-                logger.warning(f"[{workflow_id}] No recommended images found for select_existing mode, falling back to T2I generation")
-                # Fallback to T2I generation
-                return await _generate_t2i_image(req, analysis_result, task_manager)
-
-            # Randomly select from all results
-            import random
-            selected_image = random.choice(recommended_images)
-            selected_url = selected_image.get("url")
-            logger.info(f"[{workflow_id}] Randomly selected resource: {selected_url} (similarity: {selected_image.get('similarity', 0.0):.3f})")
-
-            # IMPORTANT: Use high resolution (1080p) for first frame extraction
-            # The frame will be used for face swap and SeeDream editing, which need high quality
-            # Video generation will resize to user's target resolution later
-            base_res = {'width': 1920, 'height': 1080}  # Always use 1080p for image processing
-
-            # Parse aspect ratio - handle missing aspect_ratio by deriving from resolution
-            if req.aspect_ratio:
-                ar_parts = req.aspect_ratio.split(':')
-                ar_width = int(ar_parts[0])
-                ar_height = int(ar_parts[1])
-            else:
-                # Derive aspect ratio from resolution config
-                video_resolution = _get_config(req, "stage4_video", "generation", {}).get("resolution", "720p_3_4")
-                if "16_9" in video_resolution or "16:9" in video_resolution:
-                    ar_width, ar_height = 16, 9
-                elif "3_4" in video_resolution or "3:4" in video_resolution:
-                    ar_width, ar_height = 3, 4
-                else:
-                    # Default to 3:4 for portrait videos
-                    ar_width, ar_height = 3, 4
-                logger.info(f"[{workflow_id}] aspect_ratio not provided, derived {ar_width}:{ar_height} from resolution {video_resolution}")
-
-            # Calculate actual dimensions based on aspect ratio (maintaining 1080p quality)
-            if ar_width / ar_height > base_res['width'] / base_res['height']:
-                width = base_res['width']
-                height = round(base_res['width'] * ar_height / ar_width)
-            else:
-                height = base_res['height']
-                width = round(base_res['height'] * ar_width / ar_height)
-
-            # Ensure dimensions are multiples of 8
-            width = round(width / 8) * 8
-            height = round(height / 8) * 8
-
-            logger.info(f"[{workflow_id}] Extracting frame at high resolution: {width}x{height} (aspect ratio {req.aspect_ratio})")
-
-            # Convert video to first frame if needed
-            selected_url = await convert_video_url_to_frame(selected_url, width, height)
-
-            return selected_url
-
-        else:
-            raise Exception(f"Unknown first_frame_source: {first_frame_source}")
+        raise Exception(f"Unknown mode: {req.mode}")
 
     except Exception as e:
-        logger.error(f"First frame acquisition failed: {e}", exc_info=True)
+        logger.error(f"[{workflow_id}] First frame acquisition failed: {e}", exc_info=True)
         raise
 
 
@@ -1551,6 +1546,7 @@ async def _generate_video(workflow_id: str, req, first_frame_url: Optional[str],
         elif req.mode == "full_body_reference":
             image_mode = ImageMode.FULL_BODY_REFERENCE
         else:
+            # Covers first_frame and t2v (t2v with pose becomes internal I2V, t2v without pose is pure T2V)
             image_mode = ImageMode.FIRST_FRAME
 
         # Build prompt

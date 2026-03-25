@@ -381,7 +381,7 @@ function cardHtml(w) {
   const statusClass = 'status-' + (w.status || 'queued');
   const statusLabel = {completed:'已完成', running:'生成中', failed:'失败', queued:'排队中'}[w.status] || w.status;
   const timeStr = relativeTime(w.created_at);
-  const modeLabel = {full_body_reference:'全身换脸', face_reference:'换脸', first_frame:'首帧'}[w.mode] || w.mode || '-';
+  const modeLabel = {full_body_reference:'全身换脸', face_reference:'换脸', first_frame:'首帧', t2v:'文生视频'}[w.mode] || w.mode || '-';
 
   let runningHtml = '';
   if (w.status === 'running') {
@@ -429,7 +429,7 @@ async function showDetail(wfId) {
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const d = await res.json();
 
-    const modeLabels = {full_body_reference:'全身换脸', face_reference:'换脸', first_frame:'首帧'};
+    const modeLabels = {full_body_reference:'全身换脸', face_reference:'换脸', first_frame:'首帧', t2v:'文生视频'};
     const statusLabels = {completed:'已完成', running:'生成中', failed:'失败', queued:'排队中'};
     const stageLabels = {prompt_analysis:'Prompt 分析', first_frame_acquisition:'首帧获取', seedream_edit:'SeeDream 编辑', video_generation:'视频生成'};
 
