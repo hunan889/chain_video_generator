@@ -1255,6 +1255,19 @@ async def generate_advanced_workflow(req: WorkflowGenerateRequest, _=Depends(ver
             WorkflowStage(name="video_generation", status="pending")
         ]
 
+        # If reference_image is base64 data URI, save to file and replace with URL
+        if req.reference_image and req.reference_image.startswith("data:"):
+            try:
+                from api.services import storage
+                import base64 as b64mod
+                b64_data = req.reference_image.split(",", 1)[1] if "," in req.reference_image else req.reference_image
+                img_bytes = b64mod.b64decode(b64_data)
+                _, ref_url = await storage.save_upload(img_bytes, f"ref_{workflow_id}.png")
+                logger.info(f"[{workflow_id}] Saved base64 reference_image ({len(req.reference_image)} chars) as {ref_url}")
+                req.reference_image = ref_url
+            except Exception as e:
+                logger.warning(f"[{workflow_id}] Failed to save base64 reference_image: {e}")
+
         # Save initial workflow state to Redis
         redis_mapping = {
             "status": "running",
