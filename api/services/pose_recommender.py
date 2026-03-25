@@ -31,6 +31,9 @@ class PoseRecommendation:
     category: str
 
 
+MIN_RECOMMEND_SCORE = 0.5  # 低于此分数的推荐不返回
+
+
 class PoseRecommender:
     """姿势推荐引擎 - 三阶段推荐：同义词扩展 + Embedding匹配 + LLM重排序"""
 
@@ -170,22 +173,8 @@ class PoseRecommender:
             # 降级到关键词匹配
             candidates = await self._keyword_match(original_prompt, expanded_prompt, top_k * 2)
 
-        # 如果没有候选，使用兜底策略
         if not candidates:
-            logger.info("No candidates found, using fallback poses")
-            fallback_poses = ['missionary', 'doggy', 'cowgirl', 'reverse_cowgirl', 'blowjob']
-            candidates = []
-            for pose_key in fallback_poses:
-                if pose_key in self.poses_data:
-                    pose_data = self.poses_data[pose_key]
-                    candidates.append(PoseRecommendation(
-                        pose_key=pose_key,
-                        name_cn=pose_data['name_cn'],
-                        name_en=pose_data['name_en'],
-                        score=0.1,
-                        match_reason=f"兜底推荐 {pose_data['name_cn']}",
-                        category=pose_data['category'] or 'uncategorized'
-                    ))
+            return []
 
         # 阶段3: LLM重排序（可选）
         # 如果最高分候选 score >= 0.85，直接信任匹配结果，不调用LLM
@@ -193,7 +182,8 @@ class PoseRecommender:
         if use_llm and len(candidates) > 1 and top_score < 0.85:
             candidates = await self._llm_rerank(prompt, candidates)
 
-        return candidates[:top_k]
+        filtered = [c for c in candidates if c.score >= MIN_RECOMMEND_SCORE]
+        return filtered[:top_k]
     async def _embedding_match(self, query: str, candidate_count: int) -> List[PoseRecommendation]:
         """使用embedding进行语义匹配"""
         try:

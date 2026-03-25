@@ -330,50 +330,38 @@ async def _execute_workflow(workflow_id: str, req, task_manager):
         auto_analyze = _get_config(req, "stage1_prompt_analysis", "auto_analyze", True)
 
         if is_continuation:
-            # Story continuation: inherit LoRAs from parent, only optimize new prompt
-            parent_analysis_str = parent_workflow.get("analysis_result", "{}")
-            try:
-                parent_analysis = json.loads(parent_analysis_str)
-            except (json.JSONDecodeError, TypeError):
-                parent_analysis = {}
-
-            # Inherit LoRAs from parent
-            analysis_result = {
-                "video_loras": parent_analysis.get("video_loras", []),
-                "image_loras": parent_analysis.get("image_loras", []),
-                "images": parent_analysis.get("images", []),
-                "pose_keys": parent_analysis.get("pose_keys", []),
-            }
-
-            # Optimize new prompt (respects turbo mode via auto_prompt)
-            auto_prompt = _get_config(req, "stage1_prompt_analysis", "auto_prompt", True)
-            if auto_prompt:
-                try:
-                    new_analysis = await _analyze_prompt(req, task_manager)
-                    if new_analysis and "_error" not in new_analysis:
-                        analysis_result["optimized_i2v_prompt"] = new_analysis.get("optimized_i2v_prompt")
-                        analysis_result["optimized_t2i_prompt"] = new_analysis.get("optimized_t2i_prompt")
-                    else:
-                        analysis_result["optimized_i2v_prompt"] = req.user_prompt
-                except Exception as e:
-                    logger.warning(f"[{workflow_id}] Continuation prompt optimization failed: {e}")
-                    analysis_result["optimized_i2v_prompt"] = req.user_prompt
+            # Story continuation: run full analysis (LoRA + prompt) for the NEW prompt
+            # Do NOT inherit LoRAs from parent — the continuation may need different LoRAs
+            if auto_analyze:
+                analysis_result = await _analyze_prompt(req, task_manager)
+                if analysis_result and "_error" not in analysis_result:
+                    await task_manager.redis.hset(f"workflow:{workflow_id}", mapping={
+                        "analysis_result": json.dumps(analysis_result)
+                    })
+                    details_dict = {
+                        "video_loras": analysis_result.get('video_loras', []),
+                        "image_loras": analysis_result.get('image_loras', []),
+                        "images": analysis_result.get('images', []),
+                        "pose_keys": analysis_result.get('pose_keys', []),
+                        "original_prompt": req.user_prompt,
+                        "optimized_prompt": analysis_result.get('optimized_i2v_prompt') or analysis_result.get('optimized_t2i_prompt'),
+                        "continuation": True,
+                        "parent_workflow_id": req.parent_workflow_id,
+                    }
+                    await _update_stage(task_manager, workflow_id, "prompt_analysis", "completed", details_dict=details_dict)
+                else:
+                    error_msg = analysis_result.get("_error", "未知错误") if analysis_result else "返回空结果"
+                    logger.warning(f"[{workflow_id}] Continuation prompt analysis failed: {error_msg}")
+                    await _update_stage(task_manager, workflow_id, "prompt_analysis", "completed", details_dict={
+                        "error": f"分析失败: {error_msg}",
+                        "original_prompt": req.user_prompt,
+                        "continuation": True,
+                    })
             else:
-                analysis_result["optimized_i2v_prompt"] = req.user_prompt
-
-            await task_manager.redis.hset(f"workflow:{workflow_id}", "analysis_result", json.dumps(analysis_result))
-            details_dict = {
-                "video_loras": analysis_result.get('video_loras', []),
-                "image_loras": analysis_result.get('image_loras', []),
-                "pose_keys": analysis_result.get('pose_keys', []),
-                "original_prompt": req.user_prompt,
-                "optimized_prompt": analysis_result.get('optimized_i2v_prompt'),
-                "continuation": True,
-                "parent_workflow_id": req.parent_workflow_id,
-                "inherited_loras": True
-            }
-            await _update_stage(task_manager, workflow_id, "prompt_analysis", "completed", details_dict=details_dict)
-            logger.info(f"[{workflow_id}] Continuation Stage 1: inherited {len(analysis_result.get('video_loras', []))} video LoRAs from parent")
+                await _update_stage(task_manager, workflow_id, "prompt_analysis", "completed", details_dict={
+                    "skipped": True, "reason": "未启用", "continuation": True,
+                })
+            logger.info(f"[{workflow_id}] Continuation Stage 1: full analysis for new prompt")
 
         elif auto_analyze:
             analysis_result = await _analyze_prompt(req, task_manager)
@@ -407,28 +395,52 @@ async def _execute_workflow(workflow_id: str, req, task_manager):
         await task_manager.redis.hset(f"workflow:{workflow_id}", "current_stage", "first_frame_acquisition")
 
         if is_continuation:
-            # Skip Stage 2: use parent's edited frame or first frame
-            first_frame_url = parent_workflow.get("edited_frame_url") or parent_workflow.get("first_frame_url")
-            if not first_frame_url:
-                raise Exception("Parent workflow has no first_frame or edited_frame for continuation")
+            # Extract last frame from parent's final video as continuation start frame
+            await _update_stage(task_manager, workflow_id, "first_frame_acquisition", "running", details_dict={
+                "source": "parent_video_last_frame",
+                "parent_workflow_id": req.parent_workflow_id,
+            })
+
+            parent_video_url = parent_workflow.get("final_video_url")
+            if not parent_video_url:
+                raise Exception("Parent workflow has no final video for continuation")
+
+            from api.services.ffmpeg_utils import extract_last_frame
+            from api.services import storage
+
+            video_path = await storage.get_video_path_from_url(parent_video_url)
+            if not video_path or not video_path.exists():
+                raise Exception(f"Parent video file not found: {parent_video_url}")
+
+            last_frame_path = await extract_last_frame(video_path)
+            frame_data = last_frame_path.read_bytes()
+            _, first_frame_url = await storage.save_upload(frame_data, last_frame_path.name)
+
             await task_manager.redis.hset(f"workflow:{workflow_id}", "first_frame_url", first_frame_url)
             await _update_stage(task_manager, workflow_id, "first_frame_acquisition", "completed", details_dict={
-                "skipped": True,
-                "reason": "故事续写模式，使用父工作流的首帧",
-                "source": "parent_workflow",
+                "source": "parent_video_last_frame",
                 "parent_workflow_id": req.parent_workflow_id,
-                "url": first_frame_url
+                "parent_video_url": parent_video_url,
+                "url": first_frame_url,
             })
-            logger.info(f"[{workflow_id}] Continuation Stage 2: skipped, using parent frame: {first_frame_url}")
+            logger.info(f"[{workflow_id}] Continuation Stage 2: extracted last frame from parent video: {first_frame_url}")
         else:
             await _update_stage(task_manager, workflow_id, "first_frame_acquisition", "running")
 
             first_frame_url = await _acquire_first_frame(workflow_id, req, analysis_result, task_manager)
-            await task_manager.redis.hset(f"workflow:{workflow_id}", "first_frame_url", first_frame_url)
+            if first_frame_url:
+                await task_manager.redis.hset(f"workflow:{workflow_id}", "first_frame_url", first_frame_url)
 
             # 保存结构化详细信息
             if req.mode == "first_frame":
-                source_text = "upload"
+                if req.uploaded_first_frame:
+                    source_text = "upload"
+                elif first_frame_url and analysis_result and analysis_result.get("reference_image"):
+                    source_text = "pose_reference"
+                elif first_frame_url is None:
+                    source_text = "t2v_fallback"
+                else:
+                    source_text = req.first_frame_source or "unknown"
             else:
                 first_frame_source_for_display = req.first_frame_source or _get_config(req, "stage2_first_frame", "first_frame_source", "select_existing")
                 source_text = first_frame_source_for_display
@@ -440,56 +452,59 @@ async def _execute_workflow(workflow_id: str, req, task_manager):
             }
 
             # Stage 2.1: 首帧换脸（可选）
-            face_swap_config = _get_config(req, "stage2_first_frame", "face_swap", {})
-            logger.info(f"[{workflow_id}] Face swap check: config={face_swap_config}, enabled={face_swap_config.get('enabled')}, reference_image={req.reference_image}")
+            if first_frame_url:
+                face_swap_config = _get_config(req, "stage2_first_frame", "face_swap", {})
+                logger.info(f"[{workflow_id}] Face swap check: config={face_swap_config}, enabled={face_swap_config.get('enabled')}, reference_image={req.reference_image}")
 
-            # 获取选中图片的 skip_reactor 标记
-            skip_reactor_flag = False
-            if analysis_result:
-                skip_reactor_flag = analysis_result.get("reference_skip_reactor", False)
+                # 获取选中图片的 skip_reactor 标记
+                skip_reactor_flag = False
+                if analysis_result:
+                    skip_reactor_flag = analysis_result.get("reference_skip_reactor", False)
 
-            # 预判 SeeDream 是否计划运行
-            seedream_planned = False
-            if req.mode == "full_body_reference":
-                seedream_planned = True
-            elif req.mode == "face_reference":
-                seedream_planned = _get_config(req, "stage3_seedream", "enabled", True)
+                # 预判 SeeDream 是否计划运行
+                seedream_planned = False
+                if req.mode == "full_body_reference":
+                    seedream_planned = True
+                elif req.mode == "face_reference":
+                    seedream_planned = _get_config(req, "stage3_seedream", "enabled", True)
 
-            reactor_configured = face_swap_config.get("enabled") and req.reference_image
-            reactor_deferred = False  # 标记是否因 skip_reactor 而延迟执行
+                reactor_configured = face_swap_config.get("enabled") and req.reference_image
+                reactor_deferred = False  # 标记是否因 skip_reactor 而延迟执行
 
-            if reactor_configured:
-                if skip_reactor_flag and seedream_planned:
-                    # 图片有遮挡 + SeeDream 会处理 → 跳过 Reactor
-                    reactor_deferred = True
-                    details_dict["reactor_deferred"] = True
-                    details_dict["skip_reactor_flag"] = True
-                    logger.info(f"[{workflow_id}] Reactor deferred: skip_reactor flag set, SeeDream will handle")
-                else:
-                    # 正常执行 Reactor
-                    logger.info(f"[{workflow_id}] Applying face swap to first frame: {first_frame_url}")
-                    swapped_url = await _apply_face_swap_to_frame(
-                        first_frame_url,
-                        req.reference_image,
-                        strength=face_swap_config.get("strength", 1.0),
-                        task_manager=task_manager
-                    )
-                    if swapped_url:
-                        logger.info(f"[{workflow_id}] Face swap succeeded: {swapped_url}")
-                        first_frame_url = swapped_url
-                        await task_manager.redis.hset(f"workflow:{workflow_id}", "first_frame_url", first_frame_url)
-                        details_dict["face_swapped"] = True
-                        details_dict["face_swap_strength"] = face_swap_config.get("strength", 1.0)
-                        details_dict["url"] = first_frame_url
+                if reactor_configured:
+                    if skip_reactor_flag and seedream_planned:
+                        # 图片有遮挡 + SeeDream 会处理 → 跳过 Reactor
+                        reactor_deferred = True
+                        details_dict["reactor_deferred"] = True
+                        details_dict["skip_reactor_flag"] = True
+                        logger.info(f"[{workflow_id}] Reactor deferred: skip_reactor flag set, SeeDream will handle")
                     else:
-                        logger.warning(f"[{workflow_id}] Face swap returned None (failed)")
-            elif face_swap_config.get("enabled") and not req.reference_image:
-                # Face swap enabled but no reference image provided
-                details_dict["face_swap_skipped"] = True
-                details_dict["face_swap_skip_reason"] = "未提供参考图片 (reference_image)"
-                logger.warning(f"[{workflow_id}] Face swap enabled but no reference_image provided")
+                        # 正常执行 Reactor
+                        logger.info(f"[{workflow_id}] Applying face swap to first frame: {first_frame_url}")
+                        swapped_url = await _apply_face_swap_to_frame(
+                            first_frame_url,
+                            req.reference_image,
+                            strength=face_swap_config.get("strength", 1.0),
+                            task_manager=task_manager
+                        )
+                        if swapped_url:
+                            logger.info(f"[{workflow_id}] Face swap succeeded: {swapped_url}")
+                            first_frame_url = swapped_url
+                            await task_manager.redis.hset(f"workflow:{workflow_id}", "first_frame_url", first_frame_url)
+                            details_dict["face_swapped"] = True
+                            details_dict["face_swap_strength"] = face_swap_config.get("strength", 1.0)
+                            details_dict["url"] = first_frame_url
+                        else:
+                            logger.warning(f"[{workflow_id}] Face swap returned None (failed)")
+                elif face_swap_config.get("enabled") and not req.reference_image:
+                    # Face swap enabled but no reference image provided
+                    details_dict["face_swap_skipped"] = True
+                    details_dict["face_swap_skip_reason"] = "未提供参考图片 (reference_image)"
+                    logger.warning(f"[{workflow_id}] Face swap enabled but no reference_image provided")
+                else:
+                    logger.info(f"[{workflow_id}] Face swap not enabled or conditions not met")
             else:
-                logger.info(f"[{workflow_id}] Face swap not enabled or conditions not met")
+                logger.info(f"[{workflow_id}] No first frame (T2V mode), skipping face swap")
 
             await _update_stage(task_manager, workflow_id, "first_frame_acquisition", "completed", details_dict=details_dict)
 
@@ -862,19 +877,33 @@ async def _analyze_prompt(req, task_manager) -> Optional[dict]:
                 "pose_keys": pose_keys
             }
 
-        # Otherwise, use vector-based search
-        from api.routes.workflow import analyze_workflow, WorkflowAnalyzeRequest
+        # No pose matched — do prompt optimization only, no LoRA/reference injection
+        optimized_prompt = req.user_prompt
+        if not skip_llm:
+            try:
+                from api.services.prompt_optimizer import PromptOptimizer
+                optimizer = PromptOptimizer()
+                result = await optimizer.optimize(
+                    prompt=req.user_prompt,
+                    trigger_words=[],
+                    mode="i2v",
+                    duration=5.0,
+                )
+                optimized_prompt = result["optimized_prompt"]
+            except Exception as e:
+                logger.warning(f"Prompt optimization failed: {e}")
 
-        analyze_req = WorkflowAnalyzeRequest(
-            prompt=req.user_prompt,
-            mode=req.mode,
-            top_k_image_loras=5,
-            top_k_video_loras=5,
-            skip_prompt_optimization=skip_llm
-        )
-
-        result = await analyze_workflow(analyze_req, _=None)
-        return result.model_dump()
+        return {
+            "optimized_prompt": optimized_prompt,
+            "optimized_i2v_prompt": optimized_prompt,
+            "optimized_t2i_prompt": req.user_prompt,
+            "reference_image": None,
+            "reference_skip_reactor": False,
+            "image_loras": [],
+            "video_loras": [],
+            "images": [],
+            "pose_keys": [],
+        }
 
     except Exception as e:
         logger.error(f"Prompt analysis failed: {e}", exc_info=True)
@@ -911,7 +940,13 @@ async def _acquire_first_frame(workflow_id: str, req, analysis_result: Optional[
                 local_path, url = await storage.save_upload(image_data, filename)
                 return url
             elif req.uploaded_first_frame.startswith('http://') or req.uploaded_first_frame.startswith('https://'):
-                # Remote URL - download it
+                # Remote URL — if it's a video, extract the first frame
+                frame_url = await convert_video_url_to_frame(req.uploaded_first_frame)
+                if frame_url != req.uploaded_first_frame:
+                    # Was a video, convert_video_url_to_frame returned a frame URL
+                    logger.info(f"[{workflow_id}] Extracted first frame from video URL: {req.uploaded_first_frame}")
+                    return frame_url
+                # Otherwise download the image
                 async with aiohttp.ClientSession() as session:
                     async with session.get(req.uploaded_first_frame) as resp:
                         if resp.status != 200:
@@ -944,8 +979,14 @@ async def _acquire_first_frame(workflow_id: str, req, analysis_result: Optional[
                     raise Exception(f"Invalid uploaded_first_frame format: not a data URL, http URL, file path, or valid base64. Error: {e}")
 
         elif first_frame_source == "generate":
-            # Generate first frame using T2I (SD WebUI)
-            return await _generate_t2i_image(req, analysis_result, task_manager)
+            # Use pose reference image if available; otherwise return None for T2V fallback
+            if analysis_result and analysis_result.get("reference_image"):
+                pose_url = analysis_result["reference_image"]
+                logger.info(f"[{workflow_id}] Using pose reference image as first frame: {pose_url}")
+                return pose_url
+            else:
+                logger.info(f"[{workflow_id}] No pose reference image, returning None for T2V fallback")
+                return None
 
         elif first_frame_source == "select_existing":
             # Auto-select from recommended images
@@ -1240,7 +1281,7 @@ async def _edit_first_frame(workflow_id: str, req, first_frame_url: str, size: s
         raise
 
 
-async def _generate_video(workflow_id: str, req, first_frame_url: str, analysis_result: Optional[dict], task_manager, is_continuation: bool = False, parent_workflow: dict = None) -> tuple[Optional[str], Optional[str]]:
+async def _generate_video(workflow_id: str, req, first_frame_url: Optional[str], analysis_result: Optional[dict], task_manager, is_continuation: bool = False, parent_workflow: dict = None) -> tuple[Optional[str], Optional[str]]:
     """
     Generate video using Chain workflow.
 
@@ -1332,6 +1373,53 @@ async def _generate_video(workflow_id: str, req, first_frame_url: str, analysis_
         if clip_preset is None:
             clip_preset = "nsfw"
 
+        # Continuation: inherit stage4 generation params from parent workflow
+        # to ensure visual consistency (same model, cfg, steps, scheduler, etc.)
+        if is_continuation and parent_workflow:
+            try:
+                parent_ic = json.loads(parent_workflow.get("internal_config", "{}"))
+                parent_gen = parent_ic.get("stage4_video", {}).get("generation", {})
+                if parent_gen:
+                    _inherited = []
+                    _param_map = {
+                        "model": ("video_model", video_model),
+                        "model_preset": ("video_model_preset", video_model_preset),
+                        "steps": ("video_steps", video_steps),
+                        "cfg": ("video_cfg", video_cfg),
+                        "scheduler": ("video_scheduler", video_scheduler),
+                        "shift": ("video_shift", video_shift),
+                        "noise_aug_strength": ("video_noise_aug", video_noise_aug),
+                        "motion_amplitude": ("video_motion_amp", video_motion_amp),
+                    }
+                    for param_key, (var_name, current_val) in _param_map.items():
+                        if param_key in parent_gen:
+                            parent_val = parent_gen[param_key]
+                            if parent_val != current_val:
+                                _inherited.append(f"{param_key}: {current_val} -> {parent_val}")
+                    # Apply overrides
+                    if "model" in parent_gen:
+                        video_model = parent_gen["model"]
+                    if "model_preset" in parent_gen:
+                        video_model_preset = parent_gen["model_preset"]
+                    if "steps" in parent_gen:
+                        video_steps = parent_gen["steps"]
+                    if "cfg" in parent_gen:
+                        video_cfg = parent_gen["cfg"]
+                    if "scheduler" in parent_gen:
+                        video_scheduler = parent_gen["scheduler"]
+                    if "shift" in parent_gen:
+                        video_shift = parent_gen["shift"]
+                    if "noise_aug_strength" in parent_gen:
+                        video_noise_aug = parent_gen["noise_aug_strength"]
+                    if "motion_amplitude" in parent_gen:
+                        video_motion_amp = parent_gen["motion_amplitude"]
+                    if _inherited:
+                        logger.info(f"[{workflow_id}] Continuation: inherited stage4 params from parent: {', '.join(_inherited)}")
+                    else:
+                        logger.info(f"[{workflow_id}] Continuation: parent stage4 params match, no override needed")
+            except (json.JSONDecodeError, TypeError) as e:
+                logger.warning(f"[{workflow_id}] Continuation: failed to inherit parent stage4 params: {e}")
+
         # Convert model string to ModelType enum
         if video_model.upper() == "A14B":
             model = ModelType.A14B
@@ -1366,11 +1454,37 @@ async def _generate_video(workflow_id: str, req, first_frame_url: str, analysis_
             logger.warning(f"[{workflow_id}] Unknown resolution '{resolution}', using default 832x480")
         logger.info(f"[{workflow_id}] Resolution '{resolution}' -> target {width}x{height}")
 
+        # Continuation: override resolution with parent video's actual dimensions
+        # to ensure the first frame is not cropped/distorted
+        if is_continuation and parent_workflow:
+            try:
+                parent_ic = json.loads(parent_workflow.get("internal_config", "{}"))
+                parent_res = parent_ic.get("stage4_video", {}).get("generation", {}).get("resolution", "")
+                if parent_res:
+                    _parent_match = _re.match(r'^(\d+)p[_:]?(\d+)[_:](\d+)$', parent_res.replace('p_', 'p_').replace('p:', 'p_'))
+                    if _parent_match:
+                        p_val = int(_parent_match.group(1))
+                        ar_w = int(_parent_match.group(2))
+                        ar_h = int(_parent_match.group(3))
+                        if ar_w >= ar_h:
+                            height = _round16(p_val)
+                            width = _round16(p_val * ar_w / ar_h)
+                        else:
+                            width = _round16(p_val)
+                            height = _round16(p_val * ar_h / ar_w)
+                        logger.info(f"[{workflow_id}] Continuation: inherited resolution from parent '{parent_res}' -> {width}x{height}")
+            except (json.JSONDecodeError, TypeError) as e:
+                logger.warning(f"[{workflow_id}] Continuation: failed to inherit parent resolution: {e}")
+
         # Parse duration
         duration_seconds = float(duration.rstrip('s'))
 
         # Determine image mode based on workflow mode (MUST be before LoRA filtering)
-        if req.mode == "face_reference":
+        # Continuation MUST use FIRST_FRAME (I2V) to ensure visual continuity from parent's last frame
+        if is_continuation:
+            image_mode = ImageMode.FIRST_FRAME
+            logger.info(f"[{workflow_id}] Continuation: forced image_mode=FIRST_FRAME for visual continuity")
+        elif req.mode == "face_reference":
             image_mode = ImageMode.FACE_REFERENCE
         elif req.mode == "full_body_reference":
             image_mode = ImageMode.FULL_BODY_REFERENCE
@@ -1437,65 +1551,75 @@ async def _generate_video(workflow_id: str, req, first_frame_url: str, analysis_
                 logger.info(f"[{workflow_id}] Selected LoRA: {lora['name']} (mode={lora.get('mode')}, noise_stage={lora.get('noise_stage')})")
 
         # Download first frame for upload
-        # Handle both URL and local filename
-        if first_frame_url.startswith('http://') or first_frame_url.startswith('https://'):
-            # Remote URL - download it
-            async with aiohttp.ClientSession() as session:
-                async with session.get(first_frame_url) as resp:
-                    if resp.status != 200:
-                        raise Exception(f"Failed to download first frame: {resp.status}")
-                    image_data = await resp.read()
-        elif first_frame_url.startswith('/api/v1/results/'):
-            # Results path - extract filename and read from RESULTS_DIR
-            from api.config import RESULTS_DIR
-            filename = first_frame_url.split('/')[-1]
-            local_path = RESULTS_DIR / filename
-            if not local_path.exists():
-                raise Exception(f"First frame file not found in results: {first_frame_url}")
-            image_data = local_path.read_bytes()
-            logger.info(f"[{workflow_id}] Read first frame from results: {local_path}")
-        elif first_frame_url.startswith('/api/v1/uploads/'):
-            # API uploads path - extract filename and read from UPLOADS_DIR
-            filename = first_frame_url.split('/')[-1]
-            local_path = UPLOADS_DIR / filename
-            if not local_path.exists():
-                raise Exception(f"First frame file not found in uploads: {first_frame_url}")
-            image_data = local_path.read_bytes()
-            logger.info(f"[{workflow_id}] Read first frame from API uploads: {local_path}")
-        elif first_frame_url.startswith('/uploads/'):
-            # Uploads path - extract filename and read from UPLOADS_DIR
-            filename = first_frame_url.split('/')[-1]
-            local_path = UPLOADS_DIR / filename
-            if not local_path.exists():
-                raise Exception(f"First frame file not found in uploads: {first_frame_url}")
-            image_data = local_path.read_bytes()
-            logger.info(f"[{workflow_id}] Read first frame from uploads: {local_path}")
-        elif first_frame_url.startswith('/pose-files/'):
-            # Pose reference files - /pose-files/<pose>/<filename> -> data/pose_references/<pose>/<filename>
-            from api.routes.pose_images import POSE_DIR
-            rel_path = first_frame_url[len('/pose-files/'):]
-            local_path = POSE_DIR / rel_path
-            if not local_path.exists():
-                raise Exception(f"Pose file not found: {local_path}")
-            image_data = local_path.read_bytes()
-            logger.info(f"[{workflow_id}] Read first frame from pose files: {local_path}")
-        else:
-            # Plain filename - try UPLOADS_DIR first, then RESULTS_DIR
-            from api.config import RESULTS_DIR
-            filename = first_frame_url.split('/')[-1]
-            local_path = UPLOADS_DIR / filename
-            if not local_path.exists():
+        image_file = None
+        if first_frame_url:
+            # Handle both URL and local filename
+            if first_frame_url.startswith('http://') or first_frame_url.startswith('https://'):
+                # Remote URL — if it's a video, extract the first frame
+                from api.services.video_frame_extractor import convert_video_url_to_frame
+                converted_url = await convert_video_url_to_frame(first_frame_url)
+                if converted_url != first_frame_url:
+                    logger.info(f"[{workflow_id}] Converted video URL to frame: {first_frame_url} -> {converted_url}")
+                    first_frame_url = converted_url
+                # Download the (now guaranteed image) URL
+                async with aiohttp.ClientSession() as session:
+                    async with session.get(first_frame_url) as resp:
+                        if resp.status != 200:
+                            raise Exception(f"Failed to download first frame: {resp.status}")
+                        image_data = await resp.read()
+            elif first_frame_url.startswith('/api/v1/results/'):
+                # Results path - extract filename and read from RESULTS_DIR
+                from api.config import RESULTS_DIR
+                filename = first_frame_url.split('/')[-1]
                 local_path = RESULTS_DIR / filename
-            if not local_path.exists():
-                raise Exception(f"First frame file not found: {first_frame_url}")
-            image_data = local_path.read_bytes()
-            logger.info(f"[{workflow_id}] Read first frame: {local_path}")
+                if not local_path.exists():
+                    raise Exception(f"First frame file not found in results: {first_frame_url}")
+                image_data = local_path.read_bytes()
+                logger.info(f"[{workflow_id}] Read first frame from results: {local_path}")
+            elif first_frame_url.startswith('/api/v1/uploads/'):
+                # API uploads path - extract filename and read from UPLOADS_DIR
+                filename = first_frame_url.split('/')[-1]
+                local_path = UPLOADS_DIR / filename
+                if not local_path.exists():
+                    raise Exception(f"First frame file not found in uploads: {first_frame_url}")
+                image_data = local_path.read_bytes()
+                logger.info(f"[{workflow_id}] Read first frame from API uploads: {local_path}")
+            elif first_frame_url.startswith('/uploads/'):
+                # Uploads path - extract filename and read from UPLOADS_DIR
+                filename = first_frame_url.split('/')[-1]
+                local_path = UPLOADS_DIR / filename
+                if not local_path.exists():
+                    raise Exception(f"First frame file not found in uploads: {first_frame_url}")
+                image_data = local_path.read_bytes()
+                logger.info(f"[{workflow_id}] Read first frame from uploads: {local_path}")
+            elif first_frame_url.startswith('/pose-files/'):
+                # Pose reference files - /pose-files/<pose>/<filename> -> data/pose_references/<pose>/<filename>
+                from api.routes.pose_images import POSE_DIR
+                rel_path = first_frame_url[len('/pose-files/'):]
+                local_path = POSE_DIR / rel_path
+                if not local_path.exists():
+                    raise Exception(f"Pose file not found: {local_path}")
+                image_data = local_path.read_bytes()
+                logger.info(f"[{workflow_id}] Read first frame from pose files: {local_path}")
+            else:
+                # Plain filename - try UPLOADS_DIR first, then RESULTS_DIR
+                from api.config import RESULTS_DIR
+                filename = first_frame_url.split('/')[-1]
+                local_path = UPLOADS_DIR / filename
+                if not local_path.exists():
+                    local_path = RESULTS_DIR / filename
+                if not local_path.exists():
+                    raise Exception(f"First frame file not found: {first_frame_url}")
+                image_data = local_path.read_bytes()
+                logger.info(f"[{workflow_id}] Read first frame: {local_path}")
 
-        # Create UploadFile object
-        image_file = UploadFile(
-            filename="first_frame.png",
-            file=BytesIO(image_data)
-        )
+            # Create UploadFile object
+            image_file = UploadFile(
+                filename="first_frame.png",
+                file=BytesIO(image_data)
+            )
+        else:
+            logger.info(f"[{workflow_id}] No first frame provided, chain will use T2V mode")
 
         # Prepare face_image if reference_image is provided (for face_reference mode)
         face_image_file = None

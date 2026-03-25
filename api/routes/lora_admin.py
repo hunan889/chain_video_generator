@@ -17,6 +17,7 @@ from api.services.content_suggester import get_content_suggester
 import aiohttp
 import pymysql
 from api.config import COMFYUI_PATH, CIVITAI_API_TOKEN
+from api.services import civitai_client
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -193,6 +194,13 @@ async def update_lora_metadata(lora_id: str, req: LoraUpdateRequest, _=Depends(v
         conn = pymysql.connect(**DB_CONFIG)
         cursor = conn.cursor()
 
+        # Verify the LORA exists first
+        cursor.execute("SELECT id FROM lora_metadata WHERE id = %s", (lora_id,))
+        if not cursor.fetchone():
+            cursor.close()
+            conn.close()
+            raise HTTPException(404, f"LORA #{lora_id} not found")
+
         # 构建更新语句
         updates = []
         params = []
@@ -226,17 +234,14 @@ async def update_lora_metadata(lora_id: str, req: LoraUpdateRequest, _=Depends(v
             params.append(json.dumps(req.trigger_words))
 
         if not updates:
+            cursor.close()
+            conn.close()
             raise HTTPException(400, "No fields to update")
 
         params.append(lora_id)
 
         sql = f"UPDATE lora_metadata SET {', '.join(updates)} WHERE id = %s"
         cursor.execute(sql, params)
-
-        if cursor.rowcount == 0:
-            cursor.close()
-            conn.close()
-            raise HTTPException(404, f"LORA #{lora_id} not found")
 
         conn.commit()
         cursor.close()
@@ -715,3 +720,133 @@ async def get_lora_download_progress(task_id: str, _=Depends(verify_api_key)):
     if not task:
         raise HTTPException(404, "下载任务不存在")
     return task
+
+
+# ─── CivitAI 数据同步 ───────────────────────────────────────────────
+
+@router.post("/admin/loras/sync-civitai")
+async def sync_civitai_data(
+    force: bool = False,
+    _=Depends(verify_api_key)
+):
+    """从 CivitAI 同步 trigger_words 和 trigger_prompt（example prompts）到数据库。
+
+    - trigger_words: 始终用 CivitAI 最新的 trainedWords 覆盖
+    - trigger_prompt: 仅当数据库中为空时，用 CivitAI example prompts 填充
+    - force=True: 强制覆盖 trigger_prompt（即使已有值）
+    """
+    conn = pymysql.connect(**DB_CONFIG)
+    cursor = conn.cursor(pymysql.cursors.DictCursor)
+
+    try:
+        # 查询所有有 civitai_id 的 LoRA
+        cursor.execute("""
+            SELECT id, name, civitai_id, civitai_version_id, trigger_words, trigger_prompt
+            FROM lora_metadata
+            WHERE civitai_id IS NOT NULL
+        """)
+        loras = cursor.fetchall()
+
+        if not loras:
+            return {"message": "没有找到有 civitai_id 的 LoRA", "updated": [], "errors": []}
+
+        updated = []
+        errors = []
+
+        for lora in loras:
+            lora_id = lora['id']
+            civitai_id = lora['civitai_id']
+            civitai_version_id = lora.get('civitai_version_id')
+            name = lora['name']
+
+            try:
+                # 通过 civitai_id 获取 model 数据（含 trainedWords）
+                try:
+                    model_data = await civitai_client.get_model(civitai_id)
+                except Exception as fetch_err:
+                    errors.append({"id": lora_id, "name": name, "error": f"CivitAI API error: {fetch_err}"})
+                    continue
+
+                versions = model_data.get("modelVersions", [])
+                if not versions:
+                    errors.append({"id": lora_id, "name": name, "error": "No versions found"})
+                    continue
+
+                # 使用第一个 version（最新版本）获取 trainedWords
+                version_data = versions[0]
+
+                # 1. 获取 trainedWords → trigger_words
+                trained_words = version_data.get("trainedWords", []) or []
+
+                # 2. 获取 example prompts → trigger_prompt
+                #    需要通过 version API 获取（model API 的 images 里没有 meta）
+                example_prompts = []
+                version_id_to_fetch = civitai_version_id or version_data.get("id")
+                if version_id_to_fetch:
+                    try:
+                        version_detail = await civitai_client.get_version(version_id_to_fetch)
+                        seen = set()
+                        for img in version_detail.get("images", [])[:10]:
+                            meta = img.get("meta") or {}
+                            p = (meta.get("prompt") or "").strip()
+                            if p and p not in seen:
+                                seen.add(p)
+                                example_prompts.append(p)
+                            if len(example_prompts) >= 3:
+                                break
+                    except Exception as ver_err:
+                        logger.warning("Failed to fetch version %s for LoRA %s: %s",
+                                       version_id_to_fetch, name, ver_err)
+
+                # 构建更新
+                update_parts = []
+                update_params = []
+
+                # trigger_words: 始终更新
+                update_parts.append("trigger_words = %s")
+                update_params.append(json.dumps(trained_words))
+
+                # trigger_prompt: 仅当为空或 force 时更新
+                current_prompt = lora.get('trigger_prompt') or ''
+                if example_prompts and (force or not current_prompt.strip()):
+                    trigger_prompt_text = "\n\n".join(example_prompts)
+                    update_parts.append("trigger_prompt = %s")
+                    update_params.append(trigger_prompt_text)
+
+                if update_parts:
+                    update_params.append(lora_id)
+                    cursor.execute(
+                        f"UPDATE lora_metadata SET {', '.join(update_parts)} WHERE id = %s",
+                        update_params
+                    )
+                    updated.append({
+                        "id": lora_id,
+                        "name": name,
+                        "trigger_words": trained_words,
+                        "trigger_prompt_updated": len(update_parts) > 1,
+                        "example_prompts_count": len(example_prompts),
+                    })
+
+                # Rate limit: avoid hammering CivitAI API
+                await asyncio.sleep(0.3)
+
+            except Exception as e:
+                logger.warning("Failed to sync LoRA #%s (%s): %s", lora_id, name, e)
+                errors.append({"id": lora_id, "name": name, "error": str(e)})
+
+        conn.commit()
+        return {
+            "message": f"同步完成: {len(updated)} 个 LoRA 已更新",
+            "updated": updated,
+            "errors": errors,
+            "total_checked": len(loras),
+        }
+
+    except Exception as e:
+        logger.error("CivitAI sync failed: %s", e)
+        raise HTTPException(500, f"同步失败: {str(e)}")
+    finally:
+        cursor.close()
+        conn.close()
+
+
