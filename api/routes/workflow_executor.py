@@ -3,6 +3,7 @@ Advanced workflow execution logic.
 
 This module contains the async orchestration logic for the advanced workflow system.
 """
+import asyncio
 import logging
 import base64
 import json
@@ -11,6 +12,24 @@ import aiohttp
 from api.config import UPLOADS_DIR
 
 logger = logging.getLogger(__name__)
+
+# Global registry of active workflow tasks for graceful shutdown
+_active_workflow_tasks: set[asyncio.Task] = set()
+
+
+async def wait_for_active_workflows(timeout: float = 120):
+    """Wait for all active workflow tasks to complete (called on shutdown)."""
+    if not _active_workflow_tasks:
+        return
+    logger.info("Shutdown: waiting for %d active workflow task(s) to finish (timeout=%ds)...",
+                len(_active_workflow_tasks), timeout)
+    done, pending = await asyncio.wait(_active_workflow_tasks, timeout=timeout)
+    if pending:
+        logger.warning("Shutdown: %d workflow task(s) still running after timeout, cancelling...", len(pending))
+        for t in pending:
+            t.cancel()
+    else:
+        logger.info("Shutdown: all workflow tasks finished gracefully")
 
 
 def _get_config(req, stage: str, key: str, default: Any = None) -> Any:
