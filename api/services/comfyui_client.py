@@ -131,6 +131,21 @@ class ComfyUIClient:
         async with session.post(f"{self.base_url}/interrupt") as resp:
             return resp.status == 200
 
+    async def free_memory(self, unload_models: bool = True, free_memory: bool = True) -> bool:
+        """Call ComfyUI /free endpoint to release GPU memory."""
+        try:
+            session = await self._get_session()
+            payload = {"unload_models": unload_models, "free_memory": free_memory}
+            async with session.post(
+                f"{self.base_url}/free",
+                json=payload,
+                timeout=aiohttp.ClientTimeout(total=10),
+            ) as resp:
+                return resp.status == 200
+        except Exception as e:
+            logger.warning("free_memory failed for %s: %s", self.base_url, e)
+            return False
+
     async def cancel_prompt(self, prompt_id: str):
         session = await self._get_session()
         payload = {"delete": [prompt_id]}

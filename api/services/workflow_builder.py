@@ -1357,6 +1357,7 @@ def _inject_story_postproc(workflow: dict, seg: dict) -> dict:
     if seg.get("enable_interpolation") and multiplier > 1:
         output_fps = fps * multiplier
         # Select RIFE profile based on actual post-upscale frame dimensions
+        rife_w, rife_h = seg.get("width", 480), seg.get("height", 848)
         if seg.get("enable_upscale"):
             upscale_model_name = seg.get("upscale_model", UPSCALE_MODEL)
             # PyTorch RealESRGAN is always native 2x regardless of upscale_resize setting
@@ -1370,9 +1371,7 @@ def _inject_story_postproc(workflow: dict, seg: dict) -> dict:
             rife_profile = seg.get("interpolation_profile", "small")
             _VALID_RIFE_TRT_PROFILES = {"small", "medium", "large", "custom"}
             if rife_profile not in _VALID_RIFE_TRT_PROFILES:
-                rife_profile, safe_w, safe_h = _select_rife_profile(
-                    seg.get("width", 480), seg.get("height", 848)
-                )
+                rife_profile, safe_w, safe_h = _select_rife_profile(rife_w, rife_h)
             else:
                 safe_w, safe_h = 0, 0  # no resize needed
         # Add resize node if dimensions need adjustment to fit RIFE profile

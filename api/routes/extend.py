@@ -199,7 +199,7 @@ async def generate_chain(
             logger.info("Uploaded parent video (last %d frames) to ComfyUI: %s", motion_frames, parent_video_comfy_filename)
 
         # Extract first frame as initial reference (for identity consistency)
-        if req.story_mode and not initial_reference_image:
+        if getattr(req, 'story_mode', True) and not initial_reference_image:
             # Check if user provided initial_reference_url
             if req.initial_reference_url:
                 initial_ref_path = await storage.get_video_path_from_url(req.initial_reference_url)
