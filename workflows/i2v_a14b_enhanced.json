@@ -32,7 +32,7 @@
       "positive_prompt": "",
       "negative_prompt": "",
       "t5": ["3", 0],
-      "force_offload": false
+      "force_offload": true
     }
   },
   "5": {
@@ -76,7 +76,7 @@
     "class_type": "WanVideoSampler",
     "inputs": {
       "model": ["1", 0],
-      "image_embeds": ["7", 0],
+      "image_embeds": ["20", 0],
       "text_embeds": ["4", 0],
       "steps": 30,
       "cfg": 6.0,
@@ -85,6 +85,7 @@
       "force_offload": true,
       "scheduler": "unipc",
       "riflex_freq_index": 0,
+      "rope_function": "comfy_chunked",
       "start_step": 0,
       "end_step": 15
     }
@@ -95,7 +96,7 @@
       "model": ["2", 0],
       "image_embeds": ["7", 0],
       "text_embeds": ["4", 0],
-      "samples": ["8", 0],
+      "samples": ["21", 0],
       "steps": 30,
       "cfg": 6.0,
       "shift": 5.0,
@@ -103,6 +104,7 @@
       "force_offload": true,
       "scheduler": "unipc",
       "riflex_freq_index": 0,
+      "rope_function": "comfy_chunked",
       "start_step": 15,
       "end_step": -1,
       "denoise_strength": 1.0
@@ -112,8 +114,8 @@
     "class_type": "WanVideoDecode",
     "inputs": {
       "vae": ["6", 0],
-      "samples": ["9", 0],
-      "enable_vae_tiling": false,
+      "samples": ["22", 0],
+      "enable_vae_tiling": true,
       "tile_x": 272,
       "tile_y": 272,
       "tile_stride_x": 144,
@@ -139,6 +141,39 @@
       "format": "video/h264-mp4",
       "pingpong": false,
       "save_output": true
+    }
+  },
+  "20": {
+    "class_type": "VRAMCleanup",
+    "inputs": {
+      "offload_model": true,
+      "offload_cache": false,
+      "anything": ["7", 0]
+    },
+    "_meta": {
+      "title": "Pre-Sample VRAM Cleanup (unload T5)"
+    }
+  },
+  "21": {
+    "class_type": "VRAMCleanup",
+    "inputs": {
+      "offload_model": false,
+      "offload_cache": true,
+      "anything": ["8", 0]
+    },
+    "_meta": {
+      "title": "Inter-Sample VRAM Cleanup (clear cache)"
+    }
+  },
+  "22": {
+    "class_type": "VRAMCleanup",
+    "inputs": {
+      "offload_model": true,
+      "offload_cache": false,
+      "anything": ["9", 0]
+    },
+    "_meta": {
+      "title": "Pre-Decode VRAM Cleanup (unload model)"
     }
   }
 }
