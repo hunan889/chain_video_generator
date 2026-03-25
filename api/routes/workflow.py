@@ -1577,10 +1577,23 @@ async def regenerate_workflow(workflow_id: str, _=Depends(verify_api_key)):
         "user_prompt": user_prompt,
     }
 
-    # Restore reference_image (skip base64 data URIs as they are too large)
+    # Restore reference_image
     ref_img = workflow_data.get("reference_image")
-    if ref_img and not ref_img.startswith("data:"):
-        req_data["reference_image"] = ref_img
+    if ref_img:
+        if ref_img.startswith("data:"):
+            # Base64 data URI — save to file and use URL instead
+            try:
+                from api.services import storage
+                import base64 as b64mod
+                b64_data = ref_img.split(",", 1)[1] if "," in ref_img else ref_img
+                img_bytes = b64mod.b64decode(b64_data)
+                _, saved_url = await storage.save_upload(img_bytes, f"regen_ref_{workflow_id}.png")
+                req_data["reference_image"] = saved_url
+                logger.info(f"Regenerate {workflow_id}: saved base64 reference_image as {saved_url}")
+            except Exception as e:
+                logger.warning(f"Regenerate {workflow_id}: failed to save base64 reference_image: {e}")
+        else:
+            req_data["reference_image"] = ref_img
 
     # Restore first_frame_source
     ffs = workflow_data.get("first_frame_source")
