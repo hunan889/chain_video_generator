@@ -157,6 +157,7 @@ let totalFromServer = 0;
 let totalPagesFromServer = 1;
 let currentPageData = [];
 let pollTimer = null;
+let prevFingerprints = {};  // {wfId: fingerprint} for diff-based updates
 const PAGE_SIZE = 24;
 
 // --- Debounced search ---
@@ -237,6 +238,11 @@ function closePlayerForce() {
   overlay.classList.remove('open');
 }
 
+// --- Fingerprint for diff detection ---
+function cardFingerprint(w) {
+  return [w.status, w.final_video_url||'', w.edited_frame_url||'', w.first_frame_url||'', w.error||''].join('|');
+}
+
 // --- Server-side fetch ---
 async function loadHistory(silent = false) {
   clearTimeout(pollTimer);
@@ -264,7 +270,11 @@ async function loadHistory(silent = false) {
     totalFromServer = data.total || 0;
     totalPagesFromServer = data.total_pages || 1;
     currentPage = data.page || 1;
-    renderGrid();
+    if (silent) {
+      patchGrid();
+    } else {
+      renderGrid();
+    }
   } catch(e) {
     if (!silent) {
       document.getElementById('grid').innerHTML = '<div class="empty">加载失败: ' + e.message + '</div>';
@@ -285,11 +295,49 @@ function renderGrid() {
   if (!currentPageData.length) {
     document.getElementById('grid').innerHTML = '<div class="empty">暂无记录</div>';
     document.getElementById('pagination').innerHTML = '';
+    prevFingerprints = {};
     return;
   }
 
   document.getElementById('grid').innerHTML = currentPageData.map(w => cardHtml(w)).join('');
   renderPagination(currentPage, totalPagesFromServer, totalFromServer);
+  // Save fingerprints for future diff
+  prevFingerprints = {};
+  currentPageData.forEach(w => { prevFingerprints[w.workflow_id] = cardFingerprint(w); });
+}
+
+function patchGrid() {
+  const grid = document.getElementById('grid');
+  const newIds = currentPageData.map(w => w.workflow_id);
+  const oldCards = grid.querySelectorAll('.card[data-wfid]');
+  const oldIds = [...oldCards].map(el => el.dataset.wfid);
+
+  // If list of IDs changed (new items, removed items, reordered), full re-render
+  if (newIds.length !== oldIds.length || newIds.some((id, i) => id !== oldIds[i])) {
+    console.log('[patchGrid] ID list changed, full re-render', {newLen: newIds.length, oldLen: oldIds.length});
+    renderGrid();
+    return;
+  }
+
+  // Patch only changed cards
+  const newFingerprints = {};
+  let changed = 0;
+  currentPageData.forEach(w => {
+    const fp = cardFingerprint(w);
+    newFingerprints[w.workflow_id] = fp;
+    if (fp !== prevFingerprints[w.workflow_id]) {
+      const el = grid.querySelector(`.card[data-wfid="${w.workflow_id}"]`);
+      if (el) {
+        const tmp = document.createElement('div');
+        tmp.innerHTML = cardHtml(w);
+        el.replaceWith(tmp.firstElementChild);
+        changed++;
+      }
+    }
+  });
+  prevFingerprints = newFingerprints;
+  if (changed) renderPagination(currentPage, totalPagesFromServer, totalFromServer);
+  console.log(`[patchGrid] ${changed}/${newIds.length} cards updated`);
 }
 
 function renderPagination(page, totalPages, total) {
@@ -344,7 +392,7 @@ function cardHtml(w) {
     ? `onclick="openPlayer('${w.final_video_url}')"`
     : '';
 
-  return `<div class="card">
+  return `<div class="card" data-wfid="${w.workflow_id}">
     <div class="card-thumb ${hasVideo ? '' : 'no-video'}" ${thumbClick}>
       ${thumb ? `<img src="${thumb}" loading="lazy" onerror="this.style.display='none'">` : (hasVideo ? `<video src="${w.final_video_url}" preload="metadata" muted style="width:100%;height:100%;object-fit:cover;pointer-events:none"></video>` : '<div style="width:100%;height:100%;display:flex;align-items:center;justify-content:center;color:#555;font-size:11px">无预览</div>')}
       ${hasVideo ? '<div class="play-btn"><div class="play-icon">▶</div></div>' : ''}
