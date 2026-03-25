@@ -147,7 +147,7 @@ class PoseRecommender:
         with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
             executor.submit(run_in_thread).result()
 
-    async def recommend(self, prompt: str, selected_poses: List[str] = None, top_k: int = 5, use_llm: bool = True, use_embedding: bool = True) -> List[PoseRecommendation]:
+    async def recommend(self, prompt: str, selected_poses: List[str] = None, top_k: int = 5, use_llm: bool = True, use_embedding: bool = True, min_score: float = None) -> List[PoseRecommendation]:
         """
         推荐姿势 - 三阶段流程
 
@@ -182,7 +182,8 @@ class PoseRecommender:
         if use_llm and len(candidates) > 1 and top_score < 0.85:
             candidates = await self._llm_rerank(prompt, candidates)
 
-        filtered = [c for c in candidates if c.score >= MIN_RECOMMEND_SCORE]
+        threshold = min_score if min_score is not None else MIN_RECOMMEND_SCORE
+        filtered = [c for c in candidates if c.score >= threshold]
         return filtered[:top_k]
     async def _embedding_match(self, query: str, candidate_count: int) -> List[PoseRecommendation]:
         """使用embedding进行语义匹配"""

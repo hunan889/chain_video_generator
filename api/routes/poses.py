@@ -347,6 +347,7 @@ class PoseRecommendRequest(BaseModel):
     top_k: int = 5
     use_llm: bool = True
     use_embedding: bool = True
+    min_score: Optional[float] = None  # 覆盖默认最低分数阈值
 
 
 class PoseRecommendItem(BaseModel):
@@ -384,7 +385,8 @@ async def recommend_poses_by_prompt(
             selected_poses=request.selected_poses,
             top_k=request.top_k,
             use_llm=request.use_llm,
-            use_embedding=request.use_embedding
+            use_embedding=request.use_embedding,
+            min_score=request.min_score
         )
 
         return PoseRecommendResponse(

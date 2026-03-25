@@ -819,7 +819,10 @@ async def _analyze_prompt(req, task_manager) -> Optional[dict]:
         if not pose_keys:
             from api.routes.poses import recommend_poses_by_prompt, PoseRecommendRequest
             try:
-                pose_req = PoseRecommendRequest(prompt=req.user_prompt, top_k=5, use_llm=not skip_llm)
+                # T2V (no reference image) uses stricter threshold; other modes use lower threshold
+                # to increase chance of matching a pose with LoRAs and reference images
+                pose_min_score = 0.5 if req.mode in (None, "t2v", "first_frame") else 0.3
+                pose_req = PoseRecommendRequest(prompt=req.user_prompt, top_k=5, use_llm=not skip_llm, min_score=pose_min_score)
                 pose_result = await recommend_poses_by_prompt(pose_req, _=None)
                 if pose_result.recommendations:
                     # Select the first (highest similarity) pose
