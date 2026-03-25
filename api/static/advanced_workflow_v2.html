@@ -1154,7 +1154,8 @@ function saveFormParams() {
         s4_mmaudioPrompt: document.getElementById('s4_mmaudioPrompt').value,
         s4_mmaudioNeg: document.getElementById('s4_mmaudioNeg').value,
         s4_mmaudioSteps: document.getElementById('s4_mmaudioSteps').value,
-        s4_mmaudioCfg: document.getElementById('s4_mmaudioCfg').value
+        s4_mmaudioCfg: document.getElementById('s4_mmaudioCfg').value,
+        parentWorkflowId: parentWorkflowId,
     };
     localStorage.setItem('advanced_workflow_params', JSON.stringify(params));
 }
@@ -1286,6 +1287,18 @@ function loadFormParams() {
         if (params.s4_mmaudioSteps) document.getElementById('s4_mmaudioSteps').value = params.s4_mmaudioSteps;
         if (params.s4_mmaudioCfg) document.getElementById('s4_mmaudioCfg').value = params.s4_mmaudioCfg;
         toggleMMAudioRow();
+
+        // 恢复续写状态
+        if (params.parentWorkflowId) {
+            parentWorkflowId = params.parentWorkflowId;
+            document.getElementById('parentWorkflowInput').value = parentWorkflowId;
+            document.getElementById('showStoryInput').checked = true;
+            document.getElementById('storyInputRow').style.display = 'flex';
+            updateStoryIndicator();
+            // 续写模式下隐藏图片上传区域
+            const uploadArea = document.getElementById('uploadArea');
+            if (uploadArea) uploadArea.style.display = 'none';
+        }
 
         // 更新 SeeDream prompt 和 UI 状态
         updateSeeDreamPrompt();
@@ -1716,13 +1729,15 @@ function buildRequestData() {
         requestData.parent_workflow_id = parentWorkflowId;
     }
 
-    // 根据模式设置图片字段
-    if (imageRole === 'first_frame') {
-        // 首帧模式：上传的图片作为首帧
-        requestData.uploaded_first_frame = uploadedImageUrl;
-    } else if (imageRole === 'face_reference' || imageRole === 'full_body_reference') {
-        // 换脸模式：上传的图片作为参考图片
-        requestData.reference_image = uploadedImageUrl;
+    // 根据模式设置图片字段（续写模式下不发送，由后端从父视频提取）
+    if (!parentWorkflowId) {
+        if (imageRole === 'first_frame') {
+            // 首帧模式：上传的图片作为首帧
+            requestData.uploaded_first_frame = uploadedImageUrl;
+        } else if (imageRole === 'face_reference' || imageRole === 'full_body_reference') {
+            // 换脸模式：上传的图片作为参考图片
+            requestData.reference_image = uploadedImageUrl;
+        }
     }
 
     return requestData;
@@ -2338,6 +2353,12 @@ function clearStoryMode() {
     document.getElementById('showStoryInput').checked = false;
     document.getElementById('storyInputRow').style.display = 'none';
     updateStoryIndicator();
+
+    // 恢复图片上传区域
+    const uploadArea = document.getElementById('uploadArea');
+    if (uploadArea) uploadArea.style.display = '';
+
+    saveFormParams();
 }
 
 function continueStory() {
@@ -2358,6 +2379,20 @@ function continueStory() {
     document.getElementById('prompt').value = '';
     document.getElementById('prompt').focus();
     document.getElementById('prompt').scrollIntoView({ behavior: 'smooth', block: 'center' });
+
+    // 清除上传的图片（续写使用父视频最后一帧，不需要之前的图片）
+    uploadedImageUrl = null;
+    uploadedImageBase64 = null;
+    const preview = document.getElementById('imagePreview');
+    if (preview) { preview.style.display = 'none'; preview.src = ''; }
+    const placeholder = document.querySelector('#uploadArea .placeholder');
+    if (placeholder) { placeholder.style.display = ''; }
+
+    // 隐藏图片上传区域（续写不需要上传图片）
+    const uploadArea = document.getElementById('uploadArea');
+    if (uploadArea) uploadArea.style.display = 'none';
+
+    saveFormParams();
 }
 
 function updateStoryIndicator() {
