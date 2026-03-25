@@ -37,6 +37,7 @@ class DashScopeParameters(BaseModel):
     duration: Optional[int] = None      # seconds
     prompt_extend: Optional[bool] = None
     # Extended parameters (beyond standard DashScope)
+    mode: Optional[str] = None          # e.g. "face_reference", "full_body_reference", "first_frame"
     resolution: Optional[str] = None    # e.g. "480p", "720p", "1080p"
     aspect_ratio: Optional[str] = None  # e.g. "16:9", "9:16", "3:4"
     turbo: Optional[bool] = None
@@ -50,12 +51,25 @@ class DashScopeRequest(BaseModel):
     parameters: Optional[DashScopeParameters] = None
 
 
+class DashScopeStage(BaseModel):
+    name: str
+    status: str
+    sub_stage: Optional[str] = None
+
+
 class DashScopeTaskOutput(BaseModel):
     task_id: str
     task_status: str
     video_url: Optional[str] = None
     submit_time: Optional[str] = None
     end_time: Optional[str] = None
+    # Extended fields for progress tracking
+    progress: Optional[float] = None
+    current_stage: Optional[str] = None
+    stages: Optional[list[DashScopeStage]] = None
+    first_frame_url: Optional[str] = None
+    edited_frame_url: Optional[str] = None
+    error_message: Optional[str] = None
 
 
 class DashScopeResponse(BaseModel):
@@ -149,7 +163,19 @@ async def dashscope_submit(
     params = req.parameters or DashScopeParameters()
 
     # --- Determine mode and image fields ---
-    if "i2v" in model and has_image:
+    if params.mode:
+        # Explicit mode override via parameters
+        mode = params.mode
+        if mode == "first_frame" and has_image:
+            uploaded_first_frame = req.input.img_url
+            reference_image = None
+        elif has_image:
+            uploaded_first_frame = None
+            reference_image = req.input.img_url
+        else:
+            uploaded_first_frame = None
+            reference_image = None
+    elif "i2v" in model and has_image:
         # Image-to-video
         mode = "first_frame"
         uploaded_first_frame = req.input.img_url
@@ -165,11 +191,16 @@ async def dashscope_submit(
         uploaded_first_frame = None
         reference_image = None
 
-    # --- Parse size ---
-    resolution = None
-    aspect_ratio = None
-    if params.size:
+    # --- Parse size / resolution ---
+    resolution = params.resolution
+    aspect_ratio = params.aspect_ratio
+    if params.size and not resolution:
         resolution, aspect_ratio = _parse_size(params.size)
+
+    # --- Build mmaudio config ---
+    mmaudio = None
+    if params.mmaudio_enabled:
+        mmaudio = {"enabled": True, "prompt": params.mmaudio_prompt or ""}
 
     # --- Build internal request ---
     internal_req = WorkflowGenerateRequest(
@@ -181,6 +212,8 @@ async def dashscope_submit(
         aspect_ratio=aspect_ratio,
         duration=params.duration,
         auto_prompt=params.prompt_extend if params.prompt_extend is not None else True,
+        turbo=params.turbo if params.turbo is not None else False,
+        mmaudio=mmaudio,
         first_frame_source="generate" if mode != "first_frame" or not uploaded_first_frame else None,
     )
 
@@ -221,6 +254,14 @@ async def dashscope_query(
         if result.status in ("completed", "failed"):
             end_time = datetime.fromtimestamp(_time.time(), tz=timezone.utc).isoformat()
 
+    # Build stages list
+    stages = None
+    if result.stages:
+        stages = [
+            DashScopeStage(name=s.name, status=s.status, sub_stage=s.sub_stage)
+            for s in result.stages
+        ]
+
     return DashScopeResponse(
         request_id=uuid.uuid4().hex,
         output=DashScopeTaskOutput(
@@ -229,6 +270,12 @@ async def dashscope_query(
             video_url=result.final_video_url,
             submit_time=submit_time,
             end_time=end_time,
+            progress=result.progress,
+            current_stage=result.current_stage,
+            stages=stages,
+            first_frame_url=result.first_frame_url,
+            edited_frame_url=result.edited_frame_url,
+            error_message=result.error,
         ),
         usage={},
     )
