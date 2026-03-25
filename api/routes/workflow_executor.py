@@ -273,6 +273,112 @@ async def _apply_face_swap_to_frame(
         return None
 
 
+async def _apply_face_swap_via_comfyui(
+    frame_url: str,
+    reference_face: str,
+    strength: float = 1.0,
+    task_manager=None,
+) -> Optional[str]:
+    """Apply face swap using ComfyUI ReActor (bypasses Forge, uses idle worker).
+
+    Same contract as _apply_face_swap_to_frame: returns URL on success, None on failure.
+    """
+    try:
+        from api.services import storage
+        from api.services.workflow_builder import build_face_swap_workflow
+        from api.config import API_HOST, API_PORT
+        import uuid
+
+        # ── 1. Download frame image ──────────────────────────────────────
+        if frame_url.startswith('/') and not frame_url.startswith('//'):
+            frame_url = f"http://{API_HOST}:{API_PORT}{frame_url}"
+
+        async with aiohttp.ClientSession() as session:
+            async with session.get(frame_url, timeout=aiohttp.ClientTimeout(total=30)) as resp:
+                if resp.status != 200:
+                    logger.error("ComfyUI face swap: failed to download frame: %s", resp.status)
+                    return None
+                frame_data = await resp.read()
+
+        # ── 2. Decode reference face ─────────────────────────────────────
+        if reference_face.startswith('data:image'):
+            face_data = base64.b64decode(reference_face.split(',')[1])
+        elif reference_face.startswith('http://') or reference_face.startswith('https://'):
+            async with aiohttp.ClientSession() as session:
+                async with session.get(reference_face, timeout=aiohttp.ClientTimeout(total=30)) as resp:
+                    if resp.status != 200:
+                        logger.error("ComfyUI face swap: failed to download reference face: %s", resp.status)
+                        return None
+                    face_data = await resp.read()
+        elif reference_face.startswith('/uploads/'):
+            filename = reference_face.split('/')[-1]
+            local_path = UPLOADS_DIR / filename
+            if not local_path.exists():
+                logger.error("ComfyUI face swap: local file not found: %s", reference_face)
+                return None
+            face_data = local_path.read_bytes()
+        elif '/' not in reference_face and '.' in reference_face:
+            local_path = UPLOADS_DIR / reference_face
+            if not local_path.exists():
+                logger.error("ComfyUI face swap: local file not found: %s", reference_face)
+                return None
+            face_data = local_path.read_bytes()
+        else:
+            face_data = base64.b64decode(reference_face)
+
+        # ── 3. Find idle ComfyUI worker ──────────────────────────────────
+        if not task_manager:
+            logger.error("ComfyUI face swap: no task_manager provided")
+            return None
+
+        client = await task_manager.find_available_client(timeout=120)
+        if not client:
+            logger.error("ComfyUI face swap: no idle ComfyUI worker available (timeout)")
+            return None
+
+        try:
+            logger.info("ComfyUI face swap: using worker %s", client.base_url)
+
+            # ── 4. Upload both images to worker ──────────────────────────────
+            frame_name = f"fs_frame_{uuid.uuid4().hex[:8]}.png"
+            face_name = f"fs_face_{uuid.uuid4().hex[:8]}.png"
+            await client.upload_image(frame_data, frame_name)
+            await client.upload_image(face_data, face_name)
+
+            # ── 5. Build & submit workflow ───────────────────────────────────
+            workflow = build_face_swap_workflow(frame_name, face_name, strength)
+            prompt_id = await client.queue_prompt(workflow)
+            logger.info("ComfyUI face swap: submitted prompt %s", prompt_id)
+
+            # ── 6. Wait for completion ───────────────────────────────────────
+            await client.wait_for_completion(prompt_id, timeout=120)
+
+            # ── 7. Get result image ──────────────────────────────────────────
+            images = await client.get_output_images(prompt_id)
+            if not images:
+                logger.error("ComfyUI face swap: no output images for prompt %s", prompt_id)
+                return None
+
+            result_file = images[0]
+            result_data = await client.download_file(
+                result_file["filename"],
+                subfolder=result_file.get("subfolder", ""),
+                file_type=result_file.get("type", "output"),
+            )
+
+            # ── 8. Save & return URL ─────────────────────────────────────────
+            out_filename = f"face_swap_{uuid.uuid4().hex[:8]}.png"
+            _local_path, url = await storage.save_upload(result_data, out_filename)
+            logger.info("ComfyUI face swap completed: %s", url)
+            return url
+        finally:
+            task_manager.release_client(client)
+
+    except Exception as e:
+        logger.error("ComfyUI face swap failed: %s", e, exc_info=True)
+        return None
+
+
 async def _execute_workflow(workflow_id: str, req, task_manager, resume: bool = False):
     """
     Execute the complete advanced workflow asynchronously.
@@ -537,9 +643,9 @@ async def _execute_workflow(workflow_id: str, req, task_manager, resume: bool = 
                         details_dict["skip_reactor_flag"] = True
                         logger.info(f"[{workflow_id}] Reactor deferred: skip_reactor flag set, SeeDream will handle")
                     else:
-                        # 正常执行 Reactor
-                        logger.info(f"[{workflow_id}] Applying face swap to first frame: {first_frame_url}")
-                        swapped_url = await _apply_face_swap_to_frame(
+                        # 正常执行 Reactor (via ComfyUI)
+                        logger.info(f"[{workflow_id}] Applying face swap to first frame (ComfyUI): {first_frame_url}")
+                        swapped_url = await _apply_face_swap_via_comfyui(
                             first_frame_url,
                             req.reference_image,
                             strength=face_swap_config.get("strength", 1.0),
@@ -716,9 +822,9 @@ async def _execute_workflow(workflow_id: str, req, task_manager, resume: bool = 
 
                     # face_reference 模式：检查 Reactor 兜底
                     if reactor_deferred and reactor_configured:
-                        # skip_reactor 图片 + SeeDream 失败 → Reactor 补救
-                        logger.info(f"[{workflow_id}] SeeDream failed, applying deferred reactor fallback")
-                        swapped_url = await _apply_face_swap_to_frame(
+                        # skip_reactor 图片 + SeeDream 失败 → Reactor 补救 (via ComfyUI)
+                        logger.info(f"[{workflow_id}] SeeDream failed, applying deferred reactor fallback (ComfyUI)")
+                        swapped_url = await _apply_face_swap_via_comfyui(
                             first_frame_url,
                             req.reference_image,
                             strength=face_swap_config.get("strength", 1.0),
@@ -871,6 +977,74 @@ async def _update_stage(task_manager, workflow_id: str, stage_name: str, status:
     await task_manager.redis.hset(f"workflow:{workflow_id}", mapping=mapping)
 
 
+def _load_default_t2v_lora_info():
+    """Load instagirl_v2 LoRA context from DB for T2V prompt optimization.
+
+    Returns (lora_info, trigger_words) matching the format used by poses.py:302-314.
+    """
+    try:
+        import pymysql
+        import json as _json
+        from api.routes.recommend import DB_CONFIG
+
+        conn = pymysql.connect(**DB_CONFIG)
+        try:
+            cur = conn.cursor(pymysql.cursors.DictCursor)
+            cur.execute(
+                "SELECT trigger_words, trigger_prompt, description, example_prompts FROM lora_metadata WHERE name = %s",
+                ("instagirl_v2",),
+            )
+            row = cur.fetchone()
+            cur.close()
+        finally:
+            conn.close()
+
+        if not row:
+            logger.warning("instagirl_v2 not found in lora_metadata")
+            return None, []
+
+        # trigger_words
+        trigger_words = []
+        raw_tw = row.get("trigger_words")
+        if isinstance(raw_tw, str):
+            try:
+                parsed = _json.loads(raw_tw)
+                if isinstance(parsed, list):
+                    trigger_words = parsed
+            except Exception:
+                trigger_words = [raw_tw] if raw_tw.strip() else []
+        elif isinstance(raw_tw, list):
+            trigger_words = raw_tw
+
+        # example_prompts
+        raw_ep = row.get("example_prompts")
+        if isinstance(raw_ep, str):
+            try:
+                raw_ep = _json.loads(raw_ep)
+            except Exception:
+                raw_ep = []
+        example_prompts = list(raw_ep) if raw_ep else []
+
+        # Insert trigger_prompt as first example (matches poses.py:308-309)
+        trigger_prompt = row.get("trigger_prompt") or ""
+        if trigger_prompt.strip() and trigger_prompt.strip() not in example_prompts:
+            example_prompts.insert(0, trigger_prompt.strip())
+
+        description = row.get("description") or ""
+        lora_info = [{
+            "name": "instagirl_v2",
+            "description": ", ".join(trigger_words) if trigger_words else description,
+            "example_prompts": example_prompts,
+        }]
+
+        logger.info(f"Loaded default T2V LoRA context: instagirl_v2 (trigger_words={trigger_words}, examples={len(example_prompts)})")
+        return lora_info, trigger_words
+
+    except Exception as e:
+        logger.warning(f"Failed to load default T2V LoRA info: {e}")
+        return None, []
+
+
 async def _analyze_prompt(req, task_manager) -> Optional[dict]:
     """Call /workflow/analyze or /poses/recommend-workflow endpoint internally"""
     try:
@@ -949,11 +1123,20 @@ async def _analyze_prompt(req, task_manager) -> Optional[dict]:
             try:
                 from api.services.prompt_optimizer import PromptOptimizer
                 optimizer = PromptOptimizer()
+
+                # In T2V mode, inject default LoRA context so LLM generates
+                # prompts with appearance details and trigger words
+                lora_info = None
+                trigger_words = []
+                if req.mode == "t2v":
+                    lora_info, trigger_words = _load_default_t2v_lora_info()
+
                 result = await optimizer.optimize(
                     prompt=req.user_prompt,
-                    trigger_words=[],
-                    mode="i2v",
+                    trigger_words=trigger_words,
+                    mode="t2v" if req.mode == "t2v" else "i2v",
                     duration=5.0,
+                    lora_info=lora_info,
                 )
                 optimized_prompt = result["optimized_prompt"]
             except Exception as e:
@@ -1610,8 +1793,34 @@ async def _generate_video(workflow_id: str, req, first_frame_url: Optional[str],
 
         # Default: Add instagirl_v2 LoRA when in T2V fallback mode (no first frame) and no LoRAs specified
         if not loras and not first_frame_url:
-            loras.append(LoraInput(name="instagirl_v2", strength=0.8))
-            logger.info(f"[{workflow_id}] T2V fallback with no LoRAs, adding default instagirl_v2 LoRA")
+            # Read trigger_words/trigger_prompt from DB to match normal LoRA path
+            _tw, _tp = [], None
+            try:
+                import pymysql
+                from api.routes.recommend import DB_CONFIG
+                _conn = pymysql.connect(**DB_CONFIG)
+                try:
+                    _cur = _conn.cursor(pymysql.cursors.DictCursor)
+                    _cur.execute("SELECT trigger_words, trigger_prompt FROM lora_metadata WHERE name = %s", ("instagirl_v2",))
+                    _row = _cur.fetchone()
+                    if _row:
+                        _raw_tw = _row.get("trigger_words")
+                        if isinstance(_raw_tw, str):
+                            import json as _json
+                            try:
+                                _tw = _json.loads(_raw_tw)
+                            except Exception:
+                                _tw = []
+                        elif isinstance(_raw_tw, list):
+                            _tw = _raw_tw
+                        _tp = _row.get("trigger_prompt") or None
+                    _cur.close()
+                finally:
+                    _conn.close()
+            except Exception as e:
+                logger.warning(f"[{workflow_id}] Failed to fetch instagirl_v2 metadata from DB: {e}")
+            loras.append(LoraInput(name="instagirl_v2", strength=0.8, trigger_words=_tw or [], trigger_prompt=_tp))
+            logger.info(f"[{workflow_id}] T2V fallback with no LoRAs, adding default instagirl_v2 LoRA (trigger_words={_tw}, trigger_prompt={'yes' if _tp else 'no'})")
 
         # Download first frame for upload
         image_file = None

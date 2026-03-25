@@ -356,6 +356,15 @@ class PromptOptimizer:
                 logger.warning("Image description failed, skipping: %s", e)
         elif mode == "i2v":
             user_msg += "\nMode is I2V: the image defines the scene. Only describe ACTIONS.\n"
+        elif mode == "t2v" and lora_info:
+            user_msg += "\nMode is T2V: there is NO first frame image — the video model must create everything from text.\n"
+            user_msg += "**OVERRIDE**: The FORBIDDEN rules about environment do NOT apply to T2V mode.\n"
+            user_msg += "You MUST include ALL of the following in the FIRST keyframe:\n"
+            user_msg += "1. **APPEARANCE**: face shape, eye color, hair style/color, body type, skin tone, clothing\n"
+            user_msg += "2. **ENVIRONMENT**: a specific, vivid setting inferred from the prompt (e.g. bedroom, beach, bathroom, office). "
+            user_msg += "Include 2-3 concrete details: furniture, surfaces, lighting direction, time of day. "
+            user_msg += "Do NOT use a plain/solid background — always place the subject in a real environment.\n"
+            user_msg += "3. **QUALITY MARKERS**: amateur cellphone quality, visible sensor noise, artificial over-sharpening, blown-out highlights\n"
         # LoRA context
         if lora_info:
             user_msg += "\n## Selected LoRAs:\n"
@@ -377,12 +386,26 @@ class PromptOptimizer:
         # --- Pass 2: Generate ---
         try:
             text = await self._llm_call(system_prompt, user_msg)
-            result = json.loads(text)
+            # Strip leading non-JSON chars (e.g. LLM sometimes prepends comma or whitespace)
+            stripped = text.lstrip(" ,\n\r\t")
+            result = json.loads(stripped)
             return {
                 "optimized_prompt": result.get("optimized_prompt", prompt),
                 "explanation": result.get("explanation", ""),
             }
         except json.JSONDecodeError:
+            # Try to extract JSON object from the text
+            json_match = re.search(r'\{[^{}]*"optimized_prompt"\s*:\s*"[^"]*"[^{}]*\}', text, re.DOTALL)
+            if json_match:
+                try:
+                    result = json.loads(json_match.group())
+                    logger.info("Extracted JSON from malformed response: %s", result.get("optimized_prompt", "")[:200])
+                    return {
+                        "optimized_prompt": result.get("optimized_prompt", prompt),
+                        "explanation": result.get("explanation", ""),
+                    }
+                except json.JSONDecodeError:
+                    pass
             # Try to salvage: extract timeline pattern from malformed JSON
             timeline = re.findall(r'\(at \d+ seconds?:[^)]+\)', text)
             if timeline:
