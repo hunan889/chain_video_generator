@@ -50,7 +50,9 @@ Wan2.2 Video Generation Service — FastAPI wrapper around ComfyUI for Wan2.2 T2
      api/ wan22-server:/home/gime/soft/wan22-service/api/
    ```
    - **When to restart**: Only restart if Python code changed (not needed for static files)
-   - **Restart command**: `ssh wan22-server "pkill -f 'uvicorn api.main:app'; cd /home/gime/soft/wan22-service && nohup /home/gime/soft/miniconda3/bin/python -m uvicorn api.main:app --host 0.0.0.0 --port 8000 >> api.log 2>&1 &"`
+   - **Graceful reload (zero-downtime)**: `ssh wan22-server "cd /home/gime/soft/wan22-service && bash scripts/reload_api.sh"`
+     - Sends `SIGHUP` to gunicorn master → new worker starts with new code → old worker finishes current requests then exits
+     - No dropped requests, no downtime
 
 3. **Git Deployment (Alternative)**
    - SSH to remote: `ssh wan22-server`
@@ -58,7 +60,7 @@ Wan2.2 Video Generation Service — FastAPI wrapper around ComfyUI for Wan2.2 T2
    - Restart if needed
 
 4. **Verification Phase (Remote)**
-   - Check service status: `ps aux | grep -E 'uvicorn|comfyui|redis'`
+   - Check service status: `ps aux | grep -E 'gunicorn|comfyui|redis'`
    - Check logs: `tail -f api.log` or `tail -f logs/*.log`
    - Test API endpoints
    - Monitor system resources
@@ -87,9 +89,13 @@ ssh root@148.153.121.44
 cd /home/gime/soft/wan22-service
 git status
 git log --oneline -5
-ps aux | grep -E 'uvicorn|comfyui|redis' | grep -v grep
+ps aux | grep -E 'gunicorn|comfyui|redis' | grep -v grep
 
-# Service management
+# Service management — API
+bash scripts/start_api.sh       # Start API (gunicorn + uvicorn worker, with PID file)
+bash scripts/reload_api.sh      # Graceful reload (zero-downtime, SIGHUP)
+
+# Service management — All (ComfyUI + API)
 bash scripts/stop_all.sh
 bash scripts/start_all.sh
 screen -ls
@@ -130,13 +136,14 @@ tail -f logs/*.log
 ```bash
 bash scripts/setup.sh           # Full install (ComfyUI + venv + deps)
 bash scripts/download_models.sh # Download models (~75GB)
-bash scripts/start_all.sh       # Start all services (screen)
+bash scripts/start_all.sh       # Start all services (ComfyUI via screen + API)
 bash scripts/stop_all.sh        # Stop all services
-python -m uvicorn api.main:app --host 0.0.0.0 --port 8000  # Run API directly
+bash scripts/start_api.sh       # Start API only (gunicorn, PID → gunicorn.pid)
+bash scripts/reload_api.sh      # Graceful reload API (zero-downtime, kill -HUP)
 ```
 
 ## Tech stack
-Python 3.11, FastAPI, Redis, aiohttp, websockets, ComfyUI, PyTorch (CUDA)
+Python 3.11, FastAPI, gunicorn (uvicorn worker), Redis, aiohttp, websockets, ComfyUI, PyTorch (CUDA)
 
 ## Work Methodology
 
