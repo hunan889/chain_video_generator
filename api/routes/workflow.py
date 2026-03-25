@@ -1005,6 +1005,14 @@ class WorkflowGenerateResponse(BaseModel):
     total_steps: Optional[int] = Field(default=None, description="Total steps across all stages")
     completed_steps: Optional[int] = Field(default=None, description="Completed steps from previous stages")
     elapsed_time: Optional[float] = Field(default=None, description="Elapsed time in seconds")
+    # Detail fields (populated when detail=true)
+    user_prompt: Optional[str] = None
+    mode: Optional[str] = None
+    reference_image: Optional[str] = None
+    created_at: Optional[int] = None
+    completed_at: Optional[int] = None
+    analysis_result: Optional[dict] = None
+    stage_details: Optional[dict] = None
 
 
 def _deep_merge(base: dict, override: dict) -> dict:
@@ -1305,7 +1313,7 @@ async def generate_advanced_workflow(req: WorkflowGenerateRequest, _=Depends(ver
 
 
 @router.get("/workflow/status/{workflow_id}")
-async def get_workflow_status(workflow_id: str, _=Depends(verify_api_key)):
+async def get_workflow_status(workflow_id: str, detail: bool = False, _=Depends(verify_api_key)):
     """
     Get workflow status by ID.
 
@@ -1336,6 +1344,21 @@ async def get_workflow_status(workflow_id: str, _=Depends(verify_api_key)):
             stage_status = workflow_data.get(f"stage_{stage_name}", "pending")
             stage_error = workflow_data.get(f"stage_{stage_name}_error")
             stage_details = workflow_data.get(f"stage_{stage_name}_details")
+
+            # Strip large base64 data URIs from sub_stage JSON to keep responses small
+            if stage_details and "data:" in stage_details:
+                try:
+                    parsed_sub = json.loads(stage_details)
+                    if isinstance(parsed_sub, dict):
+                        changed = False
+                        for sk, sv in list(parsed_sub.items()):
+                            if isinstance(sv, str) and sv.startswith("data:") and len(sv) > 1000:
+                                parsed_sub[sk] = None
+                                changed = True
+                        if changed:
+                            stage_details = json.dumps(parsed_sub)
+                except (json.JSONDecodeError, TypeError):
+                    pass
 
             stages.append(WorkflowStage(
                 name=stage_name,
@@ -1426,6 +1449,44 @@ async def get_workflow_status(workflow_id: str, _=Depends(verify_api_key)):
             except (ValueError, TypeError):
                 pass
 
+        # Detail fields (only when detail=true to avoid overhead on polling)
+        detail_fields = {}
+        if detail:
+            detail_fields["user_prompt"] = workflow_data.get("user_prompt")
+            detail_fields["mode"] = workflow_data.get("mode")
+            # Skip large base64 data URIs to keep response small
+            ref_img = workflow_data.get("reference_image")
+            if ref_img and ref_img.startswith("data:"):
+                ref_img = None  # base64 data URIs are too large for the response
+            detail_fields["reference_image"] = ref_img
+            created_at_val = workflow_data.get("created_at")
+            detail_fields["created_at"] = int(float(created_at_val)) if created_at_val else None
+            completed_at_val = workflow_data.get("completed_at")
+            detail_fields["completed_at"] = int(float(completed_at_val)) if completed_at_val else None
+            # Parse analysis_result JSON
+            ar_raw = workflow_data.get("analysis_result")
+            if ar_raw:
+                try:
+                    detail_fields["analysis_result"] = json.loads(ar_raw)
+                except (json.JSONDecodeError, TypeError):
+                    pass
+            # Parse all stage details into a dict, stripping large base64 data
+            sd = {}
+            for sn in stage_names:
+                sd_raw = workflow_data.get(f"stage_{sn}_details")
+                if sd_raw:
+                    try:
+                        parsed = json.loads(sd_raw)
+                        if isinstance(parsed, dict):
+                            for dk, dv in list(parsed.items()):
+                                if isinstance(dv, str) and dv.startswith("data:") and len(dv) > 1000:
+                                    parsed[dk] = None
+                        sd[sn] = parsed
+                    except (json.JSONDecodeError, TypeError):
+                        sd[sn] = sd_raw
+            if sd:
+                detail_fields["stage_details"] = sd
+
         return WorkflowGenerateResponse(
             workflow_id=workflow_id,
             status=status,
@@ -1442,7 +1503,8 @@ async def get_workflow_status(workflow_id: str, _=Depends(verify_api_key)):
             max_step=max_step,
             total_steps=total_steps,
             completed_steps=completed_steps,
-            elapsed_time=elapsed_time
+            elapsed_time=elapsed_time,
+            **detail_fields
         )
 
     except HTTPException:
@@ -1485,6 +1547,64 @@ async def cancel_workflow(workflow_id: str, _=Depends(verify_api_key)):
 
     logger.info(f"Workflow {workflow_id} cancelled")
     return {"status": "cancelled", "workflow_id": workflow_id}
+
+
+@router.post("/workflow/{workflow_id}/regenerate", response_model=WorkflowGenerateResponse)
+async def regenerate_workflow(workflow_id: str, _=Depends(verify_api_key)):
+    """
+    Regenerate a workflow with the same parameters as the original.
+
+    Reads the original workflow's parameters from Redis and creates a new workflow.
+    """
+    from api.main import task_manager
+
+    workflow_data = await task_manager.redis.hgetall(f"workflow:{workflow_id}")
+    if not workflow_data:
+        raise HTTPException(404, f"Workflow {workflow_id} not found")
+
+    # Reconstruct original request parameters
+    mode = workflow_data.get("mode")
+    if not mode:
+        raise HTTPException(400, f"Original workflow {workflow_id} has no mode")
+
+    user_prompt = workflow_data.get("user_prompt")
+    if not user_prompt:
+        raise HTTPException(400, f"Original workflow {workflow_id} has no user_prompt")
+
+    # Build the regeneration request
+    req_data = {
+        "mode": mode,
+        "user_prompt": user_prompt,
+    }
+
+    # Restore reference_image (skip base64 data URIs as they are too large)
+    ref_img = workflow_data.get("reference_image")
+    if ref_img and not ref_img.startswith("data:"):
+        req_data["reference_image"] = ref_img
+
+    # Restore first_frame_source
+    ffs = workflow_data.get("first_frame_source")
+    if ffs and ffs in ("generate", "select_existing"):
+        req_data["first_frame_source"] = ffs
+
+    # Restore internal_config
+    ic_raw = workflow_data.get("internal_config")
+    if ic_raw:
+        try:
+            req_data["internal_config"] = json.loads(ic_raw)
+        except (json.JSONDecodeError, TypeError):
+            pass
+
+    # Restore parent_workflow_id
+    parent_wf = workflow_data.get("parent_workflow_id")
+    if parent_wf:
+        req_data["parent_workflow_id"] = parent_wf
+
+    logger.info(f"Regenerating workflow {workflow_id} with params: mode={mode}, prompt={user_prompt[:50]}...")
+
+    # Create a new request and delegate to the existing endpoint
+    new_req = WorkflowGenerateRequest(**req_data)
+    return await generate_advanced_workflow(new_req, _)
 
 
 # ============================================================================
@@ -1789,35 +1909,74 @@ async def run_workflow_with_image(
 @router.get("/workflow/history")
 async def list_workflow_history(
     page: int = Query(1, ge=1),
-    page_size: int = Query(24, ge=1, le=200),
+    page_size: int = Query(24, ge=1, le=100),
+    status: Optional[str] = Query(None),
+    q: Optional[str] = Query(None),
     _=Depends(verify_api_key)
 ):
-    """List past workflow executions from Redis, newest first, paginated."""
+    """List past workflow executions from Redis, newest first, paginated.
+
+    Uses SCAN (non-blocking) + pipeline hmget (single round-trip) instead of
+    KEYS + individual hgetall for each workflow.
+    Supports server-side filtering by status and text search on prompt/ID.
+    """
     from api.main import task_manager
-    keys = await task_manager.redis.keys("workflow:wf_*")
-    results = []
+
+    # SCAN instead of KEYS (non-blocking, won't stall Redis)
+    keys = []
+    cursor = 0
+    while True:
+        cursor, batch = await task_manager.redis.scan(
+            cursor, match="workflow:wf_*", count=200
+        )
+        keys.extend(k for k in batch if k.count(":") <= 1)
+        if cursor == 0:
+            break
+
+    if not keys:
+        return {
+            "workflows": [], "total": 0,
+            "page": 1, "page_size": page_size, "total_pages": 1,
+        }
+
+    # Pipeline hmget — 1 round-trip instead of N
+    fields = [
+        "status", "mode", "user_prompt", "created_at",
+        "first_frame_url", "edited_frame_url", "final_video_url", "error",
+    ]
+    pipe = task_manager.redis.pipeline()
     for key in keys:
-        # Skip non-hash keys (e.g. workflow:wf_xxx:req)
-        if key.count(":") > 1:
+        pipe.hmget(key, *fields)
+    all_vals = await pipe.execute()
+
+    # Build list, apply server-side filters
+    q_lower = q.lower() if q else None
+    results = []
+    for key, vals in zip(keys, all_vals):
+        rec = dict(zip(fields, vals))
+        # Server-side status filter
+        if status and rec.get("status") != status:
             continue
-        try:
-            data = await task_manager.redis.hgetall(key)
-        except Exception:
-            continue
-        if not data:
-            continue
-        wf_id = key.split(":", 1)[1] if ":" in key else key
+        # Server-side text search
+        if q_lower:
+            wf_id_str = key.split(":", 1)[1] if ":" in key else key
+            prompt_str = (rec.get("user_prompt") or "").lower()
+            if q_lower not in prompt_str and q_lower not in wf_id_str.lower():
+                continue
+        else:
+            wf_id_str = key.split(":", 1)[1] if ":" in key else key
         results.append({
-            "workflow_id": wf_id,
-            "status": data.get("status"),
-            "mode": data.get("mode"),
-            "user_prompt": data.get("user_prompt"),
-            "created_at": int(float(data.get("created_at", 0))),
-            "first_frame_url": data.get("first_frame_url"),
-            "edited_frame_url": data.get("edited_frame_url"),
-            "final_video_url": data.get("final_video_url"),
-            "error": data.get("error"),
+            "workflow_id": wf_id_str,
+            "status": rec.get("status"),
+            "mode": rec.get("mode"),
+            "user_prompt": rec.get("user_prompt"),
+            "created_at": int(float(rec.get("created_at") or 0)),
+            "first_frame_url": rec.get("first_frame_url"),
+            "edited_frame_url": rec.get("edited_frame_url"),
+            "final_video_url": rec.get("final_video_url"),
+            "error": rec.get("error"),
         })
+
     results.sort(key=lambda x: x["created_at"], reverse=True)
     total = len(results)
     total_pages = max(1, (total + page_size - 1) // page_size)

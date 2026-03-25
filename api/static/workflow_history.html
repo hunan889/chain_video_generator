@@ -10,36 +10,41 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;b
 .container{max-width:1400px;margin:0 auto;padding:20px}
 h1{color:#7c83ff;margin-bottom:20px;font-size:1.4em}
 .toolbar{display:flex;gap:12px;align-items:center;margin-bottom:20px;flex-wrap:wrap}
-.toolbar input{padding:8px 12px;background:#0a0a23;border:1px solid #444;border-radius:6px;color:#e0e0e0;font-size:13px;width:260px}
+.toolbar input{padding:8px 12px;background:#0a0a23;border:1px solid #444;border-radius:6px;color:#e0e0e0;font-size:13px;width:260px;transition:border-color .2s}
 .toolbar input:focus{outline:none;border-color:#7c83ff}
-.btn{padding:8px 18px;background:#7c83ff;color:#fff;border:none;border-radius:6px;font-size:13px;cursor:pointer;font-weight:600;transition:background .2s}
+.btn{padding:8px 18px;background:#7c83ff;color:#fff;border:none;border-radius:6px;font-size:13px;cursor:pointer;font-weight:600;transition:background .2s,transform .1s}
 .btn:hover{background:#5a62e0}
+.btn:active{transform:scale(0.97)}
 .btn-sm{padding:5px 12px;font-size:12px}
 .btn-danger{background:#e05a5a}
 .btn-danger:hover{background:#c04444}
-.stats{margin-left:auto;font-size:12px;color:#888}
-.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:16px}
-.card{background:#16213e;border:1px solid #333;border-radius:10px;overflow:hidden;transition:border-color .2s}
-.card:hover{border-color:#7c83ff}
-.card-thumb{position:relative;width:100%;aspect-ratio:9/16;background:#0a0a23;overflow:hidden;cursor:pointer}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:12px}
+.card{background:linear-gradient(135deg,#16213e 0%,#1a2744 100%);border:1px solid #333;border-radius:8px;overflow:hidden;transition:border-color .3s,box-shadow .3s}
+.card:hover{border-color:#7c83ff;box-shadow:0 4px 16px rgba(124,131,255,.15)}
+.card-thumb{position:relative;width:100%;aspect-ratio:3/4;background:#0a0a23;overflow:hidden;cursor:pointer}
 .card-thumb img{width:100%;height:100%;object-fit:cover}
-.card-thumb video{width:100%;height:100%;object-fit:cover;display:none}
-.card-thumb .play-btn{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,.4);font-size:36px;opacity:0;transition:opacity .2s}
+.card-thumb .play-btn{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,.35);opacity:0;transition:opacity .2s}
 .card-thumb:hover .play-btn{opacity:1}
-.card-thumb.playing video{display:block}
-.card-thumb.playing img{display:none}
-.card-thumb.playing .play-btn{display:none}
-.card-body{padding:12px}
-.card-status{display:inline-block;padding:2px 10px;border-radius:12px;font-size:11px;font-weight:700;margin-bottom:8px}
+.play-icon{width:40px;height:40px;background:rgba(124,131,255,.9);border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:18px;color:#fff;box-shadow:0 2px 10px rgba(0,0,0,.4)}
+.no-video .play-icon{background:rgba(100,100,100,.7);font-size:14px}
+.card-body{padding:10px}
+.card-status{display:inline-block;padding:1px 8px;border-radius:10px;font-size:10px;font-weight:700;margin-bottom:4px}
 .status-completed{background:#1a4a2e;color:#4caf50}
 .status-running{background:#1a3a5c;color:#64b5f6}
 .status-failed{background:#4a1a1a;color:#ef5350}
 .status-queued{background:#2a2a1a;color:#ffb74d}
-.card-prompt{font-size:12px;color:#ccc;margin-bottom:8px;line-height:1.4;word-break:break-word;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
-.card-meta{font-size:11px;color:#666;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:4px}
-.card-mode{background:#0f3460;padding:2px 8px;border-radius:4px;color:#aaa;font-size:10px}
-.card-actions{display:flex;gap:6px;margin-top:10px}
-.card-error{font-size:11px;color:#ef5350;margin-top:6px;background:#2a1a1a;padding:6px;border-radius:4px;word-break:break-all}
+.running-indicator{display:inline-flex;align-items:center;gap:3px;margin-left:4px;font-size:9px;color:#64b5f6}
+.running-dot{width:5px;height:5px;border-radius:50%;background:#64b5f6;animation:pulse 1s infinite}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.3}}
+.card-prompt{font-size:11px;color:#bbb;margin-bottom:6px;line-height:1.3;word-break:break-word;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.card-meta{font-size:10px;color:#666;display:flex;justify-content:space-between;align-items:center;gap:4px}
+.card-mode{background:#0f3460;padding:1px 6px;border-radius:3px;color:#aaa;font-size:9px}
+.card-actions{display:flex;gap:4px;margin-top:6px}
+.card-actions .btn-sm{padding:3px 8px;font-size:11px}
+.card-error{font-size:10px;color:#ef5350;margin-top:4px;background:#2a1a1a;padding:4px;border-radius:3px;word-break:break-all;max-height:40px;overflow:hidden}
+.card-wfid{font-size:10px;color:#555;margin-bottom:3px;display:flex;align-items:center;gap:3px}
+.card-wfid span{font-family:monospace;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.card-wfid button{background:none;border:1px solid #444;border-radius:3px;color:#888;font-size:9px;padding:0px 4px;cursor:pointer;flex-shrink:0}
 .empty{text-align:center;padding:80px 20px;color:#555;font-size:15px}
 .pagination{display:flex;align-items:center;justify-content:center;gap:6px;margin:24px 0;flex-wrap:wrap}
 .pagination .btn-sm{min-width:36px;background:#16213e;border:1px solid #333}
@@ -47,10 +52,22 @@ h1{color:#7c83ff;margin-bottom:20px;font-size:1.4em}
 .pagination .btn-sm.active{background:#7c83ff;border-color:#7c83ff}
 .pagination .btn-sm:disabled{opacity:.35;cursor:default}
 .page-ellipsis{color:#555;padding:0 4px}
+
+/* Video Player Overlay */
+.player-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.92);z-index:1100;align-items:center;justify-content:center;flex-direction:column;gap:12px}
+.player-overlay.open{display:flex}
+.player-overlay video{max-width:90vw;max-height:80vh;border-radius:10px;background:#000}
+.player-close{position:fixed;top:16px;right:20px;font-size:28px;cursor:pointer;color:#aaa;z-index:1101;transition:color .2s}
+.player-close:hover{color:#fff}
+.player-actions{display:flex;gap:10px;align-items:center}
+.player-actions a{color:#7c83ff;font-size:13px;text-decoration:none;padding:6px 14px;border:1px solid #7c83ff;border-radius:6px;transition:all .2s}
+.player-actions a:hover{background:#7c83ff;color:#fff}
+
+/* Detail Modal */
 .modal{display:none;position:fixed;inset:0;background:rgba(0,0,0,.85);z-index:1000;align-items:center;justify-content:center}
 .modal.open{display:flex}
-.modal-inner{background:#16213e;border:1px solid #444;border-radius:12px;max-width:90vw;max-height:90vh;overflow:auto;padding:24px;position:relative;min-width:340px}
-.modal-close{position:absolute;top:12px;right:16px;font-size:22px;cursor:pointer;color:#aaa}
+.modal-inner{background:#16213e;border:1px solid #444;border-radius:12px;max-width:90vw;max-height:90vh;overflow:auto;padding:24px;position:relative;min-width:340px;width:700px}
+.modal-close{position:absolute;top:12px;right:16px;font-size:22px;cursor:pointer;color:#aaa;transition:color .2s}
 .modal-close:hover{color:#fff}
 .modal-video{width:100%;border-radius:8px;max-height:70vh}
 .modal-title{font-size:14px;color:#7c83ff;margin-bottom:14px;font-weight:700;padding-right:30px}
@@ -58,30 +75,53 @@ h1{color:#7c83ff;margin-bottom:20px;font-size:1.4em}
 .detail-label{color:#888;min-width:100px;flex-shrink:0}
 .detail-value{color:#ddd;word-break:break-all}
 .loading{text-align:center;padding:60px;color:#555}
-.frame-row{display:flex;gap:12px;margin-bottom:12px}
-.frame-item{flex:1;text-align:center}
-.frame-item img{width:100%;border-radius:6px;max-height:200px;object-fit:cover}
+.frame-row{display:flex;gap:12px;margin-bottom:12px;justify-content:center}
+.frame-item{text-align:center;flex:0 1 auto;max-width:200px}
+.frame-item img{max-width:100%;border-radius:6px;max-height:280px;object-fit:contain;background:#0a0a23}
 .frame-item p{font-size:11px;color:#888;margin-top:4px}
 .filter-bar{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px}
 .filter-btn{padding:4px 14px;border-radius:14px;border:1px solid #444;background:transparent;color:#aaa;font-size:12px;cursor:pointer;transition:all .2s}
 .filter-btn.active,.filter-btn:hover{background:#7c83ff;color:#fff;border-color:#7c83ff}
 @keyframes spin{0%{transform:rotate(0deg)}100%{transform:rotate(360deg)}}
 .spinner{display:inline-block;width:18px;height:18px;border:3px solid #333;border-top-color:#7c83ff;border-radius:50%;animation:spin .7s linear infinite;vertical-align:middle;margin-right:8px}
+.detail-section{margin-top:16px;border:1px solid #333;border-radius:8px;overflow:hidden}
+.detail-section-title{background:#0f3460;padding:8px 12px;font-size:12px;font-weight:700;color:#7cb3ff;cursor:pointer;display:flex;align-items:center;gap:6px}
+.detail-section-title:hover{background:#143a6e}
+.detail-section-body{padding:12px;background:#0a0a23;font-size:12px}
+.stage-row{border-bottom:1px solid #222;padding:8px 0}
+.stage-row:last-child{border-bottom:none}
+.stage-header{display:flex;align-items:center;gap:10px;cursor:pointer}
+.stage-header:hover .stage-name{color:#7cb3ff}
+.stage-dot{width:10px;height:10px;border-radius:50%;flex-shrink:0}
+.stage-dot.completed{background:#4caf50}
+.stage-dot.running{background:#64b5f6;animation:pulse 1s infinite}
+.stage-dot.failed{background:#ef5350}
+.stage-dot.pending{background:#555}
+.stage-name{flex:1;color:#ddd;font-size:12px}
+.stage-status-text{color:#888;font-size:11px}
+.stage-toggle{color:#555;font-size:10px;transition:transform .2s}
+.stage-body{margin-top:8px;margin-left:20px;padding:8px 10px;background:#111;border-radius:6px;font-size:11px;display:none}
+.stage-body.open{display:block}
+.stage-body .s-row{display:flex;padding:3px 0;gap:8px}
+.stage-body .s-label{color:#888;min-width:80px;flex-shrink:0}
+.stage-body .s-value{color:#ccc;word-break:break-word}
+.stage-body .s-pre{background:#0a0a23;padding:6px;border-radius:4px;white-space:pre-wrap;word-break:break-all;max-height:120px;overflow:auto;font-family:monospace;font-size:11px;color:#aaa;margin-top:4px;line-height:1.4}
+.lora-tag{display:inline-block;background:#1b3d69;color:#7cb3ff;padding:2px 8px;border-radius:4px;font-size:11px;margin:2px}
+.detail-pre{background:#111;padding:8px;border-radius:4px;white-space:pre-wrap;word-break:break-all;max-height:200px;overflow:auto;font-family:monospace;font-size:11px;color:#ccc;line-height:1.5}
 </style>
 </head>
 <body>
 <div class="container">
-<h1>📋 Workflow 历史记录</h1>
+<h1>Workflow 历史记录</h1>
 
 <div class="toolbar">
-  <input type="text" id="searchInput" placeholder="搜索 prompt 或 ID..." oninput="filterCards()">
+  <input type="text" id="searchInput" placeholder="搜索 prompt 或 ID...">
   <button class="btn btn-sm" onclick="loadHistory()">刷新</button>
   <a href="/static/advanced_workflow_v2.html"><button class="btn btn-sm" style="background:#333">+ 新建</button></a>
-  <span class="stats" id="statsText"></span>
 </div>
 
 <div class="filter-bar">
-  <button class="filter-btn active" data-status="all" onclick="setFilter('all',this)">全部</button>
+  <button class="filter-btn active" data-status="" onclick="setFilter('',this)">全部</button>
   <button class="filter-btn" data-status="completed" onclick="setFilter('completed',this)">已完成</button>
   <button class="filter-btn" data-status="running" onclick="setFilter('running',this)">进行中</button>
   <button class="filter-btn" data-status="failed" onclick="setFilter('failed',this)">失败</button>
@@ -89,6 +129,15 @@ h1{color:#7c83ff;margin-bottom:20px;font-size:1.4em}
 
 <div id="grid" class="grid"><div class="loading"><span class="spinner"></span>加载中...</div></div>
 <div id="pagination"></div>
+</div>
+
+<!-- Video Player Overlay -->
+<div class="player-overlay" id="playerOverlay" onclick="closePlayer(event)">
+  <span class="player-close" onclick="closePlayerForce()">✕</span>
+  <video id="playerVideo" controls autoplay loop></video>
+  <div class="player-actions">
+    <a id="playerDownload" href="#" download>下载视频</a>
+  </div>
 </div>
 
 <!-- 详情弹窗 -->
@@ -101,32 +150,127 @@ h1{color:#7c83ff;margin-bottom:20px;font-size:1.4em}
 
 <script>
 const API_KEY = localStorage.getItem('wan22_api_key') || localStorage.getItem('api_key') || 'wan22-default-key-change-me';
-let allWorkflows = [];
-let currentFilter = 'all';
+let currentFilter = '';
 let currentPage = 1;
+let currentSearch = '';
+let totalFromServer = 0;
+let totalPagesFromServer = 1;
+let currentPageData = [];
+let pollTimer = null;
 const PAGE_SIZE = 24;
 
+// --- Debounced search ---
+let searchTimeout = null;
+document.addEventListener('DOMContentLoaded', () => {
+  document.getElementById('searchInput').addEventListener('input', () => {
+    clearTimeout(searchTimeout);
+    searchTimeout = setTimeout(() => {
+      currentSearch = document.getElementById('searchInput').value.trim();
+      currentPage = 1;
+      loadHistory();
+    }, 300);
+  });
+});
+
+// --- Escape key closes overlays ---
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape') {
+    if (document.getElementById('playerOverlay').classList.contains('open')) {
+      closePlayerForce();
+    } else {
+      document.getElementById('detailModal').classList.remove('open');
+    }
+  }
+});
+
+// --- Visibility-based polling ---
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) {
+    clearTimeout(pollTimer);
+  } else {
+    schedulePoll();
+  }
+});
+
+function schedulePoll() {
+  clearTimeout(pollTimer);
+  const hasRunning = currentPageData.some(w => w.status === 'running' || w.status === 'queued');
+  const delay = hasRunning ? 5000 : 30000;
+  pollTimer = setTimeout(() => loadHistory(true), delay);
+}
+
+// --- Relative time ---
+function relativeTime(ts) {
+  if (!ts) return '-';
+  const now = Date.now() / 1000;
+  const diff = now - ts;
+  if (diff < 60) return '刚刚';
+  if (diff < 3600) return Math.floor(diff / 60) + '分钟前';
+  if (diff < 86400) return Math.floor(diff / 3600) + '小时前';
+  if (diff < 604800) return Math.floor(diff / 86400) + '天前';
+  return new Date(ts * 1000).toLocaleDateString('zh-CN');
+}
+
+// --- Video Player ---
+function openPlayer(videoUrl) {
+  const overlay = document.getElementById('playerOverlay');
+  const vid = document.getElementById('playerVideo');
+  const dl = document.getElementById('playerDownload');
+  vid.src = videoUrl;
+  dl.href = videoUrl;
+  overlay.classList.add('open');
+  vid.play().catch(() => {});
+}
+
+function closePlayer(e) {
+  if (e.target === document.getElementById('playerOverlay')) {
+    closePlayerForce();
+  }
+}
+
+function closePlayerForce() {
+  const overlay = document.getElementById('playerOverlay');
+  const vid = document.getElementById('playerVideo');
+  vid.pause();
+  vid.removeAttribute('src');
+  vid.load();
+  overlay.classList.remove('open');
+}
+
+// --- Server-side fetch ---
 async function loadHistory(silent = false) {
+  clearTimeout(pollTimer);
   if (!silent) {
     document.getElementById('grid').innerHTML = '<div class="loading"><span class="spinner"></span>加载中...</div>';
     document.getElementById('pagination').innerHTML = '';
   }
   try {
     const headers = API_KEY ? {'X-API-Key': API_KEY} : {};
-    const res = await fetch('/api/v1/workflow/history?page=1&page_size=200', {headers});
+    const params = new URLSearchParams({
+      page: currentPage,
+      page_size: PAGE_SIZE,
+    });
+    if (currentFilter) params.set('status', currentFilter);
+    if (currentSearch) params.set('q', currentSearch);
+
+    const res = await fetch('/api/v1/workflow/history?' + params.toString(), {headers});
     if (res.status === 401 || res.status === 403) {
       const key = prompt('请输入 API Key:');
       if (key) { localStorage.setItem('api_key', key); location.reload(); }
       return;
     }
     const data = await res.json();
-    allWorkflows = data.workflows || [];
+    currentPageData = data.workflows || [];
+    totalFromServer = data.total || 0;
+    totalPagesFromServer = data.total_pages || 1;
+    currentPage = data.page || 1;
     renderGrid();
   } catch(e) {
     if (!silent) {
       document.getElementById('grid').innerHTML = '<div class="empty">加载失败: ' + e.message + '</div>';
     }
   }
+  schedulePoll();
 }
 
 function setFilter(status, btn) {
@@ -134,43 +278,28 @@ function setFilter(status, btn) {
   currentPage = 1;
   document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
   btn.classList.add('active');
-  renderGrid();
-}
-
-function filterCards() {
-  currentPage = 1;
-  renderGrid();
+  loadHistory();
 }
 
 function renderGrid() {
-  const q = document.getElementById('searchInput').value.toLowerCase();
-  const filtered = allWorkflows.filter(w => {
-    const matchStatus = currentFilter === 'all' || w.status === currentFilter;
-    const matchQ = !q || (w.user_prompt||'').toLowerCase().includes(q) || (w.workflow_id||'').toLowerCase().includes(q);
-    return matchStatus && matchQ;
-  });
-
-  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
-  if (currentPage > totalPages) currentPage = totalPages;
-  if (currentPage < 1) currentPage = 1;
-  const start = (currentPage - 1) * PAGE_SIZE;
-  const pageItems = filtered.slice(start, start + PAGE_SIZE);
-
-  document.getElementById('statsText').textContent = `共 ${allWorkflows.length} 条，显示 ${filtered.length} 条`;
-
-  if (!filtered.length) {
+  if (!currentPageData.length) {
     document.getElementById('grid').innerHTML = '<div class="empty">暂无记录</div>';
     document.getElementById('pagination').innerHTML = '';
     return;
   }
 
-  document.getElementById('grid').innerHTML = pageItems.map(w => cardHtml(w)).join('');
-  renderPagination(currentPage, totalPages);
+  document.getElementById('grid').innerHTML = currentPageData.map(w => cardHtml(w)).join('');
+  renderPagination(currentPage, totalPagesFromServer, totalFromServer);
 }
 
-function renderPagination(page, totalPages) {
+function renderPagination(page, totalPages, total) {
   const el = document.getElementById('pagination');
-  if (totalPages <= 1) { el.innerHTML = ''; return; }
+  if (totalPages <= 1) {
+    el.innerHTML = total > 0
+      ? `<div class="pagination"><span style="color:#888;font-size:12px">共 ${total} 条</span></div>`
+      : '';
+    return;
+  }
   const range = [];
   for (let i = Math.max(1, page - 2); i <= Math.min(totalPages, page + 2); i++) range.push(i);
   let html = '<div class="pagination">';
@@ -187,14 +316,14 @@ function renderPagination(page, totalPages) {
     html += `<button class="btn btn-sm page-btn" onclick="goPage(${totalPages})">${totalPages}</button>`;
   }
   html += `<button class="btn btn-sm" onclick="goPage(${page+1})" ${page>=totalPages?'disabled':''}>下一页 &#8250;</button>`;
-  html += `<span style="color:#888;font-size:12px">第 ${page}/${totalPages} 页</span>`;
+  html += `<span style="color:#888;font-size:12px">共 ${total} 条 · 第 ${page}/${totalPages} 页</span>`;
   html += '</div>';
   el.innerHTML = html;
 }
 
 function goPage(p) {
   currentPage = p;
-  renderGrid();
+  loadHistory();
   window.scrollTo({top: 0, behavior: 'smooth'});
 }
 
@@ -203,91 +332,220 @@ function cardHtml(w) {
   const hasVideo = !!w.final_video_url;
   const statusClass = 'status-' + (w.status || 'queued');
   const statusLabel = {completed:'已完成', running:'生成中', failed:'失败', queued:'排队中'}[w.status] || w.status;
-  const timeStr = w.created_at ? new Date(w.created_at * 1000).toLocaleString('zh-CN') : '-';
+  const timeStr = relativeTime(w.created_at);
   const modeLabel = {full_body_reference:'全身换脸', face_reference:'换脸', first_frame:'首帧'}[w.mode] || w.mode || '-';
 
+  let runningHtml = '';
+  if (w.status === 'running') {
+    runningHtml = '<span class="running-indicator"><span class="running-dot"></span></span>';
+  }
+
+  const thumbClick = hasVideo
+    ? `onclick="openPlayer('${w.final_video_url}')"`
+    : '';
+
   return `<div class="card">
-    <div class="card-thumb" id="thumb_${w.workflow_id}" data-video="${w.final_video_url||''}" onclick="playOrOpen('${w.workflow_id}')">
-      ${thumb ? `<img src="${thumb}" onerror="this.style.display='none'">` : '<div style="width:100%;height:100%;display:flex;align-items:center;justify-content:center;color:#555;font-size:12px">无预览图</div>'}
-      <video id="vid_${w.workflow_id}" loop muted preload="none"></video>
-      <div class="play-btn">${hasVideo ? '▶' : '🖼'}</div>
+    <div class="card-thumb ${hasVideo ? '' : 'no-video'}" ${thumbClick}>
+      ${thumb ? `<img src="${thumb}" loading="lazy" onerror="this.style.display='none'">` : (hasVideo ? `<video src="${w.final_video_url}" preload="metadata" muted style="width:100%;height:100%;object-fit:cover;pointer-events:none"></video>` : '<div style="width:100%;height:100%;display:flex;align-items:center;justify-content:center;color:#555;font-size:11px">无预览</div>')}
+      ${hasVideo ? '<div class="play-btn"><div class="play-icon">▶</div></div>' : ''}
     </div>
     <div class="card-body">
-      <span class="card-status ${statusClass}">${statusLabel}</span>
-      <div class="card-wfid" style="font-size:11px;color:#666;margin-bottom:4px;display:flex;align-items:center;gap:4px">
-        <span style="font-family:monospace;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${w.workflow_id}">${w.workflow_id}</span>
-        <button onclick="event.stopPropagation();copyWfId('${w.workflow_id}')" style="background:none;border:1px solid #444;border-radius:3px;color:#888;font-size:10px;padding:1px 5px;cursor:pointer;flex-shrink:0" title="复制ID">📋</button>
+      <span class="card-status ${statusClass}">${statusLabel}</span>${runningHtml}
+      <div class="card-wfid">
+        <span title="${w.workflow_id}">${w.workflow_id}</span>
+        <button onclick="event.stopPropagation();copyWfId('${w.workflow_id}')" title="复制ID">📋</button>
       </div>
       <div class="card-prompt" title="${(w.user_prompt||'').replace(/"/g,'&quot;')}">${w.user_prompt || '(无 prompt)'}</div>
       <div class="card-meta">
-        <span>${timeStr}</span>
+        <span title="${w.created_at ? new Date(w.created_at * 1000).toLocaleString('zh-CN') : ''}">${timeStr}</span>
         <span class="card-mode">${modeLabel}</span>
       </div>
-      ${w.error ? `<div class="card-error">错误: ${w.error}</div>` : ''}
+      ${w.error ? `<div class="card-error">${w.error}</div>` : ''}
       <div class="card-actions">
         <button class="btn btn-sm" onclick="showDetail('${w.workflow_id}')">详情</button>
         ${hasVideo ? `<a href="${w.final_video_url}" download><button class="btn btn-sm" style="background:#2a4a2e">下载</button></a>` : ''}
+        <button class="btn btn-sm" style="background:#5a4a1a" onclick="regenerate('${w.workflow_id}', this)">重新生成</button>
       </div>
     </div>
   </div>`;
 }
 
-function playOrOpen(wfId) {
-  const thumb = document.getElementById('thumb_' + wfId);
-  const videoUrl = thumb.dataset.video;
-  if (!videoUrl) return;
-  const vid = document.getElementById('vid_' + wfId);
-  if (thumb.classList.contains('playing')) {
-    vid.pause();
-    vid.removeAttribute('src');
-    thumb.classList.remove('playing');
-  } else {
-    document.querySelectorAll('.card-thumb.playing').forEach(t => {
-      const v = t.querySelector('video');
-      if (v) { v.pause(); v.removeAttribute('src'); }
-      t.classList.remove('playing');
-    });
-    vid.src = videoUrl;
-    vid.load();
-    vid.play().catch(() => {});
-    thumb.classList.add('playing');
+async function showDetail(wfId) {
+  const mc = document.getElementById('modalContent');
+  mc.innerHTML = '<div class="loading"><span class="spinner"></span>加载详情...</div>';
+  document.getElementById('detailModal').classList.add('open');
+
+  try {
+    const headers = API_KEY ? {'X-API-Key': API_KEY} : {};
+    const res = await fetch(`/api/v1/workflow/status/${wfId}?detail=true`, {headers});
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const d = await res.json();
+
+    const modeLabels = {full_body_reference:'全身换脸', face_reference:'换脸', first_frame:'首帧'};
+    const statusLabels = {completed:'已完成', running:'生成中', failed:'失败', queued:'排队中'};
+    const stageLabels = {prompt_analysis:'Prompt 分析', first_frame_acquisition:'首帧获取', seedream_edit:'SeeDream 编辑', video_generation:'视频生成'};
+
+    const timeStr = d.created_at ? new Date(d.created_at * 1000).toLocaleString('zh-CN') : '-';
+    const completedStr = d.completed_at ? new Date(d.completed_at * 1000).toLocaleString('zh-CN') : '-';
+    const elapsedStr = d.elapsed_time ? (d.elapsed_time < 60 ? d.elapsed_time.toFixed(1) + 's' : (d.elapsed_time / 60).toFixed(1) + 'min') : '-';
+
+    let html = `<div class="modal-title">Workflow 详情</div>`;
+
+    // Video player
+    if (d.final_video_url) {
+      html += `<video class="modal-video" src="${d.final_video_url}" controls autoplay loop></video>`;
+    }
+
+    // Frame comparison
+    if (d.edited_frame_url || d.first_frame_url || d.reference_image) {
+      html += `<div class="frame-row" style="margin-top:12px">`;
+      if (d.reference_image) html += `<div class="frame-item"><img src="${d.reference_image}" loading="lazy" onerror="this.parentElement.style.display='none'"><p>参考图</p></div>`;
+      if (d.first_frame_url) html += `<div class="frame-item"><img src="${d.first_frame_url}" loading="lazy"><p>首帧</p></div>`;
+      if (d.edited_frame_url) html += `<div class="frame-item"><img src="${d.edited_frame_url}" loading="lazy"><p>编辑后</p></div>`;
+      html += `</div>`;
+    }
+
+    // Basic info
+    const rows = [
+      ['ID', `<span style="font-family:monospace">${d.workflow_id}</span>`],
+      ['状态', `<span class="card-status status-${d.status}" style="font-size:12px">${statusLabels[d.status] || d.status}</span>`],
+      ['模式', modeLabels[d.mode] || d.mode || '-'],
+      ['创建时间', timeStr],
+      ['完成时间', completedStr],
+      ['耗时', elapsedStr],
+    ];
+    if (d.error) rows.push(['错误', `<span style="color:#ef5350">${d.error}</span>`]);
+    html += rows.map(([l,v]) => `<div class="detail-row"><span class="detail-label">${l}</span><span class="detail-value">${v}</span></div>`).join('');
+
+    // Stage progress with inline details
+    const sd = d.stage_details || {};
+    const ar = d.analysis_result || {};
+    const statusMap = {completed:'完成', running:'进行中', failed:'失败', pending:'等待'};
+
+    html += `<div class="detail-section"><div class="detail-section-title">阶段详情</div><div class="detail-section-body">`;
+
+    for (const s of d.stages || []) {
+      const stageData = sd[s.name] || {};
+      const hasData = Object.keys(stageData).length > 0;
+      const stageId = 'stage_' + s.name + '_' + Math.random().toString(36).slice(2,8);
+
+      html += `<div class="stage-row">`;
+      html += `<div class="stage-header" ${hasData ? `onclick="document.getElementById('${stageId}').classList.toggle('open')"` : ''}>
+        <div class="stage-dot ${s.status}"></div>
+        <span class="stage-name">${stageLabels[s.name] || s.name}</span>
+        <span class="stage-status-text">${statusMap[s.status] || s.status}</span>
+        ${hasData ? '<span class="stage-toggle">▸</span>' : ''}
+      </div>`;
+
+      if (s.error) {
+        html += `<div style="margin-left:20px;margin-top:4px;color:#ef5350;font-size:11px">${escHtml(s.error)}</div>`;
+      }
+
+      if (hasData) {
+        html += `<div class="stage-body" id="${stageId}">`;
+        html += renderStageDetails(s.name, stageData, ar, d);
+        html += `</div>`;
+      }
+
+      html += `</div>`;
+    }
+    html += `</div></div>`;
+
+    mc.innerHTML = html;
+  } catch (e) {
+    mc.innerHTML = `<div style="color:#ef5350;padding:20px">加载失败: ${e.message}</div>`;
   }
 }
 
-function showDetail(wfId) {
-  const w = allWorkflows.find(x => x.workflow_id === wfId);
-  if (!w) return;
-  const timeStr = w.created_at ? new Date(w.created_at * 1000).toLocaleString('zh-CN') : '-';
-  const modeLabel = {full_body_reference:'全身换脸', face_reference:'换脸', first_frame:'首帧'}[w.mode] || w.mode || '-';
-  const statusLabel = {completed:'已完成', running:'生成中', failed:'失败', queued:'排队中'}[w.status] || w.status;
+function renderStageDetails(name, data, ar, d) {
+  let h = '';
+  const row = (l, v) => `<div class="s-row"><span class="s-label">${l}</span><span class="s-value">${v}</span></div>`;
 
-  let html = `<div class="modal-title">Workflow 详情</div>`;
-
-  if (w.final_video_url) {
-    html += `<video class="modal-video" src="${w.final_video_url}" controls autoplay loop muted></video>`;
+  if (name === 'prompt_analysis') {
+    h += row('用户 Prompt', escHtml(data.original_prompt || d.user_prompt || '-'));
+    if (data.optimized_prompt) h += row('优化 Prompt', `<div class="s-pre">${escHtml(data.optimized_prompt)}</div>`);
+    const optT2i = ar.optimized_t2i_prompt;
+    if (optT2i && optT2i !== data.optimized_prompt) h += row('T2I Prompt', `<div class="s-pre">${escHtml(optT2i)}</div>`);
+    const vLoras = data.video_loras || ar.video_loras || [];
+    const iLoras = data.image_loras || ar.image_loras || [];
+    if (vLoras.length) {
+      h += `<div class="s-row"><span class="s-label">视频 LoRA</span><span class="s-value">`;
+      for (const l of vLoras) {
+        h += `<span class="lora-tag">${escHtml(l.name)} (${l.weight || 0.8})</span> `;
+        if (l.trigger_words && l.trigger_words.length) h += `<span style="color:#888;font-size:10px">[${l.trigger_words.join(', ')}]</span> `;
+      }
+      h += `</span></div>`;
+    }
+    if (iLoras.length) {
+      h += `<div class="s-row"><span class="s-label">图片 LoRA</span><span class="s-value">`;
+      for (const l of iLoras) h += `<span class="lora-tag">${escHtml(l.name || l.file || 'unknown')}</span> `;
+      h += `</span></div>`;
+    }
+    if (data.pose_keys && data.pose_keys.length) h += row('关联姿势', data.pose_keys.map(p => `<span class="lora-tag">${escHtml(p)}</span>`).join(' '));
+    if (data.images && data.images.length) {
+      h += `<div class="s-row"><span class="s-label">选择图片</span><span class="s-value">`;
+      for (const img of data.images) h += `<a href="${escHtml(img.url)}" target="_blank"><img src="${escHtml(img.url)}" loading="lazy" style="max-height:80px;border-radius:4px;margin:2px;object-fit:contain" onerror="this.style.display='none'"></a>`;
+      h += `</span></div>`;
+    }
   }
 
-  if (w.edited_frame_url || w.first_frame_url) {
-    html += `<div class="frame-row" style="margin-top:12px">`;
-    if (w.first_frame_url) html += `<div class="frame-item"><img src="${w.first_frame_url}"><p>首帧</p></div>`;
-    if (w.edited_frame_url) html += `<div class="frame-item"><img src="${w.edited_frame_url}"><p>编辑后帧</p></div>`;
-    html += `</div>`;
+  else if (name === 'first_frame_acquisition') {
+    const sourceMap = {select_existing:'选择已有', generate:'生成', upload:'上传', pose_reference:'姿势参考', t2v_fallback:'T2V回退'};
+    h += row('来源', sourceMap[data.source] || data.source || '-');
+    if (data.url) h += row('首帧图片', `<a href="${escHtml(data.url)}" target="_blank"><img src="${escHtml(data.url)}" loading="lazy" style="max-height:140px;max-width:100%;border-radius:4px;object-fit:contain;background:#0a0a23" onerror="this.parentElement.innerHTML='<span style=color:#888>图片加载失败</span>'"></a>`);
+    h += row('换脸', data.face_swapped ? `<span style="color:#4caf50">是</span> (强度: ${data.face_swap_strength || '-'})` : '否');
   }
 
-  const rows = [
-    ['ID', w.workflow_id],
-    ['状态', statusLabel],
-    ['模式', modeLabel],
-    ['时间', timeStr],
-    ['Prompt', w.user_prompt || '-'],
-    ['视频', w.final_video_url ? `<a href="${w.final_video_url}" target="_blank" style="color:#7c83ff">${w.final_video_url}</a>` : '-'],
-  ];
-  if (w.error) rows.push(['错误', `<span style="color:#ef5350">${w.error}</span>`]);
+  else if (name === 'seedream_edit') {
+    h += row('模式', data.mode || '-');
+    const toggles = [];
+    if (data.swap_face) toggles.push('换脸');
+    if (data.swap_accessories) toggles.push('配饰');
+    if (data.swap_expression) toggles.push('表情');
+    if (data.swap_clothing) toggles.push('衣服');
+    h += row('编辑开关', toggles.length ? toggles.join(', ') : '无');
+    h += row('强度', data.strength || '-');
+    h += row('尺寸', data.size || '-');
+    h += row('模型', data.model || '-');
+    h += row('API状态', data.api_status === 'success' ? '<span style="color:#4caf50">成功</span>' : (data.api_status || '-'));
+    h += row('Reactor换脸', data.face_swapped ? '是' : (data.enable_reactor ? '启用(未执行)' : '否'));
+    if (data.url) h += row('编辑结果', `<a href="${escHtml(data.url)}" target="_blank"><img src="${escHtml(data.url)}" loading="lazy" style="max-height:140px;max-width:100%;border-radius:4px;object-fit:contain;background:#0a0a23" onerror="this.parentElement.innerHTML='<span style=color:#888>链接已过期</span>'"></a>`);
+    if (data.prompt) h += row('编辑 Prompt', `<div class="s-pre">${escHtml(data.prompt)}</div>`);
+  }
 
-  html += rows.map(([l,v]) => `<div class="detail-row"><span class="detail-label">${l}</span><span class="detail-value">${v}</span></div>`).join('');
+  else if (name === 'video_generation') {
+    h += row('模型', data.model || '-');
+    h += row('分辨率', data.resolution || '-');
+    h += row('时长', data.duration || '-');
+    const postProcess = [
+      data.upscale_enabled ? '放大' : null,
+      data.interpolation_enabled ? '插帧' : null,
+      data.mmaudio_enabled ? '音频' : null,
+    ].filter(Boolean).join(', ') || '无';
+    h += row('后处理', postProcess);
+    h += row('换脸', data.face_swap_enabled ? '是' : '否');
+    if (data.prompt) h += row('生成 Prompt', `<div class="s-pre">${escHtml(data.prompt)}</div>`);
+    if (data.loras && data.loras.length) {
+      h += `<div class="s-row"><span class="s-label">使用 LoRA</span><span class="s-value">`;
+      for (const l of data.loras) h += `<span class="lora-tag">${escHtml(l.name)} (${l.strength || l.weight || '-'})</span> `;
+      h += `</span></div>`;
+    }
+    if (data.chain_id) h += row('Chain ID', `<span style="font-family:monospace">${escHtml(data.chain_id)}</span>`);
+    if (data.video_url) h += row('视频链接', `<a href="${escHtml(data.video_url)}" target="_blank" style="color:#7c83ff;word-break:break-all">${escHtml(data.video_url)}</a>`);
+    if (data.error) h += row('错误', `<span style="color:#ef5350">${escHtml(data.error)}</span>`);
+  }
 
-  document.getElementById('modalContent').innerHTML = html;
-  document.getElementById('detailModal').classList.add('open');
+  // Fallback: show raw JSON for any unhandled stage
+  if (!h) {
+    h = `<div class="s-pre">${escHtml(JSON.stringify(data, null, 2))}</div>`;
+  }
+
+  return h;
+}
+
+function escHtml(s) {
+  if (!s) return '';
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
 
 function copyWfId(wfId) {
@@ -295,7 +553,6 @@ function copyWfId(wfId) {
     const btns = document.querySelectorAll('.card-wfid button');
     btns.forEach(b => { if (b.getAttribute('onclick').includes(wfId)) { b.textContent = '✓'; setTimeout(() => b.textContent = '📋', 1500); } });
   }).catch(() => {
-    // Fallback for non-HTTPS
     const ta = document.createElement('textarea');
     ta.value = wfId;
     document.body.appendChild(ta);
@@ -311,8 +568,31 @@ function closeModal(e) {
   }
 }
 
+async function regenerate(wfId, btn) {
+  if (!confirm('确认以相同参数重新生成？')) return;
+  const origText = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = '提交中...';
+  try {
+    const headers = {'Content-Type': 'application/json'};
+    if (API_KEY) headers['X-API-Key'] = API_KEY;
+    const res = await fetch(`/api/v1/workflow/${wfId}/regenerate`, {method: 'POST', headers});
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.detail || `HTTP ${res.status}`);
+    }
+    const data = await res.json();
+    btn.textContent = '已提交';
+    btn.style.background = '#2a4a2e';
+    setTimeout(() => loadHistory(), 1000);
+  } catch (e) {
+    alert('重新生成失败: ' + e.message);
+    btn.disabled = false;
+    btn.textContent = origText;
+  }
+}
+
 loadHistory();
-setInterval(() => loadHistory(true), 30000);
 </script>
 </body>
 </html>
