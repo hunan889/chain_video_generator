@@ -254,7 +254,7 @@ async def _apply_face_swap_to_frame(
         return None
 
 
-async def _execute_workflow(workflow_id: str, req, task_manager):
+async def _execute_workflow(workflow_id: str, req, task_manager, resume: bool = False):
     """
     Execute the complete advanced workflow asynchronously.
 
@@ -263,8 +263,29 @@ async def _execute_workflow(workflow_id: str, req, task_manager):
     2. First frame acquisition (upload/generate/select)
     3. SeeDream editing
     4. Video generation via Chain workflow
+
+    When resume=True, already-completed stages are skipped and their
+    results are restored from Redis, allowing workflows to continue
+    after a service restart.
     """
     try:
+        # =============================================
+        # Resume support: check which stages completed
+        # =============================================
+        _resumed_stages = {}
+        if resume:
+            wf_data = await task_manager.redis.hgetall(f"workflow:{workflow_id}")
+            for sn in ["prompt_analysis", "first_frame_acquisition", "seedream_edit", "video_generation"]:
+                if wf_data.get(f"stage_{sn}") == "completed":
+                    _resumed_stages[sn] = True
+            # Reset status back to running
+            await task_manager.redis.hset(f"workflow:{workflow_id}", mapping={
+                "status": "running",
+                "error": "",
+                "completed_at": "",
+            })
+            logger.info(f"[{workflow_id}] Resuming workflow, completed stages: {list(_resumed_stages.keys())}")
+
         # =============================================
         # Story Continuation: load parent workflow data
         # =============================================
@@ -324,12 +345,22 @@ async def _execute_workflow(workflow_id: str, req, task_manager):
                         raise Exception("full_body_reference mode requires stage3 seedream to be enabled")
 
         # Stage 1: Prompt Analysis
-        await _update_stage(task_manager, workflow_id, "prompt_analysis", "running")
-
         analysis_result = None
         auto_analyze = _get_config(req, "stage1_prompt_analysis", "auto_analyze", True)
 
-        if is_continuation:
+        if not _resumed_stages.get("prompt_analysis"):
+            await _update_stage(task_manager, workflow_id, "prompt_analysis", "running")
+
+        if _resumed_stages.get("prompt_analysis"):
+            # Resume: restore analysis_result from Redis
+            ar_raw = await task_manager.redis.hget(f"workflow:{workflow_id}", "analysis_result")
+            if ar_raw:
+                try:
+                    analysis_result = json.loads(ar_raw)
+                except (json.JSONDecodeError, TypeError):
+                    pass
+            logger.info(f"[{workflow_id}] Stage 1 skipped (already completed), analysis_result={'yes' if analysis_result else 'no'}")
+        elif is_continuation:
             # Story continuation: run full analysis (LoRA + prompt) for the NEW prompt
             # Do NOT inherit LoRAs from parent — the continuation may need different LoRAs
             if auto_analyze:
@@ -394,7 +425,11 @@ async def _execute_workflow(workflow_id: str, req, task_manager):
         # Stage 2: First Frame Acquisition
         await task_manager.redis.hset(f"workflow:{workflow_id}", "current_stage", "first_frame_acquisition")
 
-        if is_continuation:
+        if _resumed_stages.get("first_frame_acquisition"):
+            # Resume: restore first_frame_url from Redis
+            first_frame_url = await task_manager.redis.hget(f"workflow:{workflow_id}", "first_frame_url") or None
+            logger.info(f"[{workflow_id}] Stage 2 skipped (already completed), first_frame_url={first_frame_url}")
+        elif is_continuation:
             # Extract last frame from parent's final video as continuation start frame
             await _update_stage(task_manager, workflow_id, "first_frame_acquisition", "running", details_dict={
                 "source": "parent_video_last_frame",
@@ -511,7 +546,11 @@ async def _execute_workflow(workflow_id: str, req, task_manager):
         # Stage 3: SeeDream Editing
         await task_manager.redis.hset(f"workflow:{workflow_id}", "current_stage", "seedream_edit")
 
-        if is_continuation:
+        if _resumed_stages.get("seedream_edit"):
+            # Resume: restore edited_frame_url from Redis
+            edited_frame_url = await task_manager.redis.hget(f"workflow:{workflow_id}", "edited_frame_url") or first_frame_url
+            logger.info(f"[{workflow_id}] Stage 3 skipped (already completed), edited_frame_url={edited_frame_url}")
+        elif is_continuation:
             # Skip Stage 3: use parent's edited frame directly
             edited_frame_url = first_frame_url
             await task_manager.redis.hset(f"workflow:{workflow_id}", "edited_frame_url", edited_frame_url)
@@ -565,11 +604,12 @@ async def _execute_workflow(workflow_id: str, req, task_manager):
                             ar_width, ar_height = 3, 4
                         logger.info(f"[{workflow_id}] SeeDream: aspect_ratio not provided, derived {ar_width}:{ar_height} from resolution {video_resolution}")
 
-                    # 使用视频目标分辨率作为 SeeDream 分辨率（无需比视频更大）
+                    # 使用视频目标分辨率作为 SeeDream 分辨率，最小 720p 保证编辑质量
                     import re as _re
                     res_str = req.resolution or "480p"
                     _m = _re.match(r'(\d+)', res_str)
                     p_val = int(_m.group(1)) if _m else 480
+                    p_val = max(p_val, 720)  # SeeDream 最小 720p，避免低分辨率导致模糊
                     if ar_width >= ar_height:
                         height = round(p_val / 8) * 8
                         width = round(p_val * ar_width / ar_height / 8) * 8

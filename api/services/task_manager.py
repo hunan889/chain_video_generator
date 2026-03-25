@@ -15,7 +15,16 @@ from api.services import storage
 
 logger = logging.getLogger(__name__)
 
+MAX_OOM_RETRIES = 2  # Max retry attempts for CUDA OOM errors
+OOM_COOLDOWN = 5     # Seconds to wait after OOM before retrying
+
 REDIS_INSTANCES_PREFIX = "comfyui_instances"
+
+
+def _is_oom_error(error: Exception) -> bool:
+    """Check if error is a CUDA OOM error."""
+    msg = str(error).lower()
+    return "cuda out of memory" in msg or "out of memory" in msg
 
 
 class _HistoryReady(Exception):
@@ -221,6 +230,7 @@ class TaskManager:
             "video_url": data.get("video_url") or None,
             "last_frame_url": data.get("last_frame_url") or None,
             "error": data.get("error") or None,
+            "retry_count": int(data.get("retry_count", 0)),
             "params": params,
             "created_at": int(data["created_at"]) if data.get("created_at") else None,
             "completed_at": int(data["completed_at"]) if data.get("completed_at") else None,
@@ -510,18 +520,76 @@ class TaskManager:
                         })
                         logger.info("Orphan workflow %s: chain status=%s, marked failed", workflow_id, chain_status)
                 else:
-                    # No chain_id — stuck in Stage 1-3
-                    await self.redis.hset(key, mapping={
-                        "status": "failed",
-                        "error": "Service restarted during pre-video stages",
-                        "completed_at": str(int(time.time())),
-                    })
-                    logger.info("Orphan workflow %s: no chain_id, marked failed", workflow_id)
+                    # No chain_id — stuck in Stage 1-3, try to resume
+                    retry_count = int(await self.redis.hget(key, "resume_count") or 0)
+                    if retry_count >= 3:
+                        await self.redis.hset(key, mapping={
+                            "status": "failed",
+                            "error": "Service restarted during pre-video stages (max retries reached)",
+                            "completed_at": str(int(time.time())),
+                        })
+                        logger.info("Orphan workflow %s: max resume retries, marked failed", workflow_id)
+                    else:
+                        await self.redis.hset(key, "resume_count", str(retry_count + 1))
+                        try:
+                            await self._resume_workflow(workflow_id)
+                            logger.info("Orphan workflow %s: resuming (attempt %d)", workflow_id, retry_count + 1)
+                        except Exception as e:
+                            logger.error("Orphan workflow %s: resume failed: %s", workflow_id, e)
+                            await self.redis.hset(key, mapping={
+                                "status": "failed",
+                                "error": f"Resume failed: {e}",
+                                "completed_at": str(int(time.time())),
+                            })
                 recovered += 1
             if cursor == 0:
                 break
         if recovered:
             logger.info("Recovered %d orphan workflows", recovered)
+
+    async def _resume_workflow(self, workflow_id: str):
+        """Resume an orphaned workflow from its last completed stage."""
+        import asyncio
+        import json as _json
+        from api.routes.workflow_executor import _execute_workflow
+
+        workflow_data = await self.redis.hgetall(f"workflow:{workflow_id}")
+        if not workflow_data:
+            raise Exception(f"Workflow {workflow_id} not found")
+
+        # Reconstruct the request from Redis
+        from api.routes.workflow import WorkflowGenerateRequest
+        req_data = {
+            "mode": workflow_data.get("mode"),
+            "user_prompt": workflow_data.get("user_prompt"),
+        }
+        ref_img = workflow_data.get("reference_image")
+        if ref_img:
+            req_data["reference_image"] = ref_img
+        ic_raw = workflow_data.get("internal_config")
+        if ic_raw:
+            try:
+                req_data["internal_config"] = _json.loads(ic_raw)
+            except (ValueError, TypeError):
+                pass
+        parent_wf = workflow_data.get("parent_workflow_id")
+        if parent_wf:
+            req_data["parent_workflow_id"] = parent_wf
+
+        req = WorkflowGenerateRequest(**req_data)
+
+        # Re-launch the executor with resume=True
+        task = asyncio.create_task(_execute_workflow(workflow_id, req, self, resume=True))
+        def _done_cb(t, wid=workflow_id):
+            if t.exception():
+                import time as _time
+                logger.error("Resumed workflow %s failed: %s", wid, t.exception())
+                asyncio.get_event_loop().create_task(self.redis.hset(f"workflow:{wid}", mapping={
+                    "status": "failed",
+                    "error": f"Resume failed: {t.exception()}",
+                    "completed_at": str(int(_time.time())),
+                }))
+        task.add_done_callback(_done_cb)
 
     async def _collect_result(self, task_id: str, prompt_id: str, client: ComfyUIClient):
         """Collect output from an already-completed ComfyUI prompt."""
@@ -683,11 +751,44 @@ class TaskManager:
             logger.info("Task %s completed in %.2fs total: %s", task_id, time.time() - t_start, video_url)
 
         except Exception as e:
+            error_msg = str(e)
+            is_oom = _is_oom_error(e)
+
+            if is_oom:
+                retry_count = int(await self.redis.hget(f"task:{task_id}", "retry_count") or 0)
+                logger.warning(
+                    "Task %s OOM (retry %d/%d): %s",
+                    task_id, retry_count, MAX_OOM_RETRIES, error_msg[:200],
+                )
+
+                # Call /free to release GPU memory
+                try:
+                    await client.free_memory()
+                    logger.info("Task %s: free_memory called on %s", task_id, client.base_url)
+                except Exception as free_err:
+                    logger.warning("Task %s: free_memory failed: %s", task_id, free_err)
+
+                if retry_count < MAX_OOM_RETRIES:
+                    await asyncio.sleep(OOM_COOLDOWN)
+
+                    # Re-queue the task
+                    model = await self.redis.hget(f"task:{task_id}", "model")
+                    await self.redis.hset(f"task:{task_id}", mapping={
+                        "status": TaskStatus.QUEUED.value,
+                        "retry_count": str(retry_count + 1),
+                        "error": f"OOM retry {retry_count + 1}/{MAX_OOM_RETRIES}",
+                        "progress": "0",
+                    })
+                    await self.redis.rpush(f"queue:{model}", task_id)
+                    logger.info("Task %s re-queued (retry %d)", task_id, retry_count + 1)
+                    return
+
+            # Non-OOM error, or OOM retries exhausted
             logger.exception("Task %s failed: %s", task_id, e)
             try:
                 await self.redis.hset(f"task:{task_id}", mapping={
                     "status": TaskStatus.FAILED.value,
-                    "error": str(e),
+                    "error": error_msg,
                     "completed_at": str(int(time.time())),
                 })
             except Exception as redis_err:
