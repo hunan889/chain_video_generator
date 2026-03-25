@@ -136,6 +136,10 @@ h1{text-align:center;color:#7c83ff;margin-bottom:24px;font-size:1.8em}
 <div class="stat-label">已分类</div>
 <div class="stat-value" id="statCategorized">-</div>
 </div>
+<div class="stat-item" style="margin-left:auto">
+<button class="btn-ai" id="btnSyncCivitai" onclick="syncCivitaiData()" style="padding:8px 16px;font-size:13px">同步 CivitAI 数据</button>
+<div id="syncStatus" style="font-size:11px;color:#888;margin-top:4px"></div>
+</div>
 </div>
 </div>
 
@@ -319,8 +323,8 @@ function createLoraCard(lora) {
   // Check if preview is video
   const isVideo = lora.preview_url && (lora.preview_url.endsWith('.mp4') || lora.preview_url.endsWith('.webm'));
   const previewHtml = isVideo
-    ? `<video class="lora-preview" src="${lora.preview_url}" loop muted playsinline onmouseover="this.play()" onmouseout="this.pause();this.currentTime=0"></video>`
-    : `<img class="lora-preview" src="${lora.preview_url || '/static/placeholder.svg'}" onerror="this.src='/static/placeholder.svg'" alt="${lora.name}">`;
+    ? `<video class="lora-preview" src="${lora.preview_url}" loop muted playsinline preload="none" onmouseover="this.play()" onmouseout="this.pause();this.currentTime=0"></video>`
+    : `<img class="lora-preview" src="${lora.preview_url || '/static/placeholder.svg'}" loading="lazy" onerror="this.src='/static/placeholder.svg'" alt="${lora.name}">`;
 
   // Default trigger_prompt to trigger_words if empty
   const defaultTriggerPrompt = triggerWords.length > 0 ? triggerWords.join(', ') : '';
@@ -372,9 +376,14 @@ function createLoraCard(lora) {
     ${isImageLora && lora.filepath ? `<div class="info-text">路径: ${lora.filepath}</div>` : ''}
 
     <div class="edit-field">
+      <label>触发词 (Trigger Words)</label>
+      <input type="text" id="trigger-words-${lora.id}" value="${triggerWords.join(', ')}" placeholder="逗号分隔，如: titJob, paizuri, sensualBJ" onchange="autoSave(${isImageLora ? `'${lora.id}'` : lora.id})">
+      <small style="font-size:10px;color:#888;margin-top:2px">CivitAI trainedWords，逗号分隔的关键词</small>
+    </div>
+    <div class="edit-field">
       <label>触发提示词 (Trigger Prompt)</label>
-      <textarea id="trigger-prompt-${lora.id}" placeholder="用于生成视频的完整自然语言描述..." rows="3" onchange="autoSave(${isImageLora ? `'${lora.id}'` : lora.id})">${currentTriggerPrompt}</textarea>
-      <small style="font-size:10px;color:#888;margin-top:2px">用于生成视频，完整的自然语言描述</small>
+      <textarea id="trigger-prompt-${lora.id}" placeholder="用于生成视频的完整自然语言描述..." rows="3" onchange="autoSave(${isImageLora ? `'${lora.id}'` : lora.id})">${lora.trigger_prompt || ''}</textarea>
+      <small style="font-size:10px;color:#888;margin-top:2px">CivitAI example prompts，完整的自然语言描述</small>
     </div>
   `;
 
@@ -435,11 +444,14 @@ async function autoSave(loraId) {
 
   const quality = document.getElementById(`quality-${loraId}`).value;
   const triggerPrompt = document.getElementById(`trigger-prompt-${loraId}`).value.trim();
+  const triggerWordsRaw = document.getElementById(`trigger-words-${loraId}`).value.trim();
+  const triggerWords = triggerWordsRaw ? triggerWordsRaw.split(',').map(s => s.trim()).filter(s => s) : [];
 
   const body = {};
   if (category !== undefined) body.category = category;
   if (quality) body.quality_score = parseInt(quality);
-  if (triggerPrompt) body.trigger_prompt = triggerPrompt;
+  body.trigger_prompt = triggerPrompt;
+  body.trigger_words = triggerWords;
 
   if (Object.keys(body).length === 0) return;
 
@@ -470,7 +482,8 @@ async function autoSave(loraId) {
     if (lora) {
       if (category !== undefined) lora.category = category;
       if (quality) lora.quality_score = parseInt(quality);
-      if (triggerPrompt) lora.trigger_prompt = triggerPrompt;
+      lora.trigger_prompt = triggerPrompt;
+      lora.trigger_words = triggerWords;
     }
 
     // If custom category was saved, re-render the page to update all dropdowns
@@ -538,6 +551,9 @@ function resetLora(loraId) {
   // Reset UI
   document.getElementById(`category-${loraId}`).value = original.category || '';
   document.getElementById(`quality-${loraId}`).value = original.quality_score || '';
+  const origTw = Array.isArray(original.trigger_words) ? original.trigger_words :
+    (typeof original.trigger_words === 'string' ? JSON.parse(original.trigger_words || '[]') : []);
+  document.getElementById(`trigger-words-${loraId}`).value = origTw.join(', ');
   document.getElementById(`trigger-prompt-${loraId}`).value = original.trigger_prompt || '';
 
   // Save
@@ -556,6 +572,39 @@ function updateStats(loras) {
   document.getElementById('statTotal').textContent = loras.length;
   document.getElementById('statEnabled').textContent = loras.filter(l => l.enabled === true || l.enabled === 1).length;
   document.getElementById('statCategorized').textContent = loras.filter(l => l.category).length;
+}
+
+async function syncCivitaiData() {
+  const btn = document.getElementById('btnSyncCivitai');
+  const status = document.getElementById('syncStatus');
+
+  if (!confirm('从 CivitAI 同步所有 LoRA 的 trigger words 和 example prompts？\n\n（仅更新有 civitai_id 的视频 LoRA，trigger_prompt 仅在为空时填充）')) return;
+
+  btn.disabled = true;
+  btn.textContent = '同步中...';
+  status.textContent = '正在从 CivitAI 拉取数据，请稍候...';
+
+  try {
+    const res = await fetch(`${API_BASE}/admin/loras/sync-civitai`, {
+      method: 'POST',
+      headers: { 'X-API-Key': API_KEY }
+    });
+
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+
+    status.style.color = '#4ade80';
+    status.textContent = `${data.message}${data.errors.length ? ` (${data.errors.length} 个失败)` : ''}`;
+
+    // Reload data
+    await fetchLoras();
+  } catch (e) {
+    status.style.color = '#f87171';
+    status.textContent = '同步失败: ' + e.message;
+  } finally {
+    btn.disabled = false;
+    btn.textContent = '同步 CivitAI 数据';
+  }
 }
 
 // Event listeners

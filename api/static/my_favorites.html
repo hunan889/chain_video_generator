@@ -505,8 +505,8 @@ function createCard(fav) {
 function createResourceCard(resource) {
   const isVideo = resource.resource_type === 'video' || resource.resource_type === 'generated_video';
   const mediaHtml = isVideo
-    ? `<video src="${escapeHtml(resource.url)}" muted loop onmouseenter="this.play()" onmouseleave="this.pause()"></video>`
-    : `<img src="${escapeHtml(resource.url)}" alt="Resource">`;
+    ? `<video src="${escapeHtml(resource.url)}" muted loop preload="none" onmouseenter="this.play()" onmouseleave="this.pause()"></video>`
+    : `<img src="${escapeHtml(resource.url)}" alt="Resource" loading="lazy">`;
 
   return `
     <div class="resource-card">
@@ -535,8 +535,8 @@ function createResourceCard(resource) {
 function createPoseImageCard(poseImage) {
   const isVideo = poseImage.resource_type === 'video';
   const mediaHtml = isVideo
-    ? `<video src="${escapeHtml(poseImage.url)}" muted loop onmouseenter="this.play()" onmouseleave="this.pause()"></video>`
-    : `<img src="${escapeHtml(poseImage.url)}" alt="Pose">`;
+    ? `<video src="${escapeHtml(poseImage.url)}" muted loop preload="none" onmouseenter="this.play()" onmouseleave="this.pause()"></video>`
+    : `<img src="${escapeHtml(poseImage.url)}" alt="Pose" loading="lazy">`;
 
   const safeResourcePath = poseImage.resource_path.replace(/'/g, "\\'");
   const safeId = poseImage.resource_path.replace(/[^a-zA-Z0-9]/g, '_');
@@ -570,8 +570,8 @@ function createLoraCard(lora) {
   const isVideo = lora.lora_type === 'video';
   const previewHtml = lora.preview_url
     ? (lora.preview_url.endsWith('.mp4')
-      ? `<video src="${escapeHtml(lora.preview_url)}" muted loop onmouseenter="this.play()" onmouseleave="this.pause()"></video>`
-      : `<img src="${escapeHtml(lora.preview_url)}" alt="LORA Preview">`)
+      ? `<video src="${escapeHtml(lora.preview_url)}" muted loop preload="none" onmouseenter="this.play()" onmouseleave="this.pause()"></video>`
+      : `<img src="${escapeHtml(lora.preview_url)}" alt="LORA Preview" loading="lazy">`)
     : `<div style="display:flex;align-items:center;justify-content:center;height:100%;color:#666;">No Preview</div>`;
 
   const tw = Array.isArray(lora.trigger_words) ? lora.trigger_words.join(', ')
@@ -1393,7 +1393,7 @@ function renderPoseAssociated(items) {
       `<span class="pose-assoc-badge">${escapeHtml(n)}</span>`
     ).join('');
     const media = isVideo
-      ? `<video src="${item.url}" muted playsinline style="width:100%;max-height:220px;object-fit:cover;border-radius:8px 8px 0 0" onmouseover="this.play()" onmouseout="this.pause()"></video>`
+      ? `<video src="${item.url}" muted playsinline preload="none" style="width:100%;max-height:220px;object-fit:cover;border-radius:8px 8px 0 0" onmouseover="this.play()" onmouseout="this.pause()"></video>`
       : `<img src="${item.url}" style="width:100%;max-height:220px;object-fit:cover;border-radius:8px 8px 0 0" loading="lazy">`;
     return `<div class="resource-card">
       ${media}

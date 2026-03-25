@@ -544,8 +544,8 @@ function createResourceCard(resource) {
 
   const isVideo = resource.resource_type === 'video' || resource.resource_type === 'generated_video';
   const mediaHtml = isVideo
-    ? `<video src="${escapeHtml(resource.url)}" muted loop onmouseenter="this.play()" onmouseleave="this.pause()"></video>`
-    : `<img src="${escapeHtml(resource.url)}" alt="Resource">`;
+    ? `<video src="${escapeHtml(resource.url)}" muted loop preload="none" onmouseenter="this.play()" onmouseleave="this.pause()"></video>`
+    : `<img src="${escapeHtml(resource.url)}" alt="Resource" loading="lazy">`;
 
   card.innerHTML = `
     <button class="btn-favorite" data-resource-id="${resource.resource_id}" data-favorited="true" onclick="toggleFavorite(${resource.resource_id}, event)">
@@ -570,8 +570,8 @@ function createPoseImageCard(poseImage) {
 
   const isVideo = poseImage.resource_type === 'video';
   const mediaHtml = isVideo
-    ? `<video src="${escapeHtml(poseImage.url)}" muted loop onmouseenter="this.play()" onmouseleave="this.pause()"></video>`
-    : `<img src="${escapeHtml(poseImage.url)}" alt="Pose">`;
+    ? `<video src="${escapeHtml(poseImage.url)}" muted loop preload="none" onmouseenter="this.play()" onmouseleave="this.pause()"></video>`
+    : `<img src="${escapeHtml(poseImage.url)}" alt="Pose" loading="lazy">`;
 
   card.innerHTML = `
     <button class="btn-favorite" data-resource-path="${escapeHtml(poseImage.resource_path)}" data-favorited="true" onclick="togglePoseFavorite('${escapeHtml(poseImage.resource_path)}', event)">
@@ -598,8 +598,8 @@ function createLoraCard(lora) {
   const isVideo = lora.lora_type === 'video';
   const previewHtml = lora.preview_url
     ? (lora.preview_url.endsWith('.mp4')
-      ? `<video src="${escapeHtml(lora.preview_url)}" muted loop onmouseenter="this.play()" onmouseleave="this.pause()"></video>`
-      : `<img src="${escapeHtml(lora.preview_url)}" alt="LORA Preview">`)
+      ? `<video src="${escapeHtml(lora.preview_url)}" muted loop preload="none" onmouseenter="this.play()" onmouseleave="this.pause()"></video>`
+      : `<img src="${escapeHtml(lora.preview_url)}" alt="LORA Preview" loading="lazy">`)
     : `<div style="display:flex;align-items:center;justify-content:center;height:100%;color:#666;">No Preview</div>`;
 
   card.innerHTML = `
@@ -614,6 +614,7 @@ function createLoraCard(lora) {
     <div class="card-body">
       <div class="card-title">${escapeHtml(lora.name || `LORA #${lora.lora_id}`)}</div>
       <div class="card-prompt">${escapeHtml(lora.description || lora.trigger_prompt || '')}</div>
+      ${(() => { try { const tw = lora.trigger_words; const arr = Array.isArray(tw) ? tw : (typeof tw === 'string' && tw ? JSON.parse(tw) : []); return arr.length ? `<div style="margin-top:4px;font-size:11px;color:#9ca3af">Trigger Words: ${escapeHtml(arr.join(', '))}</div>` : ''; } catch(e) { return ''; } })()}
     </div>
   `;
 
@@ -863,7 +864,12 @@ function renderLoraCard(lora) {
             <textarea id="search-keywords-${lora.id}" placeholder="关键词或自然语言描述...">${lora.search_keywords || ''}</textarea>
           </div>
           <div class="edit-field">
-            <label>触发提示词</label>
+            <label>触发词 (Trigger Words) <span style="font-size:11px;color:#9ca3af">逗号分隔</span></label>
+            <input type="text" id="trigger-words-${lora.id}" placeholder="如: titJob, paizuri, sensualBJ"
+                   value="${(() => { try { const tw = lora.trigger_words; return Array.isArray(tw) ? tw.join(', ') : (typeof tw === 'string' ? JSON.parse(tw).join(', ') : ''); } catch(e) { return lora.trigger_words || ''; } })()}">
+          </div>
+          <div class="edit-field">
+            <label>触发提示词 (Trigger Prompt)</label>
             <textarea id="trigger-prompt-${lora.id}" placeholder="用于生成的完整描述...">${lora.trigger_prompt || ''}</textarea>
           </div>
           <button class="btn-ai" onclick="getLoraSuggestion(${loraId})" style="width:100%;margin-top:8px">AI生成关键词和提示词</button>
@@ -898,12 +904,14 @@ async function saveResource(resourceId) {
 
 async function saveLora(loraId) {
   const searchKeywords = document.getElementById(`search-keywords-${loraId}`).value.trim();
+  const triggerWordsRaw = document.getElementById(`trigger-words-${loraId}`).value.trim();
   const triggerPrompt = document.getElementById(`trigger-prompt-${loraId}`).value.trim();
   const category = document.getElementById(`category-${loraId}`).value;
   const quality = document.getElementById(`quality-${loraId}`).value;
 
   const body = {};
   if (searchKeywords) body.search_keywords = searchKeywords;
+  if (triggerWordsRaw !== undefined) body.trigger_words = triggerWordsRaw ? triggerWordsRaw.split(',').map(s => s.trim()).filter(s => s) : [];
   if (triggerPrompt) body.trigger_prompt = triggerPrompt;
   if (category) body.category = category;
   if (quality) body.quality_score = parseInt(quality);
@@ -1326,8 +1334,8 @@ function createResourceCard(resource) {
 
   const isVideo = resource.url && (resource.url.endsWith('.mp4') || resource.url.endsWith('.webm') || resource.url.includes('/video/'));
   const previewHtml = isVideo
-    ? `<video class="result-preview" src="${resource.url}" loop muted playsinline onmouseover="this.play()" onmouseout="this.pause();this.currentTime=0"></video>`
-    : `<img class="result-preview" src="${resource.url}" crossorigin="anonymous" onerror="this.src='/static/placeholder.svg'" alt="Resource">`;
+    ? `<video class="result-preview" src="${resource.url}" loop muted playsinline preload="none" onmouseover="this.play()" onmouseout="this.pause();this.currentTime=0"></video>`
+    : `<img class="result-preview" src="${resource.url}" crossorigin="anonymous" loading="lazy" onerror="this.src='/static/placeholder.svg'" alt="Resource">`;
 
   card.innerHTML = `
     <div class="result-header">
@@ -1359,8 +1367,8 @@ function createLoraCard(lora) {
 
   const isVideo = lora.preview_url && (lora.preview_url.endsWith('.mp4') || lora.preview_url.endsWith('.webm'));
   const previewHtml = isVideo
-    ? `<video class="result-preview" src="${lora.preview_url}" loop muted playsinline onmouseover="this.play()" onmouseout="this.pause();this.currentTime=0"></video>`
-    : `<img class="result-preview" src="${lora.preview_url || '/static/placeholder.svg'}" onerror="this.src='/static/placeholder.svg'" alt="${lora.name}">`;
+    ? `<video class="result-preview" src="${lora.preview_url}" loop muted playsinline preload="none" onmouseover="this.play()" onmouseout="this.pause();this.currentTime=0"></video>`
+    : `<img class="result-preview" src="${lora.preview_url || '/static/placeholder.svg'}" loading="lazy" onerror="this.src='/static/placeholder.svg'" alt="${lora.name}">`;
 
   const loraId = lora.id || lora.lora_id;
 
@@ -1803,7 +1811,7 @@ function renderPoseImages(images, reset = false) {
     card.dataset.type = 'pose_image';
 
     const mediaHtml = isVideo
-      ? `<video src="${escapeHtml(img.url)}" muted loop playsinline onmouseenter="this.play()" onmouseleave="this.pause()"></video>`
+      ? `<video src="${escapeHtml(img.url)}" muted loop playsinline preload="none" onmouseenter="this.play()" onmouseleave="this.pause()"></video>`
       : `<img src="${escapeHtml(img.url)}" alt="${escapeHtml(img.filename)}" loading="lazy">`;
 
     const typeBadge = isVideo ? 'video' : 'image';

@@ -308,8 +308,8 @@ async function loadLoras() {
     if (!r.ok) return;
     allLoras = await r.json();
     localStorage.setItem('wan22_loras_cache', JSON.stringify(allLoras));
-    renderLoras('t2v-loras');
-    renderLoras('i2v-loras');
+    if (document.getElementById('t2v-loras')) renderLoras('t2v-loras');
+    if (document.getElementById('i2v-loras')) renderLoras('i2v-loras');
     restoreLoraSelections('t2v');
     restoreLoraSelections('i2v');
     restoreLoraSelections('chain');
