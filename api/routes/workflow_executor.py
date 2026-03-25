@@ -1550,6 +1550,11 @@ async def _generate_video(workflow_id: str, req, first_frame_url: Optional[str],
                 ))
                 logger.info(f"[{workflow_id}] Selected LoRA: {lora['name']} (mode={lora.get('mode')}, noise_stage={lora.get('noise_stage')})")
 
+        # Default: Add instagirl_v2 LoRA when in T2V fallback mode (no first frame) and no LoRAs specified
+        if not loras and not first_frame_url:
+            loras.append(LoraInput(name="instagirl_v2", strength=0.8))
+            logger.info(f"[{workflow_id}] T2V fallback with no LoRAs, adding default instagirl_v2 LoRA")
+
         # Download first frame for upload
         image_file = None
         if first_frame_url:
