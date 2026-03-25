@@ -1307,7 +1307,10 @@ async def generate_advanced_workflow(req: WorkflowGenerateRequest, _=Depends(ver
                 except Exception as cb_err:
                     logger.error(f"Failed to mark workflow {wf_id} as failed in callback: {cb_err}")
 
+        from api.routes.workflow_executor import _active_workflow_tasks
         wf_task = asyncio.create_task(_execute_workflow(workflow_id, req, task_manager))
+        _active_workflow_tasks.add(wf_task)
+        wf_task.add_done_callback(lambda t: _active_workflow_tasks.discard(t))
         wf_task.add_done_callback(_workflow_done_callback)
 
         return WorkflowGenerateResponse(

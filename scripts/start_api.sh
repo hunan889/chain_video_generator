@@ -37,7 +37,7 @@ nohup $PYTHON -m gunicorn api.main:app \
     -w 1 \
     --bind "$HOST:$PORT" \
     --pid "$PID_FILE" \
-    --graceful-timeout 30 \
+    --graceful-timeout 180 \
     --timeout 600 \
     --access-logfile - \
     >> "$LOG_FILE" 2>&1 &

@@ -34,6 +34,12 @@ async def lifespan(app: FastAPI):
 
     logger.info("Wan2.2 Video Service started")
     yield
+
+    # Graceful shutdown: wait for active workflow tasks to finish
+    # This prevents losing paid API call results (e.g. SeeDream) during reload
+    from api.routes.workflow_executor import wait_for_active_workflows
+    await wait_for_active_workflows(timeout=120)
+
     await task_manager.stop()
     logger.info("Wan2.2 Video Service stopped")
 
@@ -130,6 +136,19 @@ async def pose_synonyms_admin():
 async def keywords_editor():
     return FileResponse(STATIC_DIR / "keywords_editor.html")
 
+
+from starlette.middleware.base import BaseHTTPMiddleware
+
+class StaticCacheMiddleware(BaseHTTPMiddleware):
+    """Add Cache-Control headers for static JS/CSS assets."""
+    async def dispatch(self, request, call_next):
+        response = await call_next(request)
+        path = request.url.path
+        if path.startswith("/static/js/") or path.startswith("/static/css/"):
+            response.headers["Cache-Control"] = "public, max-age=3600"
+        return response
+
+app.add_middleware(StaticCacheMiddleware)
 
 app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 app.mount("/uploads", StaticFiles(directory=str(UPLOADS_DIR)), name="uploads")

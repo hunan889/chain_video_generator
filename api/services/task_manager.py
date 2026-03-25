@@ -579,7 +579,10 @@ class TaskManager:
         req = WorkflowGenerateRequest(**req_data)
 
         # Re-launch the executor with resume=True
+        from api.routes.workflow_executor import _active_workflow_tasks
         task = asyncio.create_task(_execute_workflow(workflow_id, req, self, resume=True))
+        _active_workflow_tasks.add(task)
+        task.add_done_callback(lambda t: _active_workflow_tasks.discard(t))
         def _done_cb(t, wid=workflow_id):
             if t.exception():
                 import time as _time
