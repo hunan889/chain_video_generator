@@ -1608,12 +1608,7 @@ async def regenerate_workflow(workflow_id: str, _=Depends(verify_api_key)):
         else:
             req_data["reference_image"] = ref_img
 
-    # Restore first_frame_source
-    ffs = workflow_data.get("first_frame_source")
-    if ffs and ffs in ("generate", "select_existing"):
-        req_data["first_frame_source"] = ffs
-
-    # Restore internal_config
+    # Restore internal_config (contains first_frame_source, so don't set it separately)
     ic_raw = workflow_data.get("internal_config")
     if ic_raw:
         try:
