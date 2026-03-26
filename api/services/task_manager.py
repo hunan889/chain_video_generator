@@ -47,6 +47,7 @@ class TaskManager:
         self.clients: dict[str, list[ComfyUIClient]] = {}
         self._workers: dict[str, dict] = {}  # worker_id -> {model_key, url, client, task, started_at}
         self._chain_workers: dict[str, asyncio.Task] = {}  # chain_id -> asyncio.Task
+        self._direct_busy_urls: set[str] = set()  # URLs busy with direct prompts (face swap etc.)
 
     async def start(self):
         self.redis = aioredis.from_url(REDIS_URL, decode_responses=True)
@@ -165,6 +166,84 @@ class TaskManager:
                 "started_at": info["started_at"],
             })
         return results
+
+    async def get_running_tasks_by_worker(self) -> dict[str, dict]:
+        """Return a mapping of worker URL -> running task info.
+
+        Scans Redis for tasks with status=running and groups them by comfyui_url.
+        Only running tasks are returned, so the scan is typically very small.
+        """
+        result: dict[str, dict] = {}
+        cursor = 0
+        while True:
+            cursor, keys = await self.redis.scan(cursor, match="task:*", count=200)
+            for key in keys:
+                status, comfyui_url = await self.redis.hmget(key, "status", "comfyui_url")
+                if status != TaskStatus.RUNNING.value or not comfyui_url:
+                    continue
+                task_id = key.split(":", 1)[1] if ":" in key else key
+                # Fetch task summary
+                progress, mode, model, params_raw, created_at = await self.redis.hmget(
+                    key, "progress", "mode", "model", "params", "created_at"
+                )
+                params = None
+                if params_raw:
+                    try:
+                        params = json.loads(params_raw)
+                    except Exception:
+                        pass
+                result[comfyui_url] = {
+                    "task_id": task_id,
+                    "progress": float(progress) if progress else 0,
+                    "mode": mode or None,
+                    "model": model or None,
+                    "prompt": (params.get("prompt") or params.get("positive_prompt") or "")[:100] if params else "",
+                    "created_at": int(created_at) if created_at else None,
+                }
+            if cursor == 0:
+                break
+        return result
+
+    async def find_available_client(self, prefer_model_key: str = None, timeout: float = 120) -> "ComfyUIClient | None":
+        """Find an idle ComfyUI worker, waiting if all are busy.
+
+        Considers both Redis-tracked tasks (video generation) and in-memory
+        direct-prompt tracking (face swap) to avoid piling onto one worker.
+
+        Args:
+            prefer_model_key: If set, prefer idle workers with this model_key.
+            timeout: Max seconds to wait for an idle worker.
+
+        Returns:
+            An idle ComfyUIClient, or None if timeout expires.
+        """
+        deadline = asyncio.get_event_loop().time() + timeout
+        while asyncio.get_event_loop().time() < deadline:
+            busy_urls = set((await self.get_running_tasks_by_worker()).keys())
+            busy_urls |= self._direct_busy_urls  # include face-swap etc.
+            preferred = []
+            fallback = []
+            for wid, info in self._workers.items():
+                if info["url"] not in busy_urls:
+                    if prefer_model_key and info["model_key"] == prefer_model_key:
+                        preferred.append(info["client"])
+                    else:
+                        fallback.append(info["client"])
+            idle = preferred or fallback
+            if idle:
+                # Pick randomly to spread load across idle workers
+                import random
+                client = random.choice(idle)
+                self._direct_busy_urls.add(client.base_url)
+                return client
+            logger.debug("find_available_client: all workers busy, retrying in 2s…")
+            await asyncio.sleep(2)
+        logger.warning("find_available_client: timeout after %.0fs, no idle worker found", timeout)
+        return None
+
+    def release_client(self, client: "ComfyUIClient"):
+        """Mark a directly-used client as idle again (call after face swap etc.)."""
+        self._direct_busy_urls.discard(client.base_url)
 
     def _get_client(self, model_key: str) -> "ComfyUIClient | None":
         """Get first ComfyUI client for a model key (shared filesystem — any instance works)."""
@@ -1159,6 +1238,11 @@ class TaskManager:
                         t5_preset=seg.get("t5_preset", ""),
                     )
 
+                # Inject post-processing nodes (upscale, RIFE, MMAudio) for standard chain mode.
+                # Skip for story mode: _build_story_segment already injects postproc internally.
+                if not story_mode and (seg.get("enable_upscale") or seg.get("enable_interpolation") or seg.get("enable_mmaudio")):
+                    workflow = await asyncio.to_thread(_inject_story_postproc, workflow, seg)
+
                 task_id = await self.create_task(mode, model, workflow, params=seg, chain_id=chain_id)
                 task_ids.append(task_id)
                 await self.redis.hset(f"chain:{chain_id}", "segment_task_ids", json.dumps(task_ids))
@@ -1614,6 +1698,9 @@ class TaskManager:
                     upscale=seg.get("upscale", False),
                     t5_preset=seg.get("t5_preset", ""),
                 )
+                # Inject post-processing nodes (upscale, RIFE, MMAudio) if enabled
+                if seg.get("enable_upscale") or seg.get("enable_interpolation") or seg.get("enable_mmaudio"):
+                    workflow = await asyncio.to_thread(_inject_story_postproc, workflow, seg)
                 return workflow
 
             # First_frame mode: use PainterI2V
