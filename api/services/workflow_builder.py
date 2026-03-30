@@ -138,63 +138,6 @@ def _load_lora_name_map() -> dict[str, str]:
         return {}
 
 
-def _load_lora_modes() -> dict[str, list[str]]:
-    """Load LoRA mode compatibility from loras.yaml.
-
-    Returns dict mapping lora name -> list of compatible modes (e.g. ['t2v', 'i2v'])
-    """
-    try:
-        with open(LORAS_PATH) as f:
-            data = yaml.safe_load(f)
-
-        result = {}
-        for item in data.get("loras", []):
-            if "name" in item:
-                name = item["name"]
-                modes = item.get("modes", [])
-                if modes:
-                    result[name] = modes
-        return result
-    except Exception as e:
-        logger.warning(f"Failed to load LoRA modes from loras.yaml: {e}")
-        return {}
-
-
-def _filter_loras_by_mode(loras: list[LoraInput], mode: str) -> list[LoraInput]:
-    """Filter LoRAs to only include those compatible with the given mode (t2v/i2v).
-
-    Checks both the 'modes' field in loras.yaml and naming conventions.
-    """
-    if mode not in ["t2v", "i2v"]:
-        return loras
-
-    lora_modes = _load_lora_modes()
-    filtered = []
-
-    for lora in loras:
-        # Extract base name without variant suffix
-        base_name = lora.name.split(":")[0] if ":" in lora.name else lora.name
-
-        # Check modes field from loras.yaml
-        lora_mode_list = lora_modes.get(base_name, [])
-
-        # If no modes specified, check naming convention
-        if not lora_mode_list:
-            name_lower = base_name.lower()
-            if "t2v" in name_lower and mode == "t2v":
-                filtered.append(lora)
-            elif "i2v" in name_lower and mode == "i2v":
-                filtered.append(lora)
-            elif "t2v" not in name_lower and "i2v" not in name_lower:
-                # No mode in name, assume compatible with all
-                filtered.append(lora)
-        else:
-            # Use modes field
-            if mode in lora_mode_list:
-                filtered.append(lora)
-
-    return filtered
-
 
 def _load_lora_id_map() -> dict[str, dict]:
     """Load civitai_version_id -> {file, civitai_id} mapping from loras.yaml."""

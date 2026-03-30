@@ -284,13 +284,6 @@ class PoseRecommender:
         logger.info(f"Keyword match found {len(results)} candidates")
         return results
 
-    def _get_relation_scores(self, selected_poses: List[str]) -> Dict[str, float]:
-        """基于已选姿势计算关联分数（已废弃，保留接口兼容性）"""
-        return {}
-
-    def _fuse_scores(self, text_scores: Dict[str, float], relation_scores: Dict[str, float]) -> Dict[str, float]:
-        """融合分数（已废弃，保留接口兼容性）"""
-        return text_scores
 
     def _get_match_reason(self, pose_data: Dict, score: float) -> str:
         """生成匹配原因"""

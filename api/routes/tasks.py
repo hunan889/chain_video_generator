@@ -1,5 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException
-from fastapi.responses import FileResponse, RedirectResponse
+from fastapi.responses import FileResponse
 from api.config import COS_ENABLED
 from api.models.schemas import TaskResponse
 from api.middleware.auth import verify_api_key

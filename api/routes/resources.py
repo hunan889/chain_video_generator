@@ -10,7 +10,6 @@ import uuid
 import logging
 from pathlib import Path
 from api.middleware.auth import verify_api_key
-from api.services.content_suggester import get_content_suggester
 from api.config import UPLOADS_DIR, COS_ENABLED
 
 logger = logging.getLogger(__name__)

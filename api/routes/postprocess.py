@@ -15,10 +15,6 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
-class PostprocessResponse:
-    """Simple response — we use dict return instead of Pydantic for Form endpoints."""
-    pass
-
 
 async def _resolve_video_path(
     task_id: Optional[str] = None,
