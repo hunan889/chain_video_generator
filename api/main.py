@@ -9,7 +9,7 @@ from pathlib import Path
 from urllib.parse import urlparse
 from api.config import API_HOST, API_PORT, VIDEOS_DIR, UPLOADS_DIR
 from api.services.task_manager import TaskManager
-from api.routes import generate, generate_i2v, tasks, loras, civitai, prompt, lora_recommend, extend, workflow, tts, postprocess, image, chat, resources, lora_admin, search, recommend, embeddings, resource_admin, pose_images, poses, pose_admin, pose_synonyms_admin, dashscope, worker_admin
+from api.routes import generate, generate_i2v, tasks, loras, civitai, prompt, lora_recommend, extend, workflow, tts, postprocess, image, chat, resources, lora_admin, search, recommend, embeddings, resource_admin, pose_images, poses, pose_admin, pose_synonyms_admin, dashscope, worker_admin, gpu_status, settings_admin, thirdparty, vace, image_transform
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
 logger = logging.getLogger(__name__)
@@ -79,6 +79,11 @@ app.include_router(pose_admin.router, prefix="/api/v1", tags=["pose_admin"])
 app.include_router(pose_synonyms_admin.router)
 app.include_router(dashscope.router, prefix="/api/v1", tags=["dashscope"])
 app.include_router(worker_admin.router, prefix="/api/v1", tags=["worker_admin"])
+app.include_router(gpu_status.router, prefix="/api/v1", tags=["gpu_status"])
+app.include_router(settings_admin.router, prefix="/api/v1", tags=["settings_admin"])
+app.include_router(thirdparty.router, prefix="/api/v1", tags=["thirdparty"])
+app.include_router(vace.router, prefix="/api/v1", tags=["vace"])
+app.include_router(image_transform.router, prefix="/api/v1", tags=["transform"])
 
 STATIC_DIR = Path(__file__).parent / "static"
 
