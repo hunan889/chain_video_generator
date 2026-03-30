@@ -341,6 +341,7 @@ h2{color:#7c83ff;margin-bottom:20px;font-size:1.4em}
 <label>生成模式</label>
 <select id="imageRole">
 <option value="t2v">文生视频（纯文本）</option>
+<option value="t2v_standin">文生视频 + 身份保持（Stand-In）</option>
 <option value="first_frame">首帧（直接作为视频第一帧）</option>
 <option value="full_body_reference">全身参考（换脸+换装）</option>
 <option value="face_reference">仅换脸（只换脸部）</option>
@@ -372,6 +373,14 @@ h2{color:#7c83ff;margin-bottom:20px;font-size:1.4em}
 </select>
 </div>
 <div class="field">
+<label>Prompt 补全</label>
+<select id="autoCompletionTop">
+    <option value="0">关闭</option>
+    <option value="1">仅补全</option>
+    <option value="2" selected>补全+动作</option>
+</select>
+</div>
+<div class="field">
 <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
 <input type="checkbox" id="mmaudioToggle" onchange="onMMAudioToggle()" style="width:16px;height:16px"> 生成音频
 </label>
@@ -393,10 +402,10 @@ h2{color:#7c83ff;margin-bottom:20px;font-size:1.4em}
 <!-- 默认参数 / Turbo 开关 -->
 <div class="section defaults-bar">
 <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:15px;font-weight:700;color:#7c83ff">
-<input type="checkbox" id="useDefaultParams" onchange="toggleDefaultParams()" style="width:18px;height:18px"> 使用默认参数
+<input type="checkbox" id="useDefaultParams" onchange="toggleDefaultParams()" style="width:18px;height:18px" checked> 使用默认参数
 </label>
 <label id="turboToggleLabel" style="display:none;align-items:center;gap:6px;cursor:pointer;font-size:15px;font-weight:700;color:#f59e0b">
-<input type="checkbox" id="turboMode" onchange="onTurboToggle()" style="width:18px;height:18px"> Turbo 模式
+<input type="checkbox" id="turboMode" onchange="onTurboToggle()" style="width:18px;height:18px" checked> Turbo 模式
 </label>
 <span id="defaultParamsHint" style="font-size:12px;color:#aaa;display:none">后端将根据模式自动选择最佳参数</span>
 </div>
@@ -425,6 +434,17 @@ h2{color:#7c83ff;margin-bottom:20px;font-size:1.4em}
 </div>
 <div class="field">
 <label><input type="checkbox" id="s1_autoPrompt" checked> 自动优化 Prompt</label>
+</div>
+</div>
+<div class="row">
+<div class="field">
+<label>续写自动补全</label>
+<select id="s1_autoCompletion" style="margin-left:6px;">
+    <option value="0">关闭（使用原始提示词）</option>
+    <option value="1">仅补全提示词</option>
+    <option value="2" selected>补全提示词和动作</option>
+</select>
+<div class="hint">控制续写时 LLM 补全和 LoRA 自动选择的程度</div>
 </div>
 </div>
 <div class="row">
@@ -573,7 +593,7 @@ h2{color:#7c83ff;margin-bottom:20px;font-size:1.4em}
 </div>
 <div class="field">
 <label>噪声增强</label>
-<input type="number" id="s4_noiseAug" value="0.0" min="0" max="1" step="0.1">
+<input type="number" id="s4_noiseAug" value="0.2" min="0" max="1" step="0.1">
 </div>
 <div class="field">
 <label>运动幅度</label>
@@ -633,7 +653,7 @@ h2{color:#7c83ff;margin-bottom:20px;font-size:1.4em}
 </div>
 <div class="field">
 <label>采样步数</label>
-<input type="number" id="s4_mmaudioSteps" value="25" min="1" max="100" step="1">
+<input type="number" id="s4_mmaudioSteps" value="12" min="1" max="100" step="1">
 </div>
 </div>
 <div class="row" id="s4_mmaudioDetailRow" style="display:none">
@@ -735,15 +755,15 @@ const DEFAULT_SEEDREAM_PROMPTS = {
 
 function getDefaultConfig(mode, turbo) {
     // Mirror backend _build_default_internal_config
-    const stage1 = { auto_analyze: true, auto_lora: true, auto_prompt: true, inject_trigger_prompt: true, inject_trigger_words: true };
+    const stage1 = { auto_analyze: true, auto_lora: true, auto_prompt: true, auto_completion: 2, inject_trigger_prompt: true, inject_trigger_words: true };
 
     let stage2FaceSwap;
     if (mode === 'face_reference') {
-        stage2FaceSwap = { enabled: true, strength: 0.4 };
+        stage2FaceSwap = { enabled: true, strength: 1.0 };
     } else if (mode === 'full_body_reference') {
-        stage2FaceSwap = turbo ? { enabled: false, strength: 0.4 } : { enabled: true, strength: 0.4 };
+        stage2FaceSwap = turbo ? { enabled: false, strength: 1.0 } : { enabled: true, strength: 1.0 };
     } else {
-        stage2FaceSwap = { enabled: false, strength: 0.4 };
+        stage2FaceSwap = { enabled: false, strength: 1.0 };
     }
     const stage2 = { face_swap: stage2FaceSwap };
 
@@ -759,11 +779,12 @@ function getDefaultConfig(mode, turbo) {
     }
 
     let generation, postprocess;
+    const noiseAug = (mode === 't2v') ? 0.0 : 0.2;
     if (turbo) {
-        generation = { steps: 5, cfg: 1, scheduler: 'euler', shift: 5.0, model_preset: 'nsfw_v2' };
+        generation = { steps: 5, cfg: 1, scheduler: 'euler', shift: 5.0, model_preset: 'nsfw_v2', noise_aug_strength: noiseAug };
         postprocess = { upscale: { enabled: true, model: '4x_NMKD-Siax_200k', resize: 2.0 }, interpolation: { enabled: false }, mmaudio: { enabled: false } };
     } else {
-        generation = { steps: 5, cfg: 1, scheduler: 'euler', shift: 5.0, model_preset: 'nsfw_v2' };
+        generation = { steps: 5, cfg: 1, scheduler: 'euler', shift: 5.0, model_preset: 'nsfw_v2', noise_aug_strength: noiseAug };
         postprocess = { upscale: { enabled: true, model: '4x_NMKD-Siax_200k', resize: 2.0 }, interpolation: { enabled: true, multiplier: 2, profile: 'fast' }, mmaudio: { enabled: false } };
     }
 
@@ -803,6 +824,7 @@ function applyDefaultsToForm() {
     document.getElementById('s1_autoAnalyze').checked = cfg.stage1_prompt_analysis.auto_analyze;
     document.getElementById('s1_autoLora').checked = cfg.stage1_prompt_analysis.auto_lora;
     document.getElementById('s1_autoPrompt').checked = cfg.stage1_prompt_analysis.auto_prompt;
+    document.getElementById('s1_autoCompletion').value = cfg.stage1_prompt_analysis.auto_completion;
 
     // Stage 2
     document.getElementById('s2_faceSwapEnabled').checked = cfg.stage2_first_frame.face_swap.enabled;
@@ -824,6 +846,7 @@ function applyDefaultsToForm() {
     document.getElementById('s4_scheduler').value = gen.scheduler;
     document.getElementById('s4_shift').value = gen.shift;
     document.getElementById('s4_modelPreset').value = gen.model_preset;
+    document.getElementById('s4_noiseAug').value = gen.noise_aug_strength;
 
     const pp = cfg.stage4_video.postprocess;
     document.getElementById('s4_upscaleEnabled').checked = pp.upscale.enabled;
@@ -860,6 +883,7 @@ function saveTaskToHistory(workflowId, prompt, mode) {
         workflow_id: workflowId,
         prompt: prompt.substring(0, 100),
         mode: mode,
+        parent_workflow_id: parentWorkflowId || null,
         timestamp: Date.now(),
         status: 'running'
     };
@@ -920,12 +944,13 @@ function loadHistoryList() {
         const modeText = task.mode === 't2v' ? '文生视频' :
                         task.mode === 'first_frame' ? '首帧' :
                         task.mode === 'full_body_reference' ? '全身参考' : '仅换脸';
+        const contLabel = task.parent_workflow_id ? '<span style="color:#7c83ff;margin-right:8px">续写</span>' : '';
 
         return `
             <div style="background:#1a1a1a;border-radius:8px;padding:12px;margin-bottom:8px;cursor:pointer"
                  onclick="loadTask('${task.workflow_id}')">
                 <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
-                    <span style="color:${statusColor};font-size:12px;font-weight:600">${statusText}</span>
+                    <span style="color:${statusColor};font-size:12px;font-weight:600">${contLabel}${statusText}</span>
                     <span style="color:#666;font-size:11px">${date}</span>
                 </div>
                 <div style="color:#ccc;font-size:13px;margin-bottom:4px">${task.prompt}</div>
@@ -1081,6 +1106,7 @@ function saveFormParams() {
         s1_autoAnalyze: document.getElementById('s1_autoAnalyze').checked,
         s1_autoLora: document.getElementById('s1_autoLora').checked,
         s1_autoPrompt: document.getElementById('s1_autoPrompt').checked,
+        s1_autoCompletion: document.getElementById('s1_autoCompletion').value,
         s1_topKImage: document.getElementById('s1_topKImage').value,
         s1_topKVideo: document.getElementById('s1_topKVideo').value,
         s2_faceSwapEnabled: document.getElementById('s2_faceSwapEnabled').checked,
@@ -1119,12 +1145,20 @@ function saveFormParams() {
 }
 
 // 从 localStorage 恢复参数
+const PARAMS_VERSION = 2;  // Bump this to force reset old cached params
 function loadFormParams() {
     const stored = localStorage.getItem('advanced_workflow_params');
     if (!stored) return;
 
     try {
         const params = JSON.parse(stored);
+
+        // Version check: if old params, clear and use new HTML defaults
+        if (!params._version || params._version < PARAMS_VERSION) {
+            localStorage.removeItem('advanced_workflow_params');
+            console.log('Cleared outdated params (v' + (params._version || 0) + ' < v' + PARAMS_VERSION + ')');
+            return;
+        }
 
         // 恢复默认参数/Turbo开关
         if (params.useDefaultParams !== undefined) document.getElementById('useDefaultParams').checked = params.useDefaultParams;
@@ -1164,6 +1198,7 @@ function loadFormParams() {
         if (params.s1_autoAnalyze !== undefined) document.getElementById('s1_autoAnalyze').checked = params.s1_autoAnalyze;
         if (params.s1_autoLora !== undefined) document.getElementById('s1_autoLora').checked = params.s1_autoLora;
         if (params.s1_autoPrompt !== undefined) document.getElementById('s1_autoPrompt').checked = params.s1_autoPrompt;
+        if (params.s1_autoCompletion !== undefined) document.getElementById('s1_autoCompletion').value = params.s1_autoCompletion;
         if (params.s1_topKImage) document.getElementById('s1_topKImage').value = params.s1_topKImage;
         if (params.s1_topKVideo) document.getElementById('s1_topKVideo').value = params.s1_topKVideo;
 
@@ -1296,21 +1331,28 @@ function updateModeRelatedUI() {
     const s3EnabledHint = document.getElementById('s3_enabledHint');
     const s3Header = document.getElementById('s3_header');
 
-    // Upload area: hide for t2v mode
+    // Upload area: hide for pure t2v, show for t2v_standin (face reference upload)
     const uploadRow = document.getElementById('uploadArea')?.closest('.row');
     if (uploadRow) {
         uploadRow.style.display = (mode === 't2v') ? 'none' : '';
     }
+    // Stand-In hint: update upload label for Stand-In mode
+    const uploadLabel = document.getElementById('uploadArea')?.closest('.row')?.querySelector('label');
+    if (uploadLabel && mode === 't2v_standin') {
+        uploadLabel.textContent = '上传参考人脸照片（Stand-In 身份保持）';
+    } else if (uploadLabel) {
+        uploadLabel.textContent = '上传图片';
+    }
 
     // Stage 2 face swap: 仅在 reference 模式下显示
-    if (mode === 'first_frame' || mode === 't2v') {
+    if (mode === 'first_frame' || mode === 't2v' || mode === 't2v_standin') {
         s2FaceSwapSection.style.display = 'none';
     } else {
         s2FaceSwapSection.style.display = 'block';
     }
 
     // Stage 3 SeeDream: 根据模式更新提示和必选状态
-    if (mode === 'first_frame' || mode === 't2v') {
+    if (mode === 'first_frame' || mode === 't2v' || mode === 't2v_standin') {
         // first_frame / T2V 模式：不显示 Stage 3
         s3Header.style.display = 'none';
         document.getElementById('s3_content').style.display = 'none';
@@ -1473,6 +1515,9 @@ async function generateVideo() {
         if (!uploadedImageUrl) {
             if (imageRole === 't2v') {
                 // T2V doesn't need image, OK
+            } else if (imageRole === 't2v_standin') {
+                alert('请上传参考人脸照片（Stand-In 需要人脸照片来保持身份一致性）');
+                return;
             } else if (imageRole === 'first_frame') {
                 alert('请上传首帧图片');
                 return;
@@ -1591,6 +1636,7 @@ function buildRequestData() {
             auto_analyze: document.getElementById('s1_autoAnalyze').checked,
             auto_lora: document.getElementById('s1_autoLora').checked,
             auto_prompt: document.getElementById('s1_autoPrompt').checked,
+            auto_completion: parseInt(document.getElementById('autoCompletionTop').value),
             top_k_image_loras: parseInt(document.getElementById('s1_topKImage').value),
             top_k_video_loras: parseInt(document.getElementById('s1_topKVideo').value),
             inject_trigger_prompt: document.getElementById('s1_injectTriggerPrompt').checked,
@@ -1639,7 +1685,7 @@ function buildRequestData() {
                     enabled: document.getElementById('s4_mmaudioEnabled').checked,
                     prompt: document.getElementById('s4_mmaudioPrompt').value.trim(),
                     negative_prompt: document.getElementById('s4_mmaudioNeg').value.trim(),
-                    steps: parseInt(document.getElementById('s4_mmaudioSteps').value) || 25,
+                    steps: parseInt(document.getElementById('s4_mmaudioSteps').value) || 12,
                     cfg: parseFloat(document.getElementById('s4_mmaudioCfg').value) || 4.5
                 }
             }
@@ -1659,6 +1705,13 @@ function buildRequestData() {
     if (useDefault) {
         // 使用默认参数：不传 internal_config，后端自动构建
         requestData.turbo = document.getElementById('turboMode').checked;
+        // Always pass auto_completion from top-level control
+        const autoCompVal = parseInt(document.getElementById('autoCompletionTop').value);
+        if (autoCompVal !== 2) {  // Only override if non-default
+            requestData.internal_config = {
+                stage1_prompt_analysis: { auto_completion: autoCompVal }
+            };
+        }
     } else {
         requestData.internal_config = internalConfig;
     }
@@ -1670,7 +1723,7 @@ function buildRequestData() {
             enabled: true,
             prompt: document.getElementById('s4_mmaudioPrompt').value.trim(),
             negative_prompt: document.getElementById('s4_mmaudioNeg').value.trim(),
-            steps: parseInt(document.getElementById('s4_mmaudioSteps').value) || 25,
+            steps: parseInt(document.getElementById('s4_mmaudioSteps').value) || 12,
             cfg: parseFloat(document.getElementById('s4_mmaudioCfg').value) || 4.5
         };
     }
@@ -1680,10 +1733,21 @@ function buildRequestData() {
         requestData.parent_workflow_id = parentWorkflowId;
     }
 
+    // Stand-In mode: override mode to 't2v' and enable standin in config
+    if (imageRole === 't2v_standin') {
+        requestData.mode = 't2v';
+        if (!requestData.internal_config) requestData.internal_config = {};
+        if (!requestData.internal_config.stage4_video) requestData.internal_config.stage4_video = {};
+        requestData.internal_config.stage4_video.standin_enabled = true;
+    }
+
     // 根据模式设置图片字段（续写模式下不发送，由后端从父视频提取）
     if (!parentWorkflowId) {
         if (imageRole === 't2v') {
             // T2V模式：不需要图片
+        } else if (imageRole === 't2v_standin') {
+            // Stand-In模式：上传的图片作为人脸参考
+            requestData.reference_image = uploadedImageUrl;
         } else if (imageRole === 'first_frame') {
             // 首帧模式：上传的图片作为首帧
             requestData.uploaded_first_frame = uploadedImageUrl;
@@ -1704,13 +1768,21 @@ function startPolling() {
         clearInterval(pollInterval);
     }
 
+    let _pollBusy = false;
     pollInterval = setInterval(async () => {
+        // Prevent pile-up: skip if previous poll hasn't returned yet
+        if (_pollBusy) return;
+        _pollBusy = true;
         try {
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 8000);
             const response = await fetch(`/api/v1/workflow/status/${currentTaskId}`, {
                 headers: {
                     'X-API-Key': localStorage.getItem('wan22_api_key') || 'wan22-default-key-change-me'
-                }
+                },
+                signal: controller.signal
             });
+            clearTimeout(timeoutId);
             if (!response.ok) {
                 throw new Error('获取状态失败');
             }
@@ -1729,9 +1801,15 @@ function startPolling() {
                 showError(status.error || '生成失败');
             }
         } catch (error) {
-            console.error('轮询错误:', error);
+            if (error.name === 'AbortError') {
+                console.warn('轮询超时 (8s), 将重试...');
+            } else {
+                console.error('轮询错误:', error);
+            }
+        } finally {
+            _pollBusy = false;
         }
-    }, 2000);
+    }, 3000);
 }
 
 // 进度面板状态追踪
@@ -1767,7 +1845,7 @@ function renderOverallStatus(status) {
         `<div style="margin-top:16px">
             <div style="color:#888;font-size:12px;margin-bottom:4px">整体进度</div>
             <div style="background:#333;border-radius:4px;height:24px;overflow:hidden">
-                <div id="overallProgressBar" style="background:#7c83ff;height:100%;width:${pct}%;transition:width 0.3s;display:flex;align-items:center;justify-content:center;color:#fff;font-size:12px;font-weight:600">
+                <div id="overallProgressBar" style="background:#7c83ff;height:100%;width:${pct}%;transition:width 1.5s ease-out;display:flex;align-items:center;justify-content:center;color:#fff;font-size:12px;font-weight:600">
                     <span id="overallProgressText">${pct}%</span>
                 </div>
             </div>
@@ -1911,7 +1989,7 @@ function renderStageHtml(stageInfo, stageName, status) {
                 const progressPercent = (status.video_progress * 100).toFixed(1);
                 detailsHtml += `<div style="margin-bottom:8px"><span style="color:#888">生成进度:</span>
                     <div style="background:#333;border-radius:4px;height:20px;margin-top:8px;overflow:hidden">
-                        <div id="videoProgressBar" style="background:#7c83ff;height:100%;width:${progressPercent}%;transition:width 0.3s"></div>
+                        <div id="videoProgressBar" style="background:#7c83ff;height:100%;width:${progressPercent}%;transition:width 1.5s ease-out"></div>
                     </div>
                     <div id="videoProgressText" style="text-align:center;margin-top:4px;font-size:12px;color:#aaa">${progressPercent}%</div>
                 </div>`;
@@ -2080,6 +2158,25 @@ function showResult(status) {
     }
 
     document.getElementById('resultSection').style.display = 'block';
+
+    // 显示续写标记
+    const contInfo = document.getElementById('continuationInfo');
+    if (status.parent_workflow_id) {
+        if (!contInfo) {
+            const info = document.createElement('div');
+            info.id = 'continuationInfo';
+            info.style.cssText = 'background:#0f3460;border:1px solid #7c83ff;border-radius:6px;padding:8px 12px;margin-bottom:12px;font-size:13px;color:#aaa';
+            info.innerHTML = `<span style="color:#7c83ff">📖 续写自:</span> ${status.parent_workflow_id}`;
+            const resultSection = document.querySelector('#resultSection .section');
+            resultSection.insertBefore(info, resultSection.children[1]);
+        } else {
+            contInfo.innerHTML = `<span style="color:#7c83ff">📖 续写自:</span> ${status.parent_workflow_id}`;
+            contInfo.style.display = 'block';
+        }
+    } else if (contInfo) {
+        contInfo.style.display = 'none';
+    }
+
     const video = document.getElementById('resultVideo');
     video.src = videoUrl;
     video.load();
@@ -2201,6 +2298,10 @@ function showResult(status) {
             if (details.face_swap_enabled !== undefined) detailsHtml += `<div style="margin-bottom:8px"><span style="color:#888">视频换脸:</span> ${details.face_swap_enabled ? '✅ 启用' : '❌ 禁用'}</div>`;
             if (details.upscale_enabled !== undefined) detailsHtml += `<div style="margin-bottom:8px"><span style="color:#888">超分:</span> ${details.upscale_enabled ? '✅ 启用' : '❌ 禁用'}</div>`;
             if (details.interpolation_enabled !== undefined) detailsHtml += `<div style="margin-bottom:8px"><span style="color:#888">插帧:</span> ${details.interpolation_enabled ? '✅ 启用' : '❌ 禁用'}</div>`;
+            if (details.loras && details.loras.length > 0) {
+                const lorasText = details.loras.map(l => `${l.name} (${l.strength})`).join(', ');
+                detailsHtml += `<div style="margin-bottom:8px"><span style="color:#888">LoRAs:</span> ${lorasText}</div>`;
+            }
             if (details.chain_id) detailsHtml += `<div style="margin-bottom:8px"><span style="color:#888">Chain ID:</span> ${details.chain_id}</div>`;
         }
 

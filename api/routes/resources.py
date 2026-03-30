@@ -1085,7 +1085,7 @@ async def upload_resource(
     _: str = Depends(verify_api_key)
 ):
     """上传图片或视频，自动添加到收藏"""
-    IMAGE_EXTS = {'.jpg', '.jpeg', '.png', '.webp', '.gif'}
+    IMAGE_EXTS = {'.jpg', '.jpeg', '.png', '.webp', '.gif', '.avif'}
     VIDEO_EXTS = {'.mp4', '.webm', '.mov', '.avi'}
 
     original_name = file.filename or 'upload'

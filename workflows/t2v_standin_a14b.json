@@ -1,0 +1,171 @@
+{
+  "1": {
+    "class_type": "WanVideoModelLoader",
+    "inputs": {
+      "model": "Wan2_2-T2V-A14B_HIGH_fp8_e4m3fn_scaled_KJ.safetensors",
+      "base_precision": "bf16",
+      "quantization": "fp8_e4m3fn_scaled",
+      "load_device": "offload_device",
+      "attention_mode": "sdpa",
+      "block_swap_args": ["35", 0]
+    }
+  },
+  "2": {
+    "class_type": "WanVideoModelLoader",
+    "inputs": {
+      "model": "Wan2_2-T2V-A14B-LOW_fp8_e4m3fn_scaled_KJ.safetensors",
+      "base_precision": "bf16",
+      "quantization": "fp8_e4m3fn_scaled",
+      "load_device": "offload_device",
+      "attention_mode": "sdpa",
+      "block_swap_args": ["35", 0]
+    }
+  },
+  "3": {
+    "class_type": "LoadWanVideoT5TextEncoder",
+    "inputs": {
+      "model_name": "umt5-xxl-enc-fp8_e4m3fn.safetensors",
+      "precision": "bf16"
+    }
+  },
+  "4": {
+    "class_type": "WanVideoTextEncode",
+    "inputs": {
+      "positive_prompt": "",
+      "negative_prompt": "",
+      "t5": ["3", 0],
+      "force_offload": true
+    }
+  },
+  "5": {
+    "class_type": "WanVideoEmptyEmbeds",
+    "inputs": {
+      "width": 480,
+      "height": 848,
+      "num_frames": 81
+    }
+  },
+  "6": {
+    "class_type": "WanVideoSampler",
+    "inputs": {
+      "model": ["1", 0],
+      "image_embeds": ["34", 0],
+      "text_embeds": ["4", 0],
+      "steps": 8,
+      "cfg": 1.0,
+      "shift": 5.0,
+      "seed": 0,
+      "force_offload": true,
+      "scheduler": "dpm++_sde",
+      "riflex_freq_index": 0,
+      "start_step": 0,
+      "end_step": 4
+    }
+  },
+  "7": {
+    "class_type": "WanVideoSampler",
+    "inputs": {
+      "model": ["2", 0],
+      "image_embeds": ["34", 0],
+      "text_embeds": ["4", 0],
+      "samples": ["6", 0],
+      "steps": 8,
+      "cfg": 1.0,
+      "shift": 5.0,
+      "seed": 0,
+      "force_offload": true,
+      "scheduler": "dpm++_sde",
+      "riflex_freq_index": 0,
+      "start_step": 4,
+      "end_step": 8,
+      "denoise_strength": 1.0
+    }
+  },
+  "8": {
+    "class_type": "WanVideoVAELoader",
+    "inputs": {
+      "model_name": "Wan2_1_VAE_bf16.safetensors",
+      "precision": "bf16"
+    }
+  },
+  "9": {
+    "class_type": "WanVideoDecode",
+    "inputs": {
+      "vae": ["8", 0],
+      "samples": ["7", 0],
+      "enable_vae_tiling": false,
+      "tile_x": 272,
+      "tile_y": 272,
+      "tile_stride_x": 144,
+      "tile_stride_y": 128
+    }
+  },
+  "10": {
+    "class_type": "VHS_VideoCombine",
+    "inputs": {
+      "images": ["9", 0],
+      "frame_rate": 16,
+      "loop_count": 0,
+      "filename_prefix": "wan22_t2v_standin",
+      "format": "video/h264-mp4",
+      "pingpong": false,
+      "save_output": true
+    }
+  },
+  "30": {
+    "class_type": "LoadImage",
+    "inputs": {
+      "image": ""
+    },
+    "_meta": { "title": "Stand-In Face Reference" }
+  },
+  "31": {
+    "class_type": "FaceProcessorLoader",
+    "inputs": {
+      "yolo_model_name": "model.pt"
+    }
+  },
+  "32": {
+    "class_type": "ApplyFaceProcessor",
+    "inputs": {
+      "face_processor": ["31", 0],
+      "image": ["30", 0],
+      "resize_to": 512,
+      "border_thresh": 10,
+      "face_crop_scale": 1.5,
+      "confidence_threshold": 0.5,
+      "with_neck": false,
+      "face_only_mode": false,
+      "enable_angle_match": true
+    }
+  },
+  "33": {
+    "class_type": "WanVideoEncode",
+    "inputs": {
+      "vae": ["8", 0],
+      "image": ["32", 0],
+      "enable_vae_tiling": false,
+      "tile_x": 272,
+      "tile_y": 272,
+      "tile_stride_x": 144,
+      "tile_stride_y": 128
+    }
+  },
+  "34": {
+    "class_type": "WanVideoAddStandInLatent",
+    "inputs": {
+      "embeds": ["5", 0],
+      "ip_image_latent": ["33", 0],
+      "freq_offset": 1
+    }
+  },
+  "35": {
+    "class_type": "WanVideoBlockSwap",
+    "inputs": {
+      "blocks_to_swap": 20,
+      "offload_txt_emb": false,
+      "offload_img_emb": false,
+      "vace_blocks_to_swap": 0
+    }
+  }
+}

@@ -299,18 +299,19 @@ async def _optimize_prompt_with_llm(
             except Exception as e:
                 logger.warning(f"T2I prompt optimization failed: {e}")
 
-        # Optimize I2V prompt (for video generation)
+        # Optimize video prompt (mode-aware: t2v needs environment/appearance, i2v does not)
         optimized_i2v = None
+        video_opt_mode = "t2v" if mode == "t2v" else "i2v"
         try:
             result = await optimizer.optimize(
                 prompt=prompt,
                 trigger_words=video_trigger_words,
-                mode="i2v",
+                mode=video_opt_mode,
                 duration=5.0,
                 lora_info=lora_info
             )
             optimized_i2v = result.get("optimized_prompt")
-            logger.info(f"I2V prompt optimized: {optimized_i2v[:100] if optimized_i2v else 'None'}...")
+            logger.info(f"Video prompt optimized (mode={video_opt_mode}): {optimized_i2v[:100] if optimized_i2v else 'None'}...")
         except Exception as e:
             logger.warning(f"I2V prompt optimization failed: {e}")
             # Fallback: use original prompt
@@ -916,7 +917,7 @@ class WorkflowGenerateRequest(BaseModel):
     mode: Literal["t2v", "first_frame", "face_reference", "full_body_reference"] = Field(
         ..., description="Workflow mode"
     )
-    user_prompt: str = Field(..., min_length=1, max_length=2000, description="User prompt")
+    user_prompt: str = Field(default="", max_length=2000, description="User prompt (optional for continuation)")
     pose_keys: Optional[list[str]] = Field(None, description="Selected pose keys for recommendation")
     reference_image: Optional[str] = Field(None, description="Reference image (base64 or URL)")
 
@@ -964,7 +965,7 @@ class WorkflowGenerateRequest(BaseModel):
     )
 
     # Turbo mode (used with default params)
-    turbo: Optional[bool] = Field(default=False, description="Turbo mode: faster generation with fewer steps")
+    turbo: Optional[bool] = Field(default=True, description="Turbo mode: faster generation with fewer steps")
 
     # MMAudio top-level toggle
     mmaudio: Optional[dict] = Field(default=None, description="MMAudio config: {enabled, prompt, negative_prompt, steps, cfg}")
@@ -1005,6 +1006,7 @@ class WorkflowGenerateResponse(BaseModel):
     total_steps: Optional[int] = Field(default=None, description="Total steps across all stages")
     completed_steps: Optional[int] = Field(default=None, description="Completed steps from previous stages")
     elapsed_time: Optional[float] = Field(default=None, description="Elapsed time in seconds")
+    parent_workflow_id: Optional[str] = Field(default=None, description="Parent workflow ID if this is a continuation")
     # Detail fields (populated when detail=true)
     user_prompt: Optional[str] = None
     mode: Optional[str] = None
@@ -1026,7 +1028,7 @@ def _deep_merge(base: dict, override: dict) -> dict:
     return result
 
 
-def _build_default_internal_config(mode: str, turbo: bool = False, resolution: str = None) -> dict:
+def _build_default_internal_config(mode: str, turbo: bool = False, resolution: str = None, **kwargs) -> dict:
     """
     Build default internal_config based on mode, turbo flag, and resolution.
 
@@ -1039,24 +1041,28 @@ def _build_default_internal_config(mode: str, turbo: bool = False, resolution: s
         Complete internal_config dict
     """
     # Stage 1: turbo skips LLM prompt optimization and LLM reranking
+    # prompt_optimize_settings is injected by caller (async pre-read from Redis)
+    prompt_settings = kwargs.get("prompt_optimize_settings") or {}
+    non_turbo = prompt_settings.get("non_turbo", True)
     stage1 = {
         "auto_analyze": True,
         "auto_lora": True,
-        "auto_prompt": not turbo,
-        "inject_trigger_prompt": True,
-        "inject_trigger_words": True,
+        "auto_prompt": non_turbo if not turbo else False,
+        "auto_completion": 2,
+        "inject_trigger_prompt": prompt_settings.get("inject_trigger_prompt", True),
+        "inject_trigger_words": prompt_settings.get("inject_trigger_words", True),
     }
 
     # Stage 2: face_swap depends on mode
     if mode == "face_reference":
         # face_reference: enable reactor face swap in stage 2
-        stage2_face_swap = {"enabled": True, "strength": 0.4}
+        stage2_face_swap = {"enabled": True, "strength": 1.0}
     elif mode == "full_body_reference":
         # full_body: always reactor first for face similarity, then seedream
-        stage2_face_swap = {"enabled": True, "strength": 0.4}
+        stage2_face_swap = {"enabled": True, "strength": 1.0}
     else:
         # first_frame / t2v: no face swap
-        stage2_face_swap = {"enabled": False, "strength": 0.4}
+        stage2_face_swap = {"enabled": False, "strength": 1.0}
 
     stage2 = {
         "first_frame_source": "select_existing",
@@ -1092,6 +1098,8 @@ def _build_default_internal_config(mode: str, turbo: bool = False, resolution: s
         stage3 = {"enabled": False}
 
     # Stage 4: video generation params
+    # noise_aug_strength: 0.0 for T2V (no first frame), 0.2 for I2V modes
+    noise_aug = 0.0 if mode == "t2v" else 0.2
     if turbo:
         generation = {
             "steps": 5,
@@ -1099,6 +1107,7 @@ def _build_default_internal_config(mode: str, turbo: bool = False, resolution: s
             "scheduler": "euler",
             "shift": 5.0,
             "model_preset": "nsfw_v2",
+            "noise_aug_strength": noise_aug,
         }
     else:
         generation = {
@@ -1107,6 +1116,7 @@ def _build_default_internal_config(mode: str, turbo: bool = False, resolution: s
             "scheduler": "euler",
             "shift": 5.0,
             "model_preset": "nsfw_v2",
+            "noise_aug_strength": noise_aug,
         }
 
     # Upscale strategy based on target resolution:
@@ -1204,14 +1214,22 @@ async def generate_advanced_workflow(req: WorkflowGenerateRequest, _=Depends(ver
         if req.internal_config:
             logger.info(f"[WORKFLOW_PARAMS] {workflow_id} - internal_config: {json.dumps(req.internal_config, ensure_ascii=False)}")
 
+        # Validate: non-continuation requests require a prompt
+        if not req.user_prompt.strip() and not req.parent_workflow_id:
+            raise HTTPException(400, "user_prompt is required for non-continuation requests")
+
         # Backward compat: first_frame without image auto-converts to t2v
         if req.mode == "first_frame" and not req.uploaded_first_frame and not req.parent_workflow_id:
             logger.warning(f"[WORKFLOW_PARAMS] {workflow_id} - mode=first_frame without image, auto-converting to t2v")
             req.mode = "t2v"
 
+        # Pre-read prompt optimization settings from Redis (async context)
+        from api.routes.settings_admin import get_prompt_optimize_settings
+        prompt_optimize_settings = await get_prompt_optimize_settings()
+
         # Always build default internal_config, then merge user overrides on top
         # This ensures turbo-mode defaults (steps, cfg, etc.) are always applied
-        default_config = _build_default_internal_config(req.mode, req.turbo or False, req.resolution)
+        default_config = _build_default_internal_config(req.mode, req.turbo or False, req.resolution, prompt_optimize_settings=prompt_optimize_settings)
         if req.internal_config is None:
             req.internal_config = default_config
             logger.info(f"[WORKFLOW_PARAMS] {workflow_id} - Built default internal_config: turbo={req.turbo}")
@@ -1220,6 +1238,18 @@ async def generate_advanced_workflow(req: WorkflowGenerateRequest, _=Depends(ver
             merged = _deep_merge(default_config, req.internal_config)
             req.internal_config = merged
             logger.info(f"[WORKFLOW_PARAMS] {workflow_id} - Merged user internal_config with defaults: turbo={req.turbo}")
+
+        # Auto-enable prompt optimization for short prompts
+        # Applies to both turbo mode and non-turbo mode with non_turbo=false
+        min_chars = prompt_optimize_settings.get("min_chars", 20)
+        if req.internal_config:
+            stage1 = req.internal_config.get("stage1_prompt_analysis", {})
+            if not stage1.get("auto_prompt", False):
+                prompt_text = (req.user_prompt or "").strip()
+                if len(prompt_text) < min_chars:
+                    stage1["auto_prompt"] = True
+                    req.internal_config["stage1_prompt_analysis"] = stage1
+                    logger.info(f"[WORKFLOW_PARAMS] {workflow_id} - Auto-enabled auto_prompt for short prompt ({len(prompt_text)} < {min_chars} chars)")
 
         # Merge top-level mmaudio config into internal_config
         if req.mmaudio:
@@ -1518,6 +1548,7 @@ async def get_workflow_status(workflow_id: str, detail: bool = False, _=Depends(
             first_frame_url=workflow_data.get("first_frame_url"),
             edited_frame_url=workflow_data.get("edited_frame_url"),
             error=workflow_data.get("error"),
+            parent_workflow_id=workflow_data.get("parent_workflow_id") or None,
             progress=progress,
             video_progress=video_progress,
             current_step=current_step,
@@ -1588,9 +1619,7 @@ async def regenerate_workflow(workflow_id: str, _=Depends(verify_api_key)):
     if not mode:
         raise HTTPException(400, f"Original workflow {workflow_id} has no mode")
 
-    user_prompt = workflow_data.get("user_prompt")
-    if not user_prompt:
-        raise HTTPException(400, f"Original workflow {workflow_id} has no user_prompt")
+    user_prompt = workflow_data.get("user_prompt", "")
 
     # Build the regeneration request
     req_data = {
@@ -1623,6 +1652,14 @@ async def regenerate_workflow(workflow_id: str, _=Depends(verify_api_key)):
             req_data["internal_config"] = json.loads(ic_raw)
         except (json.JSONDecodeError, TypeError):
             pass
+
+    # Restore first frame from original workflow execution
+    # (first_frame_url is generated during execution, not from the original request)
+    if not req_data.get("reference_image") and mode != "t2v":
+        first_frame = workflow_data.get("origin_first_frame_url") or workflow_data.get("first_frame_url")
+        if first_frame:
+            req_data["uploaded_first_frame"] = first_frame
+            logger.info(f"Regenerate {workflow_id}: restored first_frame from original execution: {first_frame[:80]}")
 
     # Restore parent_workflow_id
     parent_wf = workflow_data.get("parent_workflow_id")

@@ -1179,7 +1179,7 @@ function openUploadModal(resourceType) {
   _uploadResourceType = resourceType;
   _selectedFile = null;
   document.getElementById('uploadModalTitle').textContent = resourceType === 'image' ? '上传图片' : '上传视频';
-  const accept = resourceType === 'image' ? '.jpg,.jpeg,.png,.webp,.gif' : '.mp4,.webm,.mov';
+  const accept = resourceType === 'image' ? '.jpg,.jpeg,.png,.webp,.gif,.avif' : '.mp4,.webm,.mov';
   document.getElementById('fileInput').accept = accept;
   document.getElementById('fileInput').value = '';
   document.getElementById('dropZoneText').textContent = '点击或拖拽文件到此处';

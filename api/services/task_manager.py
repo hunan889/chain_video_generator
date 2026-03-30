@@ -10,7 +10,7 @@ from api.config import REDIS_URL, COMFYUI_URLS, VIDEO_BASE_URL, TASK_EXPIRY, COS
 from api.models.enums import TaskStatus, ModelType, GenerateMode
 from api.models.schemas import GenerateRequest, GenerateI2VRequest
 from api.services.comfyui_client import ComfyUIClient
-from api.services.workflow_builder import build_workflow, build_story_workflow, build_merged_story_workflow, _inject_story_postproc
+from api.services.workflow_builder import build_workflow, build_story_workflow, build_merged_story_workflow, _inject_story_postproc, _inject_lossless_frame_save
 from api.services import storage
 
 logger = logging.getLogger(__name__)
@@ -80,10 +80,15 @@ class TaskManager:
         await self._recover_orphan_tasks()
         await self._recover_orphan_chains()
         await self._recover_orphan_workflows()
+        # Start periodic orphan recovery loop
+        self._orphan_recovery_task = asyncio.create_task(self._orphan_recovery_loop())
         logger.info("TaskManager started with workers: %s",
                      {k: len(v) for k, v in self.clients.items()})
 
     async def stop(self):
+        # Cancel orphan recovery loop
+        if hasattr(self, '_orphan_recovery_task') and self._orphan_recovery_task:
+            self._orphan_recovery_task.cancel()
         # Cancel chain workers first (C2)
         for chain_task in self._chain_workers.values():
             chain_task.cancel()
@@ -599,7 +604,18 @@ class TaskManager:
                         })
                         logger.info("Orphan workflow %s: chain status=%s, marked failed", workflow_id, chain_status)
                 else:
-                    # No chain_id — stuck in Stage 1-3, try to resume
+                    # No chain_id — might be stuck in Stage 1-3, or still actively processing.
+                    # Check executor heartbeat to avoid resuming workflows that are still running.
+                    heartbeat_str = await self.redis.hget(key, "executor_heartbeat")
+                    created_at_str = await self.redis.hget(key, "created_at")
+                    now = int(time.time())
+                    last_active = int(heartbeat_str) if heartbeat_str else (int(created_at_str) if created_at_str else 0)
+                    if now - last_active < 120:
+                        # Executor was active within the last 120 seconds — not an orphan
+                        # (face swap via Reactor can take 60-90s)
+                        logger.info("Orphan workflow %s: executor active %ds ago, skipping", workflow_id, now - last_active)
+                        continue
+
                     retry_count = int(await self.redis.hget(key, "resume_count") or 0)
                     if retry_count >= 3:
                         await self.redis.hset(key, mapping={
@@ -625,6 +641,26 @@ class TaskManager:
                 break
         if recovered:
             logger.info("Recovered %d orphan workflows", recovered)
+
+    async def _orphan_recovery_loop(self):
+        """Periodically scan for orphan tasks/chains/workflows and recover them.
+
+        This catches cases where WebSocket completion detection fails
+        (connection drops, network issues, etc.) so tasks don't get stuck forever.
+        """
+        INTERVAL = 30  # seconds between scans
+        logger.info("Orphan recovery loop started (interval=%ds)", INTERVAL)
+        try:
+            while True:
+                await asyncio.sleep(INTERVAL)
+                try:
+                    await self._recover_orphan_tasks()
+                    await self._recover_orphan_chains()
+                    await self._recover_orphan_workflows()
+                except Exception as e:
+                    logger.warning("Orphan recovery loop error: %s", e)
+        except asyncio.CancelledError:
+            logger.info("Orphan recovery loop stopped")
 
     async def _resume_workflow(self, workflow_id: str):
         """Resume an orphaned workflow from its last completed stage."""
@@ -876,28 +912,98 @@ class TaskManager:
             except Exception as redis_err:
                 logger.error("Failed to mark task %s as failed in Redis: %s", task_id, redis_err)
 
+    # Estimated time weights per ComfyUI node class (relative units).
+    # Heavier weight = node takes longer = gets more progress range.
+    _NODE_WEIGHTS: dict[str, int] = {
+        # ── Model loaders (slow, I/O bound) ──
+        "WanVideoModelLoader": 15,
+        "UNETLoader": 15,
+        "LoadWanVideoT5TextEncoder": 5,
+        "CLIPLoader": 5,
+        "WanVideoVAELoader": 2,
+        "VAELoader": 2,
+        "CLIPVisionLoader": 2,
+        # ── Samplers (GPU heavy, dominant time) ──
+        "WanVideoSampler": 25,
+        "WanMoeKSamplerAdvanced": 25,
+        "KSampler": 25,
+        # ── Encoding / decoding ──
+        "WanVideoTextEncode": 2,
+        "CLIPTextEncode": 2,
+        "CLIPVisionEncode": 2,
+        "WanVideoImageToVideoEncode": 3,
+        "WanVideoDecode": 8,
+        "VAEDecode": 8,
+        "PainterI2V": 5,
+        # ── Post-processing ──
+        "AutoLoadRifeTensorrtModel": 2,
+        "AutoRifeTensorrt": 10,
+        "MMAudioModelLoader": 3,
+        "MMAudioFeatureUtilsLoader": 3,
+        "MMAudioSampler": 10,
+        "VHS_VideoCombine": 3,
+        "ColorMatch": 2,
+        "ImageScale": 1,
+        # ── Fast / instant nodes ──
+        "VRAMCleanup": 1,
+        "LoadImage": 1,
+        "WanVideoImageResizeToClosest": 1,
+        "WanVideoLoraSelect": 1,
+        "WanVideoSetLoRAs": 1,
+        "Power Lora Loader (rgthree)": 1,
+        "Seed (rgthree)": 1,
+        "FloatConstant": 1,
+        "INTConstant": 1,
+        "PrimitiveFloat": 1,
+        "SamplerSelector": 1,
+        "SchedulerSelector": 1,
+        "mxSlider": 1,
+        "PathchSageAttentionKJ": 1,
+        "ModelPatchTorchSettings": 1,
+    }
+    _NODE_WEIGHT_DEFAULT = 2
+
     async def _wait_with_progress(self, client: ComfyUIClient, prompt_id: str, task_id: str, timeout: float = 600) -> dict:
         overall_start = asyncio.get_event_loop().time()
         ws_url = client.base_url.replace("http://", "ws://").replace("https://", "wss://")
         try:
             import websockets
+
+            # ── Pre-calculate node weights from workflow ──
+            workflow_json = await self.redis.hget(f"task:{task_id}", "workflow")
+            workflow = json.loads(workflow_json) if workflow_json else {}
+
+            node_weights: dict[str, int] = {}
+            for nid, ndata in workflow.items():
+                ct = ndata.get("class_type", "") if isinstance(ndata, dict) else ""
+                node_weights[nid] = self._NODE_WEIGHTS.get(ct, self._NODE_WEIGHT_DEFAULT)
+
+            total_weight = sum(node_weights.values()) or 1
+
+            # Progress range: 5% → 89% mapped to node weight completion
+            P_START, P_END = 0.05, 0.89
+            P_RANGE = P_END - P_START
+
+            # ── State tracking ──
+            high_water_progress = 0.0    # never let progress go backwards
+            # For "executing" message fallback (standard ComfyUI)
+            exec_completed_weight = 0.0
+            exec_current_node_id = None
+            exec_current_node_weight = 0
+            # Unified node progress cache: {node_id: fraction 0.0-1.0}
+            node_frac: dict[str, float] = {}
+            ps_running_node_id: str | None = None  # last running node from progress_state
+
             async with websockets.connect(f"{ws_url}/ws?clientId=api-{prompt_id}") as ws:
                 deadline = asyncio.get_event_loop().time() + timeout
                 msg_count = 0
                 last_history_check = asyncio.get_event_loop().time()
-                # Multi-stage progress tracking
-                total_steps = 0       # sum of max_steps across all stages
-                completed_steps = 0   # steps finished in previous stages
-                current_max = 0       # max_step of current stage
-                last_step = -1        # last step value seen (detect stage reset)
-                high_water_progress = 0.0  # never let progress go backwards
                 while asyncio.get_event_loop().time() < deadline:
                     try:
                         msg = await asyncio.wait_for(ws.recv(), timeout=10)
                         msg_count += 1
                         # Skip binary messages (preview images etc.)
                         if isinstance(msg, bytes):
-                            # Periodically check history even when receiving binary messages
                             now = asyncio.get_event_loop().time()
                             if now - last_history_check >= 5:
                                 last_history_check = now
@@ -908,43 +1014,72 @@ class TaskManager:
                         data = json.loads(msg)
                         msg_type = data.get("type")
                         d = data.get("data", {})
-                        if msg_type == "progress" and d.get("prompt_id") == prompt_id:
+
+                        # ── progress_state: rich node-level progress (custom ComfyUI) ──
+                        if msg_type == "progress_state" and d.get("prompt_id") == prompt_id:
+                            nodes_data = d.get("nodes", {})
+                            # Update node progress cache from progress_state
+                            for nid, ninfo in nodes_data.items():
+                                if not isinstance(ninfo, dict):
+                                    continue
+                                state = ninfo.get("state", "")
+                                if state == "finished":
+                                    node_frac[nid] = 1.0
+                                elif state == "running":
+                                    ps_running_node_id = nid
+                                    val = ninfo.get("value", 0)
+                                    mx = ninfo.get("max", 1)
+                                    # Only update if progress_state has useful info (not 0/1 placeholder)
+                                    cur = node_frac.get(nid, 0)
+                                    ps_frac = val / max(mx, 1) if mx else 0
+                                    node_frac[nid] = max(cur, ps_frac)
+
+                            # Calculate weighted progress from cache
+                            weighted_done = sum(node_weights.get(nid, self._NODE_WEIGHT_DEFAULT) * frac
+                                                for nid, frac in node_frac.items())
+                            progress = round(P_START + P_RANGE * weighted_done / total_weight, 3)
+                            progress = min(progress, P_END)
+                            progress = max(progress, high_water_progress)
+                            if progress > high_water_progress:
+                                high_water_progress = progress
+                                await self.redis.hset(f"task:{task_id}", "progress", str(progress))
+
+                        # ── executing: standard ComfyUI node-by-node signal ──
+                        elif msg_type == "executing" and d.get("prompt_id") == prompt_id:
+                            node_id = d.get("node")
+                            if node_id is None:
+                                logger.info("Task %s: completion signal received via WebSocket", task_id)
+                                return await client.get_history(prompt_id)
+
+                            # Node transition: previous node finished
+                            if exec_current_node_id and exec_current_node_id != node_id:
+                                exec_completed_weight += node_weights.get(exec_current_node_id, self._NODE_WEIGHT_DEFAULT)
+                            exec_current_node_id = node_id
+                            exec_current_node_weight = node_weights.get(node_id, self._NODE_WEIGHT_DEFAULT)
+
+                            progress = round(P_START + P_RANGE * exec_completed_weight / total_weight, 3)
+                            progress = min(progress, P_END)
+                            if progress > high_water_progress:
+                                high_water_progress = progress
+                                await self.redis.hset(f"task:{task_id}", "progress", str(progress))
+
+                        # ── progress: step-level display info only ──
+                        # Progress calculation is driven by progress_state messages.
+                        # Step messages just update the step display fields.
+                        elif msg_type == "progress" and d.get("prompt_id") == prompt_id:
                             step = d.get("value", 0)
                             max_step = d.get("max", 1)
-                            # Detect new stage: step resets or new max_step appears
-                            if max_step != current_max or (step < last_step and step <= 1):
-                                if current_max > 0:
-                                    completed_steps += current_max
-                                current_max = max_step
-                                total_steps = completed_steps + max_step
-                            last_step = step
-                            overall = completed_steps + step
-                            progress = round(0.05 + 0.85 * overall / max(total_steps, 1), 3)
-                            progress = min(progress, 0.89)
-                            # Never let progress go backwards (HIGH→LOW stage transition)
-                            progress = max(progress, high_water_progress)
-                            high_water_progress = progress
-                            # Save detailed progress info
                             await self.redis.hset(f"task:{task_id}", mapping={
-                                "progress": str(progress),
                                 "current_step": str(step),
                                 "max_step": str(max_step),
-                                "total_steps": str(total_steps),
-                                "completed_steps": str(completed_steps)
                             })
-                        elif msg_type == "executing":
-                            if d.get("node") is None:
-                                ws_prompt_id = d.get("prompt_id")
-                                if ws_prompt_id == prompt_id:
-                                    logger.info("Task %s: completion signal received via WebSocket", task_id)
-                                    return await client.get_history(prompt_id)
-                                else:
-                                    logger.warning("Task %s: WS completion signal prompt_id mismatch: ws=%s expected=%s", task_id, ws_prompt_id, prompt_id)
+
                         elif msg_type in ("execution_error", "execution_interrupted"):
                             if d.get("prompt_id") == prompt_id:
                                 err_msg = d.get("exception_message", "ComfyUI execution error").strip()
                                 logger.error("Task %s: %s received via WebSocket: %s", task_id, msg_type, err_msg)
                                 raise RuntimeError(err_msg)
+
                         # Periodically check history for completion (every 5s)
                         now = asyncio.get_event_loop().time()
                         if now - last_history_check >= 5:
@@ -1078,7 +1213,7 @@ class TaskManager:
         Story mode uses a merged workflow (single ComfyUI prompt with shared models)
         to eliminate per-segment model reload overhead.
         """
-        from api.services.ffmpeg_utils import extract_last_frame, extract_first_frame, concat_videos
+        from api.services.ffmpeg_utils import extract_last_frame, concat_videos
         from api.services.prompt_optimizer import PromptOptimizer
         import base64
 
@@ -1096,18 +1231,13 @@ class TaskManager:
         chain_params = json.loads(chain_data.get("params", "{}"))
         segment_prompts = chain_params.get("segment_prompts", [])
 
-        # Story mode: track the initial reference image filename (identity anchor)
-        # Check if segments already have initial_ref_filename set (from single segment generation)
-        initial_ref_filename = segments[0].get("initial_ref_filename", "") if segments else ""
-
         try:
             await self.redis.hset(f"chain:{chain_id}", "status", "running")
 
             # ── Merged story mode: single ComfyUI prompt with shared models ──
-            # Only use merged story workflow if first_frame mode (has image_filename AND image_mode is first_frame)
-            # For face_reference mode (only face_image_filename), use standard T2V workflow
-            seg0_image_mode = segments[0].get("image_mode", "first_frame")
-            if story_mode and segments[0].get("image_filename") and seg0_image_mode == "first_frame":
+            # All story_mode flows go through merged path (handles I2V, T2V fallback,
+            # face_reference, and cross-workflow continuation internally)
+            if story_mode:
                 await self._chain_worker_merged_story(
                     chain_id, segments, segment_prompts,
                 )
@@ -1124,18 +1254,9 @@ class TaskManager:
                 if not client:
                     raise RuntimeError(f"ComfyUI {model.value} not available")
 
-                # ── Story mode branch (fallback: no start image) ──
-                if story_mode:
-                    workflow = await self._build_story_segment(
-                        i, seg, segments, video_paths, client,
-                        chain_id, segment_prompts, original_prompt,
-                        total, optimizer, auto_continue, initial_ref_filename,
-                    )
-                    mode = GenerateMode.I2V
-
                 # ── Standard chain mode ──
                 # For segments after the first, use VLM to generate continuation prompt
-                elif i > 0 and video_paths and auto_continue:
+                if i > 0 and video_paths and auto_continue:
                     frame_path = await extract_last_frame(video_paths[-1])
                     frame_data = frame_path.read_bytes()
                     frame_b64 = base64.b64encode(frame_data).decode()
@@ -1203,6 +1324,7 @@ class TaskManager:
                         model_preset=seg.get("model_preset", ""),
                         upscale=seg.get("upscale", False),
                         t5_preset=seg.get("t5_preset", ""),
+                        standin_face_image=seg.get("standin_face_image") or chain_params.get("standin_face_image"),
                     )
                 else:
                     mode = GenerateMode.I2V
@@ -1239,8 +1361,7 @@ class TaskManager:
                     )
 
                 # Inject post-processing nodes (upscale, RIFE, MMAudio) for standard chain mode.
-                # Skip for story mode: _build_story_segment already injects postproc internally.
-                if not story_mode and (seg.get("enable_upscale") or seg.get("enable_interpolation") or seg.get("enable_mmaudio")):
+                if seg.get("enable_upscale") or seg.get("enable_interpolation") or seg.get("enable_mmaudio"):
                     workflow = await asyncio.to_thread(_inject_story_postproc, workflow, seg)
 
                 task_id = await self.create_task(mode, model, workflow, params=seg, chain_id=chain_id)
@@ -1251,19 +1372,6 @@ class TaskManager:
                 video_path = await self._wait_for_task_completion(task_id, timeout=1800)
                 video_paths.append(video_path)
                 segment_filenames.append(video_path.name)
-
-                # Story mode: after first segment, establish the initial reference image
-                if story_mode and i == 0 and not initial_ref_filename:
-                    if seg.get("image_filename"):
-                        # Had a start image — use it as identity anchor
-                        initial_ref_filename = seg["image_filename"]
-                    else:
-                        # T2V start — extract first frame as identity anchor
-                        ref_frame_path = await extract_first_frame(video_path)
-                        ref_frame_data = ref_frame_path.read_bytes()
-                        ref_upload = await client.upload_image(ref_frame_data, ref_frame_path.name)
-                        initial_ref_filename = ref_upload.get("name", ref_frame_path.name)
-                    logger.info("Chain %s: story initial_ref_filename=%s", chain_id, initial_ref_filename)
 
                 await self.redis.hset(f"chain:{chain_id}", "completed_segments", str(i + 1))
                 logger.info("Chain %s: segment %d/%d completed", chain_id, i + 1, total)
@@ -1407,10 +1515,87 @@ class TaskManager:
             })
             return
 
+        # Extract parent_video_filename for cross-workflow continuation
+        parent_video_fn = seg0.get("parent_video_filename", "")
+
+        # T2V fallback: no start image and no parent video — use standard T2V workflow
+        if not seg0.get("image_filename") and not parent_video_fn and not face_image_filename:
+            logger.info("Chain %s: no start image, using T2V fallback", chain_id)
+            workflow = await asyncio.to_thread(
+                build_workflow,
+                mode=GenerateMode.T2V,
+                model=model,
+                prompt=seg0["prompt"],
+                negative_prompt=seg0.get("negative_prompt", ""),
+                width=seg0["width"], height=seg0["height"],
+                num_frames=seg0["num_frames"], fps=seg0["fps"],
+                steps=seg0["steps"], cfg=seg0["cfg"], shift=seg0["shift"],
+                seed=seg0.get("seed"), loras=seg0.get("loras", []),
+                scheduler=seg0.get("scheduler", "unipc"),
+                model_preset=seg0.get("model_preset", ""),
+                upscale=seg0.get("upscale", False),
+                t5_preset=seg0.get("t5_preset", ""),
+            )
+            # Inject lossless last frame save (for cross-workflow continuation)
+            workflow = _inject_lossless_frame_save(workflow)
+            # Inject post-processing nodes if needed
+            if seg0.get("enable_upscale") or seg0.get("enable_interpolation") or seg0.get("enable_mmaudio"):
+                workflow = await asyncio.to_thread(_inject_story_postproc, workflow, seg0)
+
+            task_id = await self.create_task(
+                GenerateMode.T2V, model, workflow,
+                params={"story_t2v_fallback": True},
+                chain_id=chain_id,
+            )
+            task_ids = [task_id]
+            await self.redis.hset(f"chain:{chain_id}", mapping={
+                "segment_task_ids": json.dumps(task_ids),
+                "current_segment": "0",
+            })
+
+            video_path = await self._wait_for_task_completion(task_id, timeout=1800)
+            task_data = await self.redis.hgetall(f"task:{task_id}")
+            video_url = task_data.get("video_url", "")
+
+            # Retrieve lossless last frame from SaveImage node
+            t2v_lossless_url = None
+            try:
+                prompt_id = task_data.get("prompt_id", "")
+                comfyui_url = task_data.get("comfyui_url", "")
+                t2v_client = self._get_client_by_url(model.value, comfyui_url) if comfyui_url else client
+                if prompt_id:
+                    output_images = await t2v_client.get_output_images(prompt_id)
+                    lastframe_images = [
+                        f for f in output_images
+                        if f.get("filename", "").startswith("wan22_story_lastframe")
+                    ]
+                    if lastframe_images:
+                        img = lastframe_images[-1]
+                        img_data = await t2v_client.download_file(
+                            img["filename"], img.get("subfolder", ""), img.get("type", "output"),
+                        )
+                        _, frame_url = await storage.save_upload(img_data, img["filename"])
+                        t2v_lossless_url = frame_url
+                        logger.info("Chain %s: saved lossless last frame (T2V): %s", chain_id, t2v_lossless_url)
+            except Exception as e:
+                logger.warning("Chain %s: failed to retrieve lossless last frame (T2V): %s", chain_id, e)
+
+            t2v_mapping = {
+                "status": "completed",
+                "completed_segments": str(total),
+                "completed_at": str(int(time.time())),
+                "final_video_url": video_url,
+                "segment_task_ids": json.dumps(task_ids),
+            }
+            if t2v_lossless_url:
+                t2v_mapping["lossless_last_frame_url"] = t2v_lossless_url
+            await self.redis.hset(f"chain:{chain_id}", mapping=t2v_mapping)
+            logger.info("Chain %s (T2V fallback) completed: %s", chain_id, video_url)
+            return
+
         logger.info("Chain %s: building merged story workflow for %d segments", chain_id, total)
 
         # Extract face_image_filename from segment 0 if present
-        face_image_filename = seg0.get("face_image_filename", "")
         face_swap_strength = seg0.get("face_swap_strength", 1.0)
 
         # Build single merged workflow (run in thread to avoid blocking event loop)
@@ -1440,10 +1625,12 @@ class TaskManager:
             enable_mmaudio=seg0.get("enable_mmaudio", False),
             mmaudio_prompt=seg0.get("mmaudio_prompt", ""),
             mmaudio_negative_prompt=seg0.get("mmaudio_negative_prompt", ""),
-            mmaudio_steps=seg0.get("mmaudio_steps", 25),
+            mmaudio_steps=seg0.get("mmaudio_steps", 12),
             mmaudio_cfg=seg0.get("mmaudio_cfg", 4.5),
             face_image_filename=face_image_filename,
             face_swap_strength=face_swap_strength,
+            parent_video_filename=parent_video_fn,
+            initial_ref_filename=seg0.get("initial_ref_filename", ""),
         )
 
         # Create a single task for the entire merged workflow
@@ -1476,6 +1663,26 @@ class TaskManager:
             client = self._get_client_by_url(model.value, comfyui_url)
 
         output_files = await client.get_output_files_ordered(prompt_id)
+
+        # Retrieve lossless last frame from SaveImage node (for cross-workflow continuation)
+        lossless_frame_url = None
+        try:
+            output_images = await client.get_output_images(prompt_id)
+            lastframe_images = [
+                f for f in output_images
+                if f.get("filename", "").startswith("wan22_story_lastframe")
+            ]
+            if lastframe_images:
+                img = lastframe_images[-1]
+                img_data = await client.download_file(
+                    img["filename"], img.get("subfolder", ""), img.get("type", "output"),
+                )
+                _, frame_url = await storage.save_upload(img_data, img["filename"])
+                lossless_frame_url = frame_url
+                logger.info("Chain %s: saved lossless last frame: %s", chain_id, lossless_frame_url)
+        except Exception as e:
+            logger.warning("Chain %s: failed to retrieve lossless last frame: %s", chain_id, e)
+
         if not output_files:
             # Post-processing nodes may have failed (e.g. RIFE TRT), but the task
             # itself may have completed with a video from the preview node.
@@ -1483,13 +1690,16 @@ class TaskManager:
             task_video_url = task_data.get("video_url", "")
             if task_video_url:
                 logger.warning("Chain %s: no output files from final node, using task video_url fallback", chain_id)
-                await self.redis.hset(f"chain:{chain_id}", mapping={
+                fallback_mapping = {
                     "status": "completed",
                     "completed_segments": str(total),
                     "final_video_url": task_video_url,
                     "completed_at": str(int(time.time())),
                     "segment_task_ids": json.dumps(task_ids),
-                })
+                }
+                if lossless_frame_url:
+                    fallback_mapping["lossless_last_frame_url"] = lossless_frame_url
+                await self.redis.hset(f"chain:{chain_id}", mapping=fallback_mapping)
                 logger.info("Chain %s (merged story, fallback) completed: %s", chain_id, task_video_url)
                 return
             raise RuntimeError("No output files from merged story workflow")
@@ -1549,212 +1759,16 @@ class TaskManager:
                 for fn in segment_filenames:
                     storage.cleanup_local(fn)
 
-        await self.redis.hset(f"chain:{chain_id}", mapping={
+        completion_mapping = {
             "status": "completed",
             "final_video_url": final_url,
             "completed_at": str(int(time.time())),
             "segment_task_ids": json.dumps(task_ids),
-        })
+        }
+        if lossless_frame_url:
+            completion_mapping["lossless_last_frame_url"] = lossless_frame_url
+        await self.redis.hset(f"chain:{chain_id}", mapping=completion_mapping)
         logger.info("Chain %s (merged story) completed: %s", chain_id, final_url)
-
-    async def _build_story_segment(
-        self, i: int, seg: dict, segments: list[dict],
-        video_paths: list, client, chain_id: str,
-        segment_prompts: list, original_prompt: str,
-        total: int, optimizer, auto_continue: bool,
-        initial_ref_filename: str,
-    ) -> dict:
-        """Build a story workflow for segment i (PainterI2V or PainterLongVideo)."""
-        from api.services.ffmpeg_utils import extract_last_frame, extract_last_n_frames_video
-        import base64
-
-        seg["segment_index"] = i
-        seg["target_prompt"] = segment_prompts[i] if i < len(segment_prompts) else seg["prompt"]
-        seg["story_mode"] = True
-
-        prev_video_filename = ""
-
-        # VLM prompt continuation for seg2+ (same as standard chain)
-        if i > 0 and video_paths and auto_continue:
-            frame_path = await extract_last_frame(video_paths[-1])
-            frame_data = frame_path.read_bytes()
-            frame_b64 = base64.b64encode(frame_data).decode()
-
-            prev_prompt = segments[i - 1]["prompt"]
-            target_prompt = seg["target_prompt"]
-            new_prompt = await optimizer.continue_prompt(
-                original_prompt=original_prompt,
-                frame_image_base64=frame_b64,
-                segment_index=i,
-                total_segments=total,
-                target_prompt=target_prompt,
-                previous_prompt=prev_prompt,
-            )
-            seg["prompt"] = new_prompt
-            seg["vlm_prompt"] = new_prompt
-            seg["final_prompt"] = new_prompt
-            logger.info("Chain %s seg %d (story): VLM prompt: %s", chain_id, i, new_prompt[:100])
-
-            # Extract last N frames as short video for motion reference
-            motion_frames = seg.get("motion_frames", 5)
-            fps = seg.get("fps", 16)
-            short_video_path = await extract_last_n_frames_video(video_paths[-1], motion_frames, fps)
-            video_data = short_video_path.read_bytes()
-            upload_result = await client.upload_video(video_data, short_video_path.name)
-            prev_video_filename = upload_result.get("name", short_video_path.name)
-        elif i > 0 and video_paths:
-            # No VLM but still need previous video for story continuation
-            seg["final_prompt"] = seg["prompt"]
-            motion_frames = seg.get("motion_frames", 5)
-            fps = seg.get("fps", 16)
-            short_video_path = await extract_last_n_frames_video(video_paths[-1], motion_frames, fps)
-            video_data = short_video_path.read_bytes()
-            upload_result = await client.upload_video(video_data, short_video_path.name)
-            prev_video_filename = upload_result.get("name", short_video_path.name)
-        else:
-            seg["final_prompt"] = seg["prompt"]
-
-        # Check if this segment has a parent video (continuation from previous chain)
-        parent_video_fn = seg.get("parent_video_filename", "")
-
-        if i == 0 and parent_video_fn:
-            # First segment but continuing from parent video: use PainterLongVideo
-            logger.info("Chain %s seg 0: continuation from parent video %s", chain_id, parent_video_fn)
-            workflow = await asyncio.to_thread(
-                build_story_workflow,
-                is_first_segment=False,
-                prompt=seg["prompt"],
-                negative_prompt=seg.get("negative_prompt", ""),
-                width=seg["width"], height=seg["height"],
-                num_frames=seg["num_frames"],
-                seed=seg.get("seed"),
-                shift=seg.get("shift", 8.0),
-                cfg=seg.get("cfg", 1.0),
-                steps=seg.get("steps", 20),
-                motion_amplitude=seg.get("motion_amplitude", 1.15),
-                motion_frames=seg.get("motion_frames", 5),
-                boundary=seg.get("boundary", 0.9),
-                video_filename=parent_video_fn,
-                initial_ref_filename=initial_ref_filename,
-                model_preset=seg.get("model_preset", "nsfw_v2"),
-                clip_preset=seg.get("clip_preset", "nsfw"),
-                fps=seg.get("fps", 16),
-                upscale=seg.get("upscale", False),
-                loras=seg.get("loras", []),
-            )
-        elif i == 0:
-            # First segment: check image mode
-            image_filename = seg.get("image_filename", "")
-            face_image_filename = seg.get("face_image_filename", "")
-            image_mode = seg.get("image_mode", "first_frame")
-
-            # If face_reference or full_body_reference mode, use I2V workflow (PainterI2V)
-            if image_mode in ["face_reference", "full_body_reference"]:
-                logger.info("Chain %s: seg 0 %s mode, using I2V workflow", chain_id, image_mode)
-
-                workflow = await asyncio.to_thread(
-                    build_story_workflow,
-                    is_first_segment=True,
-                    prompt=seg["prompt"],
-                    negative_prompt=seg.get("negative_prompt", ""),
-                    width=seg["width"],
-                    height=seg["height"],
-                    num_frames=seg["num_frames"],
-                    seed=seg.get("seed"),
-                    shift=seg.get("shift", 8.0),
-                    cfg=seg.get("cfg", 1.0),
-                    steps=seg.get("steps", 20),
-                    motion_amplitude=seg.get("motion_amplitude", 1.15),
-                    motion_frames=seg.get("motion_frames", 5),
-                    boundary=seg.get("boundary", 0.9),
-                    image_filename=image_filename or face_image_filename,
-                    model_preset=seg.get("model_preset", "nsfw_v2"),
-                    clip_preset=seg.get("clip_preset", "nsfw"),
-                    fps=seg.get("fps", 16),
-                    upscale=seg.get("upscale", False),
-                    loras=seg.get("loras", []),
-                )
-                # Inject post-processing nodes (upscale, RIFE, MMAudio) if enabled
-                if seg.get("enable_upscale") or seg.get("enable_interpolation") or seg.get("enable_mmaudio"):
-                    workflow = await asyncio.to_thread(_inject_story_postproc, workflow, seg)
-                return workflow
-
-            if not image_filename:
-                # No start image — fall back to standard T2V for first segment
-                logger.info("Chain %s: story mode seg 0 has no image, using T2V fallback", chain_id)
-                from api.models.enums import GenerateMode
-                workflow = await asyncio.to_thread(
-                    build_workflow,
-                    mode=GenerateMode.T2V,
-                    model=ModelType(seg["model"]),
-                    prompt=seg["prompt"],
-                    negative_prompt=seg.get("negative_prompt", ""),
-                    width=seg["width"], height=seg["height"],
-                    num_frames=seg["num_frames"], fps=seg["fps"],
-                    steps=seg["steps"], cfg=seg["cfg"], shift=seg["shift"],
-                    seed=seg.get("seed"), loras=seg.get("loras", []),
-                    scheduler=seg.get("scheduler", "unipc"),
-                    model_preset=seg.get("model_preset", ""),
-                    upscale=seg.get("upscale", False),
-                    t5_preset=seg.get("t5_preset", ""),
-                )
-                # Inject post-processing nodes (upscale, RIFE, MMAudio) if enabled
-                if seg.get("enable_upscale") or seg.get("enable_interpolation") or seg.get("enable_mmaudio"):
-                    workflow = await asyncio.to_thread(_inject_story_postproc, workflow, seg)
-                return workflow
-
-            # First_frame mode: use PainterI2V
-            workflow = await asyncio.to_thread(
-                build_story_workflow,
-                is_first_segment=True,
-                prompt=seg["prompt"],
-                negative_prompt=seg.get("negative_prompt", ""),
-                width=seg["width"], height=seg["height"],
-                num_frames=seg["num_frames"],
-                seed=seg.get("seed"),
-                shift=seg.get("shift", 8.0),
-                cfg=seg.get("cfg", 1.0),
-                steps=seg.get("steps", 20),
-                motion_amplitude=seg.get("motion_amplitude", 1.15),
-                motion_frames=seg.get("motion_frames", 5),
-                boundary=seg.get("boundary", 0.9),
-                image_filename=image_filename,
-                model_preset=seg.get("model_preset", "nsfw_v2"),
-                clip_preset=seg.get("clip_preset", "nsfw"),
-                fps=seg.get("fps", 16),
-                upscale=seg.get("upscale", False),
-                loras=seg.get("loras", []),
-            )
-        else:
-            # Continuation segment: PainterLongVideo with full video reference
-            workflow = await asyncio.to_thread(
-                build_story_workflow,
-                is_first_segment=False,
-                prompt=seg["prompt"],
-                negative_prompt=seg.get("negative_prompt", ""),
-                width=seg["width"], height=seg["height"],
-                num_frames=seg["num_frames"],
-                seed=seg.get("seed"),
-                shift=seg.get("shift", 8.0),
-                cfg=seg.get("cfg", 1.0),
-                steps=seg.get("steps", 20),
-                motion_amplitude=seg.get("motion_amplitude", 1.15),
-                motion_frames=seg.get("motion_frames", 5),
-                boundary=seg.get("boundary", 0.9),
-                video_filename=prev_video_filename,
-                initial_ref_filename=initial_ref_filename,
-                model_preset=seg.get("model_preset", "nsfw_v2"),
-                clip_preset=seg.get("clip_preset", "nsfw"),
-                fps=seg.get("fps", 16),
-                upscale=seg.get("upscale", False),
-                loras=seg.get("loras", []),
-            )
-
-        # Inject post-processing nodes (upscale, RIFE, MMAudio) into single-segment story workflow
-        if seg.get("enable_upscale") or seg.get("enable_interpolation") or seg.get("enable_mmaudio"):
-            workflow = await asyncio.to_thread(_inject_story_postproc, workflow, seg)
-
-        return workflow
 
     async def _wait_for_task_completion(self, task_id: str, timeout: float = 1800) -> Optional['Path']:
         """Poll Redis until task completes. Returns local video path.

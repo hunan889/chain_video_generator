@@ -166,14 +166,18 @@ async def generate_chain(
                 face_image_filename = upload_result.get("name", local_name)
     # Handle Story Mode continuation from parent chain/video
     parent_video_comfy_filename = ""
+    parent_lossless_frame_url = ""
     if req.parent_chain_id or req.parent_video_url:
         from api.services.ffmpeg_utils import extract_first_frame
 
-        # Get parent video URL
+        # Get parent video URL and lossless last frame (if available)
         parent_video_url = req.parent_video_url
         if req.parent_chain_id and not parent_video_url:
             parent_chain = await task_manager.redis.hgetall(f"chain:{req.parent_chain_id}")
             parent_video_url = parent_chain.get("final_video_url")
+            parent_lossless_frame_url = parent_chain.get("lossless_last_frame_url", "")
+            if parent_lossless_frame_url:
+                logger.info("Parent chain %s has lossless last frame: %s", req.parent_chain_id, parent_lossless_frame_url)
             if not parent_video_url:
                 raise HTTPException(400, f"Parent chain {req.parent_chain_id} has no video output")
 
@@ -205,6 +209,16 @@ async def generate_chain(
                 initial_ref_path = await storage.get_video_path_from_url(req.initial_reference_url)
                 if initial_ref_path and initial_ref_path.exists():
                     initial_ref_data = initial_ref_path.read_bytes()
+                elif req.initial_reference_url.startswith("http"):
+                    # Remote URL — download it
+                    import aiohttp
+                    async with aiohttp.ClientSession() as _sess:
+                        async with _sess.get(req.initial_reference_url) as _resp:
+                            if _resp.status == 200:
+                                initial_ref_data = await _resp.read()
+                                logger.info("Downloaded initial reference image from URL: %s", req.initial_reference_url[:80])
+                            else:
+                                raise HTTPException(400, f"Failed to download initial reference image: HTTP {_resp.status}")
                 else:
                     raise HTTPException(400, "Initial reference image not found")
             else:
@@ -264,13 +278,14 @@ async def generate_chain(
                 "original_prompt": seg_req.prompt,
                 "auto_continue": req.auto_continue,
                 "transition": req.transition,
-                "story_mode": True,
+                "story_mode": not bool(req.standin_face_image),
                 "motion_frames": req.motion_frames,
                 "image_mode": req.image_mode.value,
                 "face_swap_strength": req.face_swap_strength,
                 "boundary": req.boundary,
                 "clip_preset": req.clip_preset,
                 "match_image_ratio": req.match_image_ratio,
+                "standin_face_image": req.standin_face_image,
                 "enable_upscale": req.enable_upscale,
                 "upscale_model": req.upscale_model,
                 "upscale_resize": req.upscale_resize,
@@ -331,7 +346,8 @@ async def generate_chain(
             "segment_durations": segment_durations,
             "total_duration": total_duration,
             "num_segments": num_segments,
-            "story_mode": True,
+            "story_mode": not bool(req.standin_face_image),
+            "standin_face_image": req.standin_face_image,
         })
         await task_manager.run_chain(chain_id, segments)
 

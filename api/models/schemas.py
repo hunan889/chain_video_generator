@@ -299,6 +299,9 @@ class AutoChainRequest(BaseModel):
     clip_preset: str = Field(default="", description="CLIP preset for story mode (e.g. 'nsfw', 'default')")
     match_image_ratio: bool = Field(default=False, description="Auto-adjust resolution to match input image aspect ratio (ignores width/height)")
 
+    # Stand-In: face identity preservation for T2V
+    standin_face_image: Optional[str] = Field(default=None, description="ComfyUI filename of uploaded face reference for Stand-In identity preservation (T2V only)")
+
     # Post-processing: Upscale
     enable_upscale: bool = Field(default=False, description="Enable TensorRT upscale")
     upscale_model: str = Field(default="4x-UltraSharp", description="Upscale model name")

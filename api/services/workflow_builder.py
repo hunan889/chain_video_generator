@@ -298,29 +298,29 @@ def _has_conflict(word: str, prompt_lower: str) -> bool:
 
 
 def _inject_trigger_words(prompt: str, loras: list[LoraInput]) -> str:
-    """Collect trigger words and trigger_prompt from selected LoRAs and prepend to prompt.
+    """Collect trigger words from selected LoRAs and prepend to prompt.
+
+    Only injects short activation keywords (trigger_words).
+    trigger_prompt is NOT injected here — it is passed to the LLM as
+    reference context via generate_video_prompt() so the LLM can
+    incorporate the LoRA's style without blindly concatenating.
 
     Priority:
     1. lora.trigger_words (from DB) - short activation keywords
-    2. lora.trigger_prompt (from DB) - example prompts
-    3. Fallback: loras.yaml keyword map
+    2. Fallback: loras.yaml keyword map
     """
     kw_map = _load_lora_keywords()
     all_parts = []
     prompt_lower = prompt.lower()
 
     for lora in loras:
-        if lora.trigger_words or lora.trigger_prompt:
-            # Use DB fields
+        if lora.trigger_words:
+            # Use DB trigger_words (short keywords only)
             for word in lora.trigger_words:
                 if word and word.lower() not in prompt_lower and word not in all_parts:
                     all_parts.append(word)
-            if lora.trigger_prompt and lora.trigger_prompt.strip():
-                tp = lora.trigger_prompt.strip()
-                if tp not in all_parts:
-                    all_parts.append(tp)
-        else:
-            # Fallback to loras.yaml keyword map
+        elif not lora.trigger_prompt:
+            # Fallback to loras.yaml keyword map only when no DB fields at all
             for word in kw_map.get(lora.name, []):
                 if len(word) > 200:
                     continue
@@ -410,6 +410,18 @@ WORKFLOW_MAP = {
     (GenerateMode.T2V, ModelType.FIVE_B): "t2v_5b.json",
     (GenerateMode.I2V, ModelType.A14B): "i2v_a14b.json",
     (GenerateMode.I2V, ModelType.FIVE_B): "i2v_5b.json",
+}
+
+# Stand-In LoRA filenames (auto-injected when Stand-In mode is active)
+STANDIN_LORAS = {
+    "high": "stand-in/Stand-In_wan2.2_T2V_A14B_HIGH_fp16.safetensors",
+    "low": "stand-in/Stand-In_wan2.2_T2V_A14B_LOW_fp16.safetensors",
+}
+
+# Lightning LoRA for T2V acceleration (used with Stand-In)
+LIGHTX2V_DISTILL_LORAS = {
+    "high": "wan2.2_t2v_A14b_high_noise_lora_rank64_lightx2v_4step_1217.safetensors",
+    "low": "wan2.2_t2v_A14b_low_noise_lora_rank64_lightx2v_4step_1217.safetensors",
 }
 
 _template_cache: dict[str, dict] = {}
@@ -621,6 +633,58 @@ _PYTORCH_UPSCALE_MODELS = {"RealESRGAN_x2plus.pth", "RealESRGAN_x2plus"}
 # All others assumed to be TRT (LoadUpscalerTensorrtModel + UpscalerTensorrt)
 
 
+def build_face_swap_workflow(frame_filename: str, face_filename: str, strength: float = 1.0) -> dict:
+    """Build a minimal 4-node ComfyUI workflow for face swap.
+
+    Args:
+        frame_filename: ComfyUI filename of the target frame (already uploaded).
+        face_filename: ComfyUI filename of the reference face (already uploaded).
+        strength: Face swap strength (unused by ReActor directly, kept for API parity).
+
+    Returns:
+        ComfyUI workflow dict ready for queue_prompt().
+    """
+    return {
+        "1": {
+            "class_type": "LoadImage",
+            "inputs": {"image": frame_filename},
+            "_meta": {"title": "Load Target Frame"},
+        },
+        "2": {
+            "class_type": "LoadImage",
+            "inputs": {"image": face_filename},
+            "_meta": {"title": "Load Reference Face"},
+        },
+        "3": {
+            "class_type": "ReActorFaceSwap",
+            "inputs": {
+                "enabled": True,
+                "input_image": ["1", 0],
+                "source_image": ["2", 0],
+                "swap_model": "inswapper_128.onnx",
+                "facedetection": "retinaface_resnet50",
+                "face_restore_model": "codeformer-v0.1.0.pth",
+                "face_restore_visibility": 0.85,
+                "codeformer_weight": 0.3,
+                "detect_gender_input": "no",
+                "detect_gender_source": "no",
+                "input_faces_index": "0",
+                "source_faces_index": "0",
+                "console_log_level": 1,
+            },
+            "_meta": {"title": "ReActor Face Swap"},
+        },
+        "4": {
+            "class_type": "SaveImage",
+            "inputs": {
+                "images": ["3", 0],
+                "filename_prefix": "face_swap",
+            },
+            "_meta": {"title": "Save Result"},
+        },
+    }
+
+
 def _inject_reactor(workflow: dict, face_image_path: str, strength: float) -> dict:
     """Insert Reactor face swap nodes between video decode and VHS_VideoCombine.
 
@@ -775,13 +839,18 @@ def build_workflow(
     t5_preset: str = "",
     face_swap_config = None,
     face_image_path: Optional[str] = None,
+    standin_face_image: Optional[str] = None,
 ) -> dict:
     # Normalize loras: accept both LoraInput objects and dicts
     if loras:
         loras = [l if isinstance(l, LoraInput) else LoraInput(**l) for l in loras]
 
-    # Always use standard workflow (enhanced workflow causes scene jumping issues)
-    template_name = WORKFLOW_MAP[(mode, model)]
+    # Stand-In mode: use dedicated T2V template with face processing pipeline
+    if standin_face_image and mode == GenerateMode.T2V and model == ModelType.A14B:
+        template_name = "t2v_standin_a14b.json"
+        logger.info("Stand-In mode: using T2V Stand-In template")
+    else:
+        template_name = WORKFLOW_MAP[(mode, model)]
     workflow = _load_template(template_name)
 
     if seed is None:
@@ -801,7 +870,12 @@ def build_workflow(
         logger.info("Aligned height to %d (must be multiple of 16)", height)
 
     # Apply model preset: override model filenames and quantization
-    preset = MODEL_PRESETS.get(model_preset) if model_preset else None
+    # Skip for Stand-In mode: Stand-In requires T2V models, presets would replace with I2V models
+    if standin_face_image and mode == GenerateMode.T2V:
+        logger.info("Stand-In mode: skipping model_preset override to preserve T2V models")
+        preset = None
+    else:
+        preset = MODEL_PRESETS.get(model_preset) if model_preset else None
     if preset:
         for node_id, node in workflow.items():
             if node.get("class_type") == "WanVideoModelLoader":
@@ -813,6 +887,14 @@ def build_workflow(
                     inputs["model"] = preset["low"]
                 inputs["quantization"] = preset["quantization"]
 
+    # Stand-In flag (used for multiple overrides below)
+    is_standin = bool(standin_face_image) and mode == GenerateMode.T2V
+
+    # Stand-In mode: NSFW T5 actually improves identity preservation.
+    # The previous double-face issue was caused by LOW sampler re-injecting face latent,
+    # NOT by the T5 encoder. Keep NSFW T5 for better identity matching.
+    # (LOW sampler fix: template uses EmptyEmbeds for node 7's image_embeds)
+
     # Apply T5 text encoder preset
     t5_info = T5_PRESETS.get(t5_preset) if t5_preset else None
     if t5_info:
@@ -821,6 +903,14 @@ def build_workflow(
                 inputs = node.get("inputs", {})
                 inputs["model_name"] = t5_info["file"]
                 inputs["quantization"] = t5_info["quantization"]
+
+    # Stand-In mode: force validated sampler params (ignore turbo/preset overrides)
+    if is_standin:
+        steps = 8
+        cfg = 1.0
+        shift = 5.0
+        scheduler = "dpm++_sde"
+        logger.info("Stand-In mode: forced sampler params steps=%d cfg=%.1f shift=%.1f scheduler=%s", steps, cfg, shift, scheduler)
 
     # Walk through nodes and set parameters
     final_prompt = _inject_trigger_words(prompt, loras) if loras else prompt
@@ -882,7 +972,73 @@ def build_workflow(
                 elif inp.get("end_step", 0) == -1 and inp.get("start_step", 0) > 0:
                     inp["start_step"] = split_step
 
-    # Inject LoRAs
+    # Stand-In mode: inject face image and auto-add Stand-In LoRAs
+    if standin_face_image and mode == GenerateMode.T2V and model == ModelType.A14B:
+        # Set face image filename in LoadImage node
+        for nid, node in workflow.items():
+            if node.get("class_type") == "LoadImage":
+                node["inputs"]["image"] = standin_face_image
+                logger.info(f"Stand-In: set face image '{standin_face_image}' in node {nid}")
+
+        # Auto-inject Stand-In LoRAs (variant-matched to HIGH/LOW models)
+        standin_lora_inputs = []
+        for nid, node in workflow.items():
+            if node.get("class_type") == "WanVideoModelLoader":
+                model_name = node.get("inputs", {}).get("model", "").upper()
+                if "HIGH" in model_name:
+                    standin_lora_inputs.append(LoraInput(
+                        name="standin_high",
+                        strength=1.0,
+                    ))
+                elif "LOW" in model_name:
+                    standin_lora_inputs.append(LoraInput(
+                        name="standin_low",
+                        strength=1.0,
+                    ))
+
+        # Inject Stand-In LoRAs directly (bypass name resolution, use raw filenames)
+        model_node_ids = [
+            nid for nid, n in workflow.items()
+            if n.get("class_type") == "WanVideoModelLoader"
+        ]
+        max_id = max((int(k) for k in workflow.keys() if k.isdigit()), default=0)
+        for model_nid in model_node_ids:
+            model_name = workflow[model_nid]["inputs"].get("model", "").upper()
+            if "HIGH" in model_name:
+                lora_file = STANDIN_LORAS["high"]
+            elif "LOW" in model_name:
+                lora_file = STANDIN_LORAS["low"]
+            else:
+                continue
+
+            # Stand-In LoRA (official strength 1.0)
+            max_id += 1
+            standin_nid = str(max_id)
+            workflow[standin_nid] = {
+                "class_type": "WanVideoLoraSelect",
+                "inputs": {
+                    "lora": lora_file,
+                    "strength": 1.0,
+                },
+            }
+            # lightx2v distill LoRA (official strength 1.0)
+            variant_key = "high" if "HIGH" in model_name else "low"
+            max_id += 1
+            distill_nid = str(max_id)
+            workflow[distill_nid] = {
+                "class_type": "WanVideoLoraSelect",
+                "inputs": {
+                    "lora": LIGHTX2V_DISTILL_LORAS[variant_key],
+                    "strength": 1.0,
+                    "prev_lora": [standin_nid, 0],
+                },
+            }
+            # Connect LoRA chain to model's lora input
+            workflow[model_nid]["inputs"]["lora"] = [distill_nid, 0]
+
+        logger.info("Stand-In: injected Stand-In LoRAs for HIGH and LOW models")
+
+    # Inject user-selected LoRAs (on top of Stand-In LoRAs if present)
     if loras:
         model_node_ids = [
             nid for nid, n in workflow.items()
@@ -1269,6 +1425,46 @@ def build_story_workflow(
     return workflow
 
 
+def _inject_lossless_frame_save(workflow: dict) -> dict:
+    """Inject VHS_SelectImages + SaveImage to save the last frame as lossless PNG.
+
+    Finds VHS_VideoCombine's image source and taps off an independent branch
+    to select the last frame and save it before any H.264 encoding.
+    """
+    # Find VHS_VideoCombine to get the current image tensor reference
+    combine_id = None
+    for nid, node in workflow.items():
+        if node.get("class_type") == "VHS_VideoCombine":
+            combine_id = nid
+            break
+    if not combine_id:
+        return workflow
+
+    image_ref = workflow[combine_id]["inputs"].get("images")
+    if not isinstance(image_ref, list):
+        return workflow
+
+    workflow["lf_select"] = {
+        "class_type": "VHS_SelectImages",
+        "inputs": {
+            "indexes": "-1",
+            "err_if_missing": True,
+            "err_if_empty": True,
+            "image": image_ref,
+        },
+        "_meta": {"title": "Select Last Frame (lossless)"},
+    }
+    workflow["lf_save"] = {
+        "class_type": "SaveImage",
+        "inputs": {
+            "images": ["lf_select", 0],
+            "filename_prefix": "wan22_story_lastframe",
+        },
+        "_meta": {"title": "Save Last Frame (lossless PNG)"},
+    }
+    return workflow
+
+
 def _inject_story_postproc(workflow: dict, seg: dict) -> dict:
     """Inject post-processing nodes (TRT upscale, RIFE, MMAudio) into a single-segment story workflow.
 
@@ -1440,7 +1636,7 @@ def _inject_story_postproc(workflow: dict, seg: dict) -> dict:
                 "mmaudio_model": ["pp_mma_model", 0],
                 "feature_utils": ["pp_mma_features", 0],
                 "duration": audio_duration,
-                "steps": seg.get("mmaudio_steps", 25),
+                "steps": seg.get("mmaudio_steps", 12),
                 "cfg": seg.get("mmaudio_cfg", 4.5),
                 "seed": random.randint(0, 1125899906842624),
                 "prompt": seg.get("mmaudio_prompt", ""),
@@ -1490,10 +1686,12 @@ def build_merged_story_workflow(
     enable_mmaudio: bool = False,
     mmaudio_prompt: str = "",
     mmaudio_negative_prompt: str = "",
-    mmaudio_steps: int = 25,
+    mmaudio_steps: int = 12,
     mmaudio_cfg: float = 4.5,
     face_image_filename: str = "",
     face_swap_strength: float = 1.0,
+    parent_video_filename: str = "",
+    initial_ref_filename: str = "",
 ) -> dict:
     """Build a single merged ComfyUI workflow containing N story segments.
 
@@ -1600,8 +1798,7 @@ def build_merged_story_workflow(
         "_meta": {"title": "Model Patch Torch Settings"},
     }
 
-    # Node 9: LoadImage (seg0 only) — used as start_image for I2V or identity anchor for story continuation
-    # In face_reference mode, use face image as identity anchor for PainterLongVideo segments
+    # Node 9: LoadImage (seg0 only) — used as start_image for I2V and PainterLongVideo continuation
     ref_image = image_filename if image_filename else face_image_filename
     workflow["97"] = {
         "class_type": "LoadImage",
@@ -1609,7 +1806,19 @@ def build_merged_story_workflow(
         "_meta": {"title": "加载图像"},
     }
 
-    # CLIP Vision: load model + encode reference image for character consistency
+    # Identity anchor image: for cross-workflow continuation, use the original first frame
+    # from the root workflow (consistent color/identity across entire chain).
+    # For non-continuation, same as node 97.
+    identity_image_node = "97"
+    if initial_ref_filename and parent_video_filename:
+        workflow["initial_ref"] = {
+            "class_type": "LoadImage",
+            "inputs": {"image": initial_ref_filename},
+            "_meta": {"title": "Initial Reference (identity anchor)"},
+        }
+        identity_image_node = "initial_ref"
+
+    # CLIP Vision: load model + encode identity anchor for character consistency
     workflow["cv_loader"] = {
         "class_type": "CLIPVisionLoader",
         "inputs": {"clip_name": "CLIP-ViT-H-14-laion2B-s32B-b79K.safetensors"},
@@ -1619,7 +1828,7 @@ def build_merged_story_workflow(
         "class_type": "CLIPVisionEncode",
         "inputs": {
             "clip_vision": ["cv_loader", 0],
-            "image": ["97", 0],
+            "image": [identity_image_node, 0],
             "crop": "center",
         },
         "_meta": {"title": "CLIP Vision Encode"},
@@ -1725,6 +1934,10 @@ def build_merged_story_workflow(
             "vram": f"{p}vram",
             "vae_decode": f"{p}vae_dec",
             "batch": f"{p}batch",
+            "select_last": f"{p}sel_last",
+            "scale_prev": f"{p}sc_prev",
+            "load_parent": f"{p}ld_parent",
+            "scale_parent": f"{p}sc_parent",
         }
         seg_node_ids.append(ids)
 
@@ -1849,8 +2062,61 @@ def build_merged_story_workflow(
             "_meta": {"title": f"Pre-Painter VRAM Cleanup seg{seg_idx}"},
         }
 
-        # PainterI2V (seg0) or PainterLongVideo (seg1+)
-        if seg_idx == 0:
+        # PainterI2V (seg0 without parent) or PainterLongVideo (seg1+ / seg0 with parent)
+        if seg_idx == 0 and parent_video_filename:
+            # Cross-workflow continuation: seg0 uses PainterLongVideo with parent video
+            workflow[ids["load_parent"]] = {
+                "class_type": "VHS_LoadVideo",
+                "inputs": {
+                    "video": parent_video_filename,
+                    "force_rate": 0,
+                    "custom_width": 0,
+                    "custom_height": 0,
+                    "frame_load_cap": 0,
+                    "skip_first_frames": 0,
+                    "select_every_nth": 1,
+                },
+                "_meta": {"title": "Load Parent Video"},
+            }
+            # Determine previous_video source for PainterLongVideo:
+            # If face swap produced an image (image_filename), append it to the parent
+            # video frames so PainterLongVideo uses the swapped face as the last frame.
+            prev_video_source = [ids["load_parent"], 0]
+            if image_filename:
+                batch_node_id = f"seg{seg_idx}_batch_swap"
+                workflow[batch_node_id] = {
+                    "class_type": "ImageBatch",
+                    "inputs": {
+                        "image1": [ids["load_parent"], 0],  # parent video frames
+                        "image2": ["97", 0],                # face-swapped image (node 97)
+                    },
+                    "_meta": {"title": "Append face-swapped frame"},
+                }
+                prev_video_source = [batch_node_id, 0]
+                logger.info("Story continuation: appending face-swapped frame to parent video for PainterLongVideo")
+
+            # Pass frames to PainterLongVideo. It uses all frames for motion reference
+            # and the last frame as starting point.
+            workflow[ids["painter"]] = {
+                "class_type": "PainterLongVideo",
+                "inputs": {
+                    "width": painter_width,
+                    "height": painter_height,
+                    "length": ["1282", 0],
+                    "batch_size": 1,
+                    "motion_frames": ["605", 0],
+                    "motion_amplitude": ["604", 0],
+                    "positive": [ids["clip_pos"], 0],
+                    "negative": [ids["pre_vram"], 0],
+                    "vae": ["916", 0],
+                    "previous_video": prev_video_source,
+                    "initial_reference_image": [identity_image_node, 0],
+                    "clip_vision_output": ["cv_encode", 0],
+                },
+                "_meta": {"title": "PainterLongVideo (parent continuation)"},
+            }
+        elif seg_idx == 0:
+            # Normal first segment: PainterI2V
             painter_inputs = {
                 "width": painter_width,
                 "height": painter_height,
@@ -1875,6 +2141,9 @@ def build_merged_story_workflow(
                 "_meta": {"title": "PainterI2V"},
             }
         else:
+            # Continuation segment: PainterLongVideo
+            # Pass full previous segment video for motion reference + multi-frame identity sampling.
+            # PainterLongVideo internally resizes frames via common_upscale.
             prev_ids = seg_node_ids[seg_idx - 1]
             workflow[ids["painter"]] = {
                 "class_type": "PainterLongVideo",
@@ -1889,7 +2158,7 @@ def build_merged_story_workflow(
                     "negative": [ids["pre_vram"], 0],
                     "vae": ["916", 0],
                     "previous_video": [prev_ids["vae_decode"], 0],
-                    "initial_reference_image": ["97", 0],
+                    "initial_reference_image": [identity_image_node, 0],
                     "clip_vision_output": ["cv_encode", 0],
                 },
                 "_meta": {"title": f"{seg_idx + 1}-PainterLongVideo"},
@@ -1968,14 +2237,15 @@ def build_merged_story_workflow(
     else:
         final_image_ref = [last_ids["vae_decode"], 0]
 
-    # ColorMatch
+    # ColorMatch — stronger correction for continuations to prevent color drift
+    cm_strength = 0.6 if parent_video_filename else 0.4
     workflow["1546"] = {
         "class_type": "ColorMatch",
         "inputs": {
             "method": "mkl",
-            "strength": 0.4,
+            "strength": cm_strength,
             "multithread": True,
-            "image_ref": ["97", 0],
+            "image_ref": [identity_image_node, 0],
             "image_target": final_image_ref,
         },
         "_meta": {"title": "Color Match"},
@@ -1983,6 +2253,27 @@ def build_merged_story_workflow(
 
     # Track current image source through the post-processing chain
     current_image_ref = ["1546", 0]
+
+    # Save lossless last frame for cross-workflow continuation
+    # (before upscale/RIFE/H.264 — avoids cumulative compression loss)
+    workflow["lf_select"] = {
+        "class_type": "VHS_SelectImages",
+        "inputs": {
+            "indexes": "-1",
+            "err_if_missing": True,
+            "err_if_empty": True,
+            "image": ["1546", 0],
+        },
+        "_meta": {"title": "Select Last Frame (lossless)"},
+    }
+    workflow["lf_save"] = {
+        "class_type": "SaveImage",
+        "inputs": {
+            "images": ["lf_select", 0],
+            "filename_prefix": "wan22_story_lastframe",
+        },
+        "_meta": {"title": "Save Last Frame (lossless PNG)"},
+    }
 
     # VRAMCleanup before post-processing: offload models to free VRAM for TRT engines
     if enable_upscale or enable_interpolation:

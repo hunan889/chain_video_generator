@@ -48,7 +48,7 @@ async def get_result(filename: str):
         return FileResponse(path, media_type=media_types.get(ext, "audio/wav"), filename=filename)
 
     # Check if it's an image file
-    if ext in ("png", "jpg", "jpeg", "gif", "webp"):
+    if ext in ("png", "jpg", "jpeg", "gif", "webp", "avif"):
         from api.config import UPLOADS_DIR
         path = UPLOADS_DIR / filename
         if not path.exists() and COS_ENABLED:
