@@ -497,6 +497,99 @@ async def _engine_seedream_edit(
 # Engine: Clothoff (eraser)
 # ---------------------------------------------------------------------------
 
+def _normalize_to_standard_ratio(image_data: bytes) -> tuple:
+    """Normalize image to nearest standard aspect ratio via center-crop + resize.
+
+    Returns (processed_bytes, orig_width, orig_height, crop_box).
+    The crop_box is (left, top, right, bottom) used for cropping, so the result
+    can be pasted back at the correct position.
+    """
+    STANDARD_RATIOS = [
+        (1, 1),    # 1:1  = 1.000
+        (1, 2),    # 1:2  = 0.500
+        (2, 1),    # 2:1  = 2.000
+        (2, 3),    # 2:3  = 0.667
+        (3, 2),    # 3:2  = 1.500
+        (3, 4),    # 3:4  = 0.750
+        (4, 3),    # 4:3  = 1.333
+        (4, 5),    # 4:5  = 0.800
+        (5, 4),    # 5:4  = 1.250
+        (9, 16),   # 9:16 = 0.5625
+        (16, 9),   # 16:9 = 1.778
+        (9, 21),   # 9:21 = 0.429 (ultra tall phone)
+        (21, 9),   # 21:9 = 2.333 (ultrawide)
+        (10, 16),  # 10:16= 0.625
+        (16, 10),  # 16:10= 1.600
+    ]
+    # Max dimension to send (keeps quality reasonable, reduces processing time)
+    MAX_DIM = 1024
+
+    img = Image.open(io.BytesIO(image_data))
+    if img.mode == "RGBA":
+        img = img.convert("RGB")
+    orig_w, orig_h = img.size
+    orig_ratio = orig_w / orig_h
+
+    # Find nearest standard ratio
+    best_ratio_wh = min(STANDARD_RATIOS, key=lambda r: abs(r[0]/r[1] - orig_ratio))
+    target_ratio = best_ratio_wh[0] / best_ratio_wh[1]
+
+    # Center-crop to target ratio
+    if orig_ratio > target_ratio:
+        # Image is wider: crop sides
+        new_w = int(orig_h * target_ratio)
+        left = (orig_w - new_w) // 2
+        crop_box = (left, 0, left + new_w, orig_h)
+    else:
+        # Image is taller: crop top/bottom
+        new_h = int(orig_w / target_ratio)
+        top = (orig_h - new_h) // 2
+        crop_box = (0, top, orig_w, top + new_h)
+
+    cropped = img.crop(crop_box)
+
+    # Resize to standard dimension (longer side = MAX_DIM)
+    cw, ch = cropped.size
+    if max(cw, ch) > MAX_DIM:
+        scale = MAX_DIM / max(cw, ch)
+        cw, ch = int(cw * scale), int(ch * scale)
+        # Align to 64px
+        cw = math.ceil(cw / 64) * 64
+        ch = math.ceil(ch / 64) * 64
+        cropped = cropped.resize((cw, ch), Image.LANCZOS)
+
+    buf = io.BytesIO()
+    cropped.save(buf, format="JPEG", quality=95)
+    processed_bytes = buf.getvalue()
+
+    logger.info("[transform/eraser] normalized: %dx%d (ratio %.3f) -> %dx%d (ratio %d:%d), crop=%s",
+                orig_w, orig_h, orig_ratio, cw, ch, best_ratio_wh[0], best_ratio_wh[1], crop_box)
+
+    return processed_bytes, orig_w, orig_h, crop_box
+
+
+def _restore_to_original(result_data: bytes, orig_w: int, orig_h: int, crop_box: tuple) -> bytes:
+    """Resize Clothoff result back and paste into original-sized canvas."""
+    result_img = Image.open(io.BytesIO(result_data))
+    if result_img.mode == "RGBA":
+        result_img = result_img.convert("RGB")
+
+    # The crop_box tells us which region of the original was sent
+    crop_w = crop_box[2] - crop_box[0]
+    crop_h = crop_box[3] - crop_box[1]
+
+    # Resize result to match the cropped region size
+    result_img = result_img.resize((crop_w, crop_h), Image.LANCZOS)
+
+    # Create full-size canvas (black) and paste result at crop position
+    canvas = Image.new("RGB", (orig_w, orig_h), (0, 0, 0))
+    canvas.paste(result_img, (crop_box[0], crop_box[1]))
+
+    buf = io.BytesIO()
+    canvas.save(buf, format="PNG")
+    return buf.getvalue()
+
+
 async def _engine_clothoff(
     scene: str,
     image_data: bytes,
@@ -504,9 +597,8 @@ async def _engine_clothoff(
 ) -> TransformResponse:
     """Clothoff undress API: submit image, wait for webhook callback."""
 
-    # Record original dimensions for resize after processing
-    orig_img = Image.open(io.BytesIO(image_data))
-    orig_w, orig_h = orig_img.size
+    # Normalize input to standard aspect ratio for better alignment
+    processed_data, orig_w, orig_h, crop_box = _normalize_to_standard_ratio(image_data)
 
     id_gen = uuid.uuid4().hex
     webhook_url = f"{CLOTHOFF_WEBHOOK_BASE}/api/v1/clothoff/webhook"
@@ -518,7 +610,7 @@ async def _engine_clothoff(
 
     # Build multipart form data
     files = {
-        "image": ("image.jpg", image_data, "image/jpeg"),
+        "image": ("image.jpg", processed_data, "image/jpeg"),
     }
     data = {
         "id_gen": id_gen,
@@ -576,19 +668,12 @@ async def _engine_clothoff(
     finally:
         _clothoff_futures.pop(id_gen, None)
 
-    # Resize result to match original dimensions
-    result_img = Image.open(io.BytesIO(result_data))
-    if result_img.size != (orig_w, orig_h):
-        logger.info("[transform/eraser] resizing result %dx%d -> %dx%d",
-                    result_img.size[0], result_img.size[1], orig_w, orig_h)
-        result_img = result_img.resize((orig_w, orig_h), Image.LANCZOS)
-    buf = io.BytesIO()
-    result_img.save(buf, format="PNG")
-    result_b64 = base64.b64encode(buf.getvalue()).decode()
-
-    # Save result image
+    # Restore result to original dimensions (paste back into original-sized canvas)
+    restored_data = _restore_to_original(result_data, orig_w, orig_h, crop_box)
+    result_b64 = base64.b64encode(restored_data).decode()
     url = _save_result_image(result_b64)
-    logger.info("[transform/eraser] completed: %s (%dx%d)", url, orig_w, orig_h)
+
+    logger.info("[transform/eraser] completed: %s (%dx%d, restored from crop)", url, orig_w, orig_h)
     return TransformResponse(url=url, scene=scene, size=f"{orig_w}x{orig_h}", seed=None)
 
 
