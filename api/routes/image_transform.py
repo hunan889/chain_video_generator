@@ -66,7 +66,10 @@ CLOTHOFF_API_KEY = os.getenv(
 )
 CLOTHOFF_BASE_URL = os.getenv("CLOTHOFF_BASE_URL", "https://api.grtkniv.net")
 CLOTHOFF_UNDRESS_URL = f"{CLOTHOFF_BASE_URL}/api/imageGenerations/undress"
+CLOTHOFF_ANIMATE_URL = f"{CLOTHOFF_BASE_URL}/api/videoGenerations/animate"
+CLOTHOFF_ANIMATE_MODELS_URL = f"{CLOTHOFF_BASE_URL}/api/videoGenerations/models"
 CLOTHOFF_BALANCE_URL = f"{CLOTHOFF_BASE_URL}/api/profile/balance"
+CLOTHOFF_VIDEO_TIMEOUT = int(os.getenv("CLOTHOFF_VIDEO_TIMEOUT", "300"))
 CLOTHOFF_WEBHOOK_BASE = os.getenv(
     "CLOTHOFF_WEBHOOK_BASE", "http://148.153.121.44"
 )
@@ -203,23 +206,46 @@ async def image_transform(
 # POST /api/v1/video/transform
 # ---------------------------------------------------------------------------
 
+VALID_VIDEO_SCENES = {"face_swap", "animate"}
+
+
 @router.post("/video/transform")
 async def video_transform(
     scene: str = Form(...),
-    video: UploadFile = File(...),
-    reference: UploadFile = File(...),
+    image: Optional[UploadFile] = File(None),
+    video: Optional[UploadFile] = File(None),
+    reference: Optional[UploadFile] = File(None),
+    model_id: Optional[str] = Form(None),
     faces_index: str = Form("0"),
     _user=Depends(verify_api_key),
 ):
-    """Unified video transform endpoint (async, returns task_id)."""
+    """Unified video transform endpoint.
 
-    if scene != "face_swap":
-        raise HTTPException(422, f"Video scene '{scene}' not supported. Currently supported: face_swap")
+    Scenes:
+      - face_swap: swap face in video (requires video + reference)
+      - animate: animate a photo with Clothoff (requires image + model_id)
+    """
+    if scene not in VALID_VIDEO_SCENES:
+        raise HTTPException(422, f"Video scene '{scene}' not supported. Valid: {sorted(VALID_VIDEO_SCENES)}")
+
+    if scene == "face_swap":
+        return await _video_face_swap(video, reference, faces_index)
+    elif scene == "animate":
+        return await _video_animate(image, model_id)
+
+
+async def _video_face_swap(
+    video: Optional[UploadFile],
+    reference: Optional[UploadFile],
+    faces_index: str,
+):
+    """Face swap in video via ComfyUI."""
+    if video is None or reference is None:
+        raise HTTPException(400, "scene 'face_swap' requires video and reference")
 
     from api.main import task_manager
     from api.services.workflow_builder import load_workflow
 
-    # Read files
     video_data = await video.read()
     if len(video_data) > 500 * 1024 * 1024:
         raise HTTPException(400, "Video too large (max 500MB)")
@@ -228,12 +254,10 @@ async def video_transform(
     if len(face_data) > 10 * 1024 * 1024:
         raise HTTPException(400, "Reference image too large (max 10MB)")
 
-    # Save uploads
     from api.services import storage
     video_filename, _ = await storage.save_upload(video_data, video.filename or "input.mp4")
     face_filename, _ = await storage.save_upload(face_data, reference.filename or "face.png")
 
-    # Upload to ComfyUI
     client = task_manager._get_client("a14b")
     if not client or not await client.is_alive():
         raise HTTPException(503, "Video processing service unavailable")
@@ -241,13 +265,11 @@ async def video_transform(
     video_upload = await client.upload_video(video_data, video_filename)
     face_upload = await client.upload_image(face_data, face_filename)
 
-    # Load and configure workflow
     workflow = load_workflow("video_faceswap")
     workflow["1"]["inputs"]["video"] = video_upload.get("name", video_filename)
     workflow["4"]["inputs"]["image"] = face_upload.get("name", face_filename)
     workflow["5"]["inputs"]["faces_index"] = faces_index
 
-    # Submit
     prompt_id = await client.queue_prompt(workflow)
     task_id = await task_manager.create_task(
         "video_faceswap",
@@ -255,8 +277,82 @@ async def video_transform(
         prompt_id,
         "a14b",
     )
-
     return {"task_id": task_id, "status": "queued", "scene": "face_swap"}
+
+
+async def _video_animate(
+    image: Optional[UploadFile],
+    model_id: Optional[str],
+):
+    """Animate a photo via Clothoff Video Animate API."""
+    if image is None:
+        raise HTTPException(400, "scene 'animate' requires an image")
+    if not model_id:
+        raise HTTPException(400, "scene 'animate' requires model_id")
+
+    image_data = await image.read()
+    if len(image_data) > 60 * 1024 * 1024:
+        raise HTTPException(400, "Image too large (max 60MB)")
+
+    id_gen = uuid.uuid4().hex
+    webhook_url = f"{CLOTHOFF_WEBHOOK_BASE}/api/v1/clothoff/webhook"
+
+    loop = asyncio.get_running_loop()
+    future = loop.create_future()
+    _clothoff_futures[id_gen] = future
+
+    files = {"image": ("image.jpg", image_data, "image/jpeg")}
+    data = {
+        "id_gen": id_gen,
+        "name": model_id,
+        "webhook": webhook_url,
+    }
+    headers = {"Authorization": CLOTHOFF_API_KEY}
+
+    logger.info("[video/animate] submitting to Clothoff, id_gen=%s, model=%s", id_gen, model_id)
+
+    try:
+        resp = await asyncio.to_thread(
+            http_requests.post, CLOTHOFF_ANIMATE_URL,
+            files=files, data=data, headers=headers, timeout=30,
+        )
+    except Exception as e:
+        _clothoff_futures.pop(id_gen, None)
+        raise HTTPException(502, f"Clothoff API request failed: {e}")
+
+    if resp.status_code != 200:
+        _clothoff_futures.pop(id_gen, None)
+        logger.error("[video/animate] submit error %d: %s", resp.status_code, resp.text[:500])
+        raise HTTPException(502, f"Clothoff API error: {resp.text[:500]}")
+
+    try:
+        submit_result = resp.json()
+        logger.info("[video/animate] queued: position=%s, balance=%s, est_time=%ss",
+                    submit_result.get("queueNumber", "?"),
+                    submit_result.get("apiBalance", "?"),
+                    submit_result.get("queueTime", "?"))
+    except Exception:
+        logger.info("[video/animate] queued (response: %s)", resp.text[:200])
+
+    # Wait for webhook callback (video takes longer)
+    try:
+        result_data = await asyncio.wait_for(future, timeout=CLOTHOFF_VIDEO_TIMEOUT)
+    except asyncio.TimeoutError:
+        _clothoff_futures.pop(id_gen, None)
+        raise HTTPException(504, f"Video generation timed out after {CLOTHOFF_VIDEO_TIMEOUT}s")
+    finally:
+        _clothoff_futures.pop(id_gen, None)
+
+    # Save video result
+    UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
+    filename = f"{uuid.uuid4().hex}.mp4"
+    filepath = UPLOADS_DIR / filename
+    with open(filepath, "wb") as f:
+        f.write(result_data)
+    url = f"/api/v1/results/{filename}"
+
+    logger.info("[video/animate] completed: %s (%d bytes)", url, len(result_data))
+    return {"url": url, "scene": "animate", "model_id": model_id}
 
 
 # ---------------------------------------------------------------------------
@@ -497,99 +593,6 @@ async def _engine_seedream_edit(
 # Engine: Clothoff (eraser)
 # ---------------------------------------------------------------------------
 
-def _normalize_to_standard_ratio(image_data: bytes) -> tuple:
-    """Normalize image to nearest standard aspect ratio via center-crop + resize.
-
-    Returns (processed_bytes, orig_width, orig_height, crop_box).
-    The crop_box is (left, top, right, bottom) used for cropping, so the result
-    can be pasted back at the correct position.
-    """
-    STANDARD_RATIOS = [
-        (1, 1),    # 1:1  = 1.000
-        (1, 2),    # 1:2  = 0.500
-        (2, 1),    # 2:1  = 2.000
-        (2, 3),    # 2:3  = 0.667
-        (3, 2),    # 3:2  = 1.500
-        (3, 4),    # 3:4  = 0.750
-        (4, 3),    # 4:3  = 1.333
-        (4, 5),    # 4:5  = 0.800
-        (5, 4),    # 5:4  = 1.250
-        (9, 16),   # 9:16 = 0.5625
-        (16, 9),   # 16:9 = 1.778
-        (9, 21),   # 9:21 = 0.429 (ultra tall phone)
-        (21, 9),   # 21:9 = 2.333 (ultrawide)
-        (10, 16),  # 10:16= 0.625
-        (16, 10),  # 16:10= 1.600
-    ]
-    # Only downscale if image is very large (saves API processing time)
-    MAX_DIM = 2048
-
-    img = Image.open(io.BytesIO(image_data))
-    if img.mode == "RGBA":
-        img = img.convert("RGB")
-    orig_w, orig_h = img.size
-    orig_ratio = orig_w / orig_h
-
-    # Find nearest standard ratio
-    best_ratio_wh = min(STANDARD_RATIOS, key=lambda r: abs(r[0]/r[1] - orig_ratio))
-    target_ratio = best_ratio_wh[0] / best_ratio_wh[1]
-
-    # Center-crop to target ratio
-    if orig_ratio > target_ratio:
-        # Image is wider: crop sides
-        new_w = int(orig_h * target_ratio)
-        left = (orig_w - new_w) // 2
-        crop_box = (left, 0, left + new_w, orig_h)
-    else:
-        # Image is taller: crop top/bottom
-        new_h = int(orig_w / target_ratio)
-        top = (orig_h - new_h) // 2
-        crop_box = (0, top, orig_w, top + new_h)
-
-    cropped = img.crop(crop_box)
-
-    # Only downscale if image exceeds MAX_DIM (avoid unnecessary resize that causes drift)
-    cw, ch = cropped.size
-    if max(cw, ch) > MAX_DIM:
-        scale = MAX_DIM / max(cw, ch)
-        cw, ch = int(cw * scale), int(ch * scale)
-        cw = math.ceil(cw / 64) * 64
-        ch = math.ceil(ch / 64) * 64
-        cropped = cropped.resize((cw, ch), Image.LANCZOS)
-        logger.info("[transform/eraser] downscaled to %dx%d (was too large)", cw, ch)
-
-    buf = io.BytesIO()
-    cropped.save(buf, format="JPEG", quality=95)
-    processed_bytes = buf.getvalue()
-
-    logger.info("[transform/eraser] normalized: %dx%d (ratio %.3f) -> %dx%d (ratio %d:%d), crop=%s",
-                orig_w, orig_h, orig_ratio, cw, ch, best_ratio_wh[0], best_ratio_wh[1], crop_box)
-
-    return processed_bytes, orig_w, orig_h, crop_box
-
-
-def _restore_to_original(result_data: bytes, orig_w: int, orig_h: int, crop_box: tuple) -> bytes:
-    """Resize Clothoff result back and paste into original-sized canvas."""
-    result_img = Image.open(io.BytesIO(result_data))
-    if result_img.mode == "RGBA":
-        result_img = result_img.convert("RGB")
-
-    # The crop_box tells us which region of the original was sent
-    crop_w = crop_box[2] - crop_box[0]
-    crop_h = crop_box[3] - crop_box[1]
-
-    # Resize result to match the cropped region size
-    result_img = result_img.resize((crop_w, crop_h), Image.LANCZOS)
-
-    # Create full-size canvas (black) and paste result at crop position
-    canvas = Image.new("RGB", (orig_w, orig_h), (0, 0, 0))
-    canvas.paste(result_img, (crop_box[0], crop_box[1]))
-
-    buf = io.BytesIO()
-    canvas.save(buf, format="PNG")
-    return buf.getvalue()
-
-
 async def _engine_clothoff(
     scene: str,
     image_data: bytes,
@@ -597,8 +600,9 @@ async def _engine_clothoff(
 ) -> TransformResponse:
     """Clothoff undress API: submit image, wait for webhook callback."""
 
-    # Normalize input to standard aspect ratio for better alignment
-    processed_data, orig_w, orig_h, crop_box = _normalize_to_standard_ratio(image_data)
+    # Record original dimensions for size matching
+    orig_img = Image.open(io.BytesIO(image_data))
+    orig_w, orig_h = orig_img.size
 
     id_gen = uuid.uuid4().hex
     webhook_url = f"{CLOTHOFF_WEBHOOK_BASE}/api/v1/clothoff/webhook"
@@ -610,7 +614,7 @@ async def _engine_clothoff(
 
     # Build multipart form data
     files = {
-        "image": ("image.jpg", processed_data, "image/jpeg"),
+        "image": ("image.jpg", image_data, "image/jpeg"),
     }
     data = {
         "id_gen": id_gen,
@@ -668,13 +672,27 @@ async def _engine_clothoff(
     finally:
         _clothoff_futures.pop(id_gen, None)
 
-    # Restore result to original dimensions (paste back into original-sized canvas)
-    restored_data = _restore_to_original(result_data, orig_w, orig_h, crop_box)
-    result_b64 = base64.b64encode(restored_data).decode()
+    # Resize result to match original size, keeping Clothoff's aspect ratio
+    result_img = Image.open(io.BytesIO(result_data))
+    rw, rh = result_img.size
+
+    # Scale to fit original dimensions (match the larger dimension)
+    scale = min(orig_w / rw, orig_h / rh)
+    new_w = round(rw * scale)
+    new_h = round(rh * scale)
+
+    if (new_w, new_h) != (rw, rh):
+        logger.info("[transform/eraser] scaling result %dx%d -> %dx%d (original %dx%d)",
+                    rw, rh, new_w, new_h, orig_w, orig_h)
+        result_img = result_img.resize((new_w, new_h), Image.LANCZOS)
+
+    buf = io.BytesIO()
+    result_img.save(buf, format="PNG")
+    result_b64 = base64.b64encode(buf.getvalue()).decode()
     url = _save_result_image(result_b64)
 
-    logger.info("[transform/eraser] completed: %s (%dx%d, restored from crop)", url, orig_w, orig_h)
-    return TransformResponse(url=url, scene=scene, size=f"{orig_w}x{orig_h}", seed=None)
+    logger.info("[transform/eraser] completed: %s (%dx%d)", url, new_w, new_h)
+    return TransformResponse(url=url, scene=scene, size=f"{new_w}x{new_h}", seed=None)
 
 
 # ---------------------------------------------------------------------------
@@ -713,21 +731,47 @@ async def clothoff_webhook(request: Request):
             future.set_exception(HTTPException(502, f"Processing failed: {error_msg}"))
             return Response(status_code=200)
 
-        # Read result image
+        # Read result — image or video
         res_image = form.get("image")
-        if res_image is None:
-            logger.error("[clothoff/webhook] no image in callback for id_gen=%s", id_gen)
-            future.set_exception(HTTPException(502, "No result image returned"))
-            return Response(status_code=200)
+        res_video = form.get("video")
 
-        image_bytes = await res_image.read()
-        logger.info("[clothoff/webhook] result image received: %d bytes, id_gen=%s", len(image_bytes), id_gen)
-        future.set_result(image_bytes)
+        if res_video is not None:
+            video_bytes = await res_video.read()
+            logger.info("[clothoff/webhook] result video received: %d bytes, id_gen=%s", len(video_bytes), id_gen)
+            future.set_result(video_bytes)
+        elif res_image is not None:
+            image_bytes = await res_image.read()
+            logger.info("[clothoff/webhook] result image received: %d bytes, id_gen=%s", len(image_bytes), id_gen)
+            future.set_result(image_bytes)
+        else:
+            logger.error("[clothoff/webhook] no image or video in callback for id_gen=%s", id_gen)
+            future.set_exception(HTTPException(502, "No result returned"))
+            return Response(status_code=200)
 
     except Exception as e:
         logger.error("[clothoff/webhook] error processing callback: %s", e)
 
     return Response(status_code=200)
+
+
+# ---------------------------------------------------------------------------
+# Clothoff animate models list
+# ---------------------------------------------------------------------------
+
+@router.get("/clothoff/animate-models")
+async def clothoff_animate_models(_user=Depends(verify_api_key)):
+    """List available Clothoff video animation models."""
+    headers = {"Authorization": CLOTHOFF_API_KEY}
+    try:
+        resp = await asyncio.to_thread(
+            http_requests.get, CLOTHOFF_ANIMATE_MODELS_URL,
+            headers=headers, timeout=10,
+        )
+        if resp.status_code == 200:
+            return resp.json()
+        return {"error": resp.text[:500], "status_code": resp.status_code}
+    except Exception as e:
+        raise HTTPException(502, f"Failed to fetch animate models: {e}")
 
 
 # ---------------------------------------------------------------------------
