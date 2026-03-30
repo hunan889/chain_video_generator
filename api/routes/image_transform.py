@@ -1,17 +1,23 @@
 """Unified image/video transform API for H5 frontend."""
 
+import asyncio
 import base64
 import io
 import json
 import logging
 import math
+import os
+import uuid
 from typing import Optional
 
+import requests as http_requests
 from PIL import Image
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
+from fastapi.responses import Response
 from pydantic import BaseModel
 
+from api.config import UPLOADS_DIR
 from api.middleware.auth import verify_api_key
 from api.routes.image import (
     FORGE_URL,
@@ -29,6 +35,45 @@ from api.routes.image import (
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
+
+
+def _download_and_save(url: str) -> str:
+    """Download an external image URL and save locally.
+    Returns a local /api/v1/results/ path. Avoids CORS issues and speeds up frontend loading."""
+    try:
+        resp = http_requests.get(url, timeout=30)
+        resp.raise_for_status()
+        content_type = resp.headers.get("content-type", "image/jpeg")
+        ext = "png" if "png" in content_type else "jpg"
+        UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
+        filename = f"{uuid.uuid4().hex}.{ext}"
+        filepath = UPLOADS_DIR / filename
+        with open(filepath, "wb") as f:
+            f.write(resp.content)
+        local_url = f"/api/v1/results/{filename}"
+        logger.info("[transform] saved CDN image locally: %s (%d bytes)", local_url, len(resp.content))
+        return local_url
+    except Exception as e:
+        logger.warning("[transform] failed to download CDN image, returning original URL: %s", e)
+        return url
+
+# ---------------------------------------------------------------------------
+# Clothoff API configuration
+# ---------------------------------------------------------------------------
+
+CLOTHOFF_API_KEY = os.getenv(
+    "CLOTHOFF_API_KEY", "3e344ae0a9ac95d36ae84aa367c69dc64bf9e0f1"
+)
+CLOTHOFF_BASE_URL = os.getenv("CLOTHOFF_BASE_URL", "https://api.grtkniv.net")
+CLOTHOFF_UNDRESS_URL = f"{CLOTHOFF_BASE_URL}/api/imageGenerations/undress"
+CLOTHOFF_BALANCE_URL = f"{CLOTHOFF_BASE_URL}/api/profile/balance"
+CLOTHOFF_WEBHOOK_BASE = os.getenv(
+    "CLOTHOFF_WEBHOOK_BASE", "http://148.153.121.44"
+)
+CLOTHOFF_TIMEOUT = int(os.getenv("CLOTHOFF_TIMEOUT", "120"))
+
+# In-memory store for pending Clothoff results (id_gen -> asyncio.Future)
+_clothoff_futures: dict[str, asyncio.Future] = {}
 
 # ---------------------------------------------------------------------------
 # Scene template definitions
@@ -144,10 +189,12 @@ async def image_transform(
         return await _engine_seedream_ref(
             scene, image_data, reference_data, prompt, size, seed, opts
         )
-    elif scene in ("photo_edit", "eraser"):
+    elif scene == "photo_edit":
         return await _engine_seedream_edit(
             scene, image_data, prompt, size, seed, opts
         )
+    elif scene == "eraser":
+        return await _engine_clothoff(scene, image_data, opts)
 
     raise HTTPException(422, f"Scene '{scene}' not implemented")
 
@@ -332,8 +379,9 @@ async def _engine_reactor(
 
     logger.info("[transform/%s] advanced refinement...", scene)
     try:
-        url = await _call_byteplus_async(payload)
-        logger.info("[transform/%s] completed (advanced): %s", scene, url[:120])
+        cdn_url = await _call_byteplus_async(payload)
+        url = _download_and_save(cdn_url)
+        logger.info("[transform/%s] completed (advanced): %s", scene, url)
         return TransformResponse(url=url, scene=scene, size=parsed_size, seed=seed)
     except HTTPException:
         # Fallback to Reactor result
@@ -391,8 +439,9 @@ async def _engine_seedream_ref(
         payload["seed"] = seed
 
     logger.info("[transform/%s] SeedDream multiref, prompt=%.100s", scene, full_prompt)
-    url = await _call_byteplus_async(payload)
-    logger.info("[transform/%s] completed: %s", scene, url[:120])
+    cdn_url = await _call_byteplus_async(payload)
+    url = _download_and_save(cdn_url)
+    logger.info("[transform/%s] completed: %s", scene, url)
     return TransformResponse(url=url, scene=scene, size=parsed_size, seed=seed)
 
 
@@ -438,6 +487,179 @@ async def _engine_seedream_edit(
         payload["seed"] = seed
 
     logger.info("[transform/%s] SeedDream I2I, prompt=%.100s", scene, full_prompt)
-    url = await _call_byteplus_async(payload)
-    logger.info("[transform/%s] completed: %s", scene, url[:120])
+    cdn_url = await _call_byteplus_async(payload)
+    url = _download_and_save(cdn_url)
+    logger.info("[transform/%s] completed: %s", scene, url)
     return TransformResponse(url=url, scene=scene, size=parsed_size, seed=seed)
+
+
+# ---------------------------------------------------------------------------
+# Engine: Clothoff (eraser)
+# ---------------------------------------------------------------------------
+
+async def _engine_clothoff(
+    scene: str,
+    image_data: bytes,
+    opts: dict,
+) -> TransformResponse:
+    """Clothoff undress API: submit image, wait for webhook callback."""
+
+    # Record original dimensions for resize after processing
+    orig_img = Image.open(io.BytesIO(image_data))
+    orig_w, orig_h = orig_img.size
+
+    id_gen = uuid.uuid4().hex
+    webhook_url = f"{CLOTHOFF_WEBHOOK_BASE}/api/v1/clothoff/webhook"
+
+    # Create a Future to wait for the webhook callback
+    loop = asyncio.get_running_loop()
+    future = loop.create_future()
+    _clothoff_futures[id_gen] = future
+
+    # Build multipart form data
+    files = {
+        "image": ("image.jpg", image_data, "image/jpeg"),
+    }
+    data = {
+        "id_gen": id_gen,
+        "webhook": webhook_url,
+    }
+    # Optional parameters
+    if opts.get("cloth"):
+        data["cloth"] = opts["cloth"]
+    if opts.get("bodyType"):
+        data["bodyType"] = opts["bodyType"]
+    if opts.get("breastSize"):
+        data["breastSize"] = opts["breastSize"]
+    if opts.get("buttSize"):
+        data["buttSize"] = opts["buttSize"]
+    if opts.get("agePeople"):
+        data["agePeople"] = opts["agePeople"]
+    # Only set postGeneration if explicitly requested (skip upscale by default)
+    if opts.get("postGeneration"):
+        data["postGeneration"] = opts["postGeneration"]
+
+    headers = {"Authorization": CLOTHOFF_API_KEY}
+
+    logger.info("[transform/eraser] submitting to Clothoff, id_gen=%s, webhook=%s", id_gen, webhook_url)
+
+    # Submit to Clothoff API (blocking call in thread)
+    try:
+        resp = await asyncio.to_thread(
+            http_requests.post, CLOTHOFF_UNDRESS_URL,
+            files=files, data=data, headers=headers, timeout=30,
+        )
+    except Exception as e:
+        _clothoff_futures.pop(id_gen, None)
+        raise HTTPException(502, f"Clothoff API request failed: {e}")
+
+    if resp.status_code != 200:
+        _clothoff_futures.pop(id_gen, None)
+        logger.error("[transform/eraser] Clothoff submit error %d: %s", resp.status_code, resp.text[:500])
+        raise HTTPException(502, f"Clothoff API error: {resp.text[:500]}")
+
+    try:
+        submit_result = resp.json()
+        queue_num = submit_result.get("queueNumber", "?")
+        balance = submit_result.get("apiBalance", "?")
+        queue_time = submit_result.get("queueTime", "?")
+        logger.info("[transform/eraser] queued: position=%s, balance=%s, est_time=%ss", queue_num, balance, queue_time)
+    except Exception:
+        logger.info("[transform/eraser] queued (response: %s)", resp.text[:200])
+
+    # Wait for webhook callback
+    try:
+        result_data = await asyncio.wait_for(future, timeout=CLOTHOFF_TIMEOUT)
+    except asyncio.TimeoutError:
+        _clothoff_futures.pop(id_gen, None)
+        raise HTTPException(504, f"Clothoff processing timed out after {CLOTHOFF_TIMEOUT}s")
+    finally:
+        _clothoff_futures.pop(id_gen, None)
+
+    # Resize result to match original dimensions
+    result_img = Image.open(io.BytesIO(result_data))
+    if result_img.size != (orig_w, orig_h):
+        logger.info("[transform/eraser] resizing result %dx%d -> %dx%d",
+                    result_img.size[0], result_img.size[1], orig_w, orig_h)
+        result_img = result_img.resize((orig_w, orig_h), Image.LANCZOS)
+    buf = io.BytesIO()
+    result_img.save(buf, format="PNG")
+    result_b64 = base64.b64encode(buf.getvalue()).decode()
+
+    # Save result image
+    url = _save_result_image(result_b64)
+    logger.info("[transform/eraser] completed: %s (%dx%d)", url, orig_w, orig_h)
+    return TransformResponse(url=url, scene=scene, size=f"{orig_w}x{orig_h}", seed=None)
+
+
+# ---------------------------------------------------------------------------
+# Clothoff webhook receiver
+# ---------------------------------------------------------------------------
+
+@router.post("/clothoff/webhook")
+async def clothoff_webhook(request: Request):
+    """Receive Clothoff API result via webhook callback.
+
+    Callback format (multipart/form-data):
+      - undressingId: the id_gen we submitted
+      - image: result image binary (on success)
+      - error: error message (on failure)
+    """
+    try:
+        form = await request.form()
+        id_gen = form.get("undressingId", "") or form.get("id_gen", "")
+        error_msg = form.get("error", "")
+
+        logger.info("[clothoff/webhook] received: id_gen=%s, has_error=%s, fields=%s",
+                    id_gen, bool(error_msg), list(form.keys()))
+
+        if id_gen not in _clothoff_futures:
+            logger.warning("[clothoff/webhook] unknown id_gen=%s (already timed out or not ours)", id_gen)
+            return Response(status_code=200)
+
+        future = _clothoff_futures[id_gen]
+        if future.done():
+            logger.warning("[clothoff/webhook] future already resolved for id_gen=%s", id_gen)
+            return Response(status_code=200)
+
+        # Check for error
+        if error_msg:
+            logger.error("[clothoff/webhook] error for id_gen=%s: %s", id_gen, error_msg)
+            future.set_exception(HTTPException(502, f"Processing failed: {error_msg}"))
+            return Response(status_code=200)
+
+        # Read result image
+        res_image = form.get("image")
+        if res_image is None:
+            logger.error("[clothoff/webhook] no image in callback for id_gen=%s", id_gen)
+            future.set_exception(HTTPException(502, "No result image returned"))
+            return Response(status_code=200)
+
+        image_bytes = await res_image.read()
+        logger.info("[clothoff/webhook] result image received: %d bytes, id_gen=%s", len(image_bytes), id_gen)
+        future.set_result(image_bytes)
+
+    except Exception as e:
+        logger.error("[clothoff/webhook] error processing callback: %s", e)
+
+    return Response(status_code=200)
+
+
+# ---------------------------------------------------------------------------
+# Clothoff balance check
+# ---------------------------------------------------------------------------
+
+@router.get("/clothoff/balance")
+async def clothoff_balance(_user=Depends(verify_api_key)):
+    """Check Clothoff API account balance."""
+    headers = {"Authorization": CLOTHOFF_API_KEY}
+    try:
+        resp = await asyncio.to_thread(
+            http_requests.get, CLOTHOFF_BALANCE_URL,
+            headers=headers, timeout=10,
+        )
+        if resp.status_code == 200:
+            return resp.json()
+        return {"error": resp.text[:500], "status_code": resp.status_code}
+    except Exception as e:
+        raise HTTPException(502, f"Failed to check Clothoff balance: {e}")
