@@ -521,8 +521,8 @@ def _normalize_to_standard_ratio(image_data: bytes) -> tuple:
         (10, 16),  # 10:16= 0.625
         (16, 10),  # 16:10= 1.600
     ]
-    # Max dimension to send (keeps quality reasonable, reduces processing time)
-    MAX_DIM = 1024
+    # Only downscale if image is very large (saves API processing time)
+    MAX_DIM = 2048
 
     img = Image.open(io.BytesIO(image_data))
     if img.mode == "RGBA":
@@ -548,15 +548,15 @@ def _normalize_to_standard_ratio(image_data: bytes) -> tuple:
 
     cropped = img.crop(crop_box)
 
-    # Resize to standard dimension (longer side = MAX_DIM)
+    # Only downscale if image exceeds MAX_DIM (avoid unnecessary resize that causes drift)
     cw, ch = cropped.size
     if max(cw, ch) > MAX_DIM:
         scale = MAX_DIM / max(cw, ch)
         cw, ch = int(cw * scale), int(ch * scale)
-        # Align to 64px
         cw = math.ceil(cw / 64) * 64
         ch = math.ceil(ch / 64) * 64
         cropped = cropped.resize((cw, ch), Image.LANCZOS)
+        logger.info("[transform/eraser] downscaled to %dx%d (was too large)", cw, ch)
 
     buf = io.BytesIO()
     cropped.save(buf, format="JPEG", quality=95)
