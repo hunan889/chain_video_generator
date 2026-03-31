@@ -70,6 +70,7 @@ async def main() -> None:
         worker._running = True
         await worker.run()
     finally:
+        await worker.close()
         await heartbeat.stop()
         await redis_conn.close()
         logger.info("Worker %s shut down cleanly", config.worker_id)

@@ -2,7 +2,10 @@
 
 import asyncio
 import json
+import os
+import tempfile
 import time
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import fakeredis.aioredis
 import pytest
@@ -93,6 +96,13 @@ class TestWorkerPicksUpTask:
             workflow={"nodes": []},
         )
 
+        # Inject mock ComfyUI client
+        mock_client = _make_mock_comfyui_client()
+        mock_cos = MagicMock()
+        mock_cos.upload_file = MagicMock(return_value="https://cdn.example.com/videos/test.mp4")
+        worker._cos_client = mock_cos
+        worker._comfyui_clients = {"a14b": mock_client}
+
         # Run worker for one iteration then stop
         worker._running = True
 
@@ -103,10 +113,10 @@ class TestWorkerPicksUpTask:
         asyncio.create_task(stop_after_delay())
         await worker.run()
 
-        # Task should have been picked up (no longer queued)
+        # Task should have been picked up and completed
         task = await gateway.get_task(task_id)
         assert task is not None
-        assert task["status"] != TaskStatus.QUEUED.value
+        assert task["status"] == TaskStatus.COMPLETED.value
 
 
 class TestWorkerMarksTaskRunning:
@@ -120,6 +130,13 @@ class TestWorkerMarksTaskRunning:
             model=ModelType.A14B,
             workflow={"nodes": []},
         )
+
+        # Inject mock ComfyUI client so real connections are not attempted
+        mock_client = _make_mock_comfyui_client()
+        mock_cos = MagicMock()
+        mock_cos.upload_file = MagicMock(return_value="https://cdn.example.com/videos/test.mp4")
+        worker._cos_client = mock_cos
+        worker._comfyui_clients = {"a14b": mock_client}
 
         # Track statuses seen during processing
         statuses_seen: list[str] = []
@@ -141,7 +158,7 @@ class TestWorkerMarksTaskRunning:
         asyncio.create_task(stop_after_delay())
         await worker.run()
 
-        # The task should have been completed (skeleton marks running then completed)
+        # The task should have been completed
         assert TaskStatus.COMPLETED.value in statuses_seen
 
 
@@ -150,12 +167,19 @@ class TestWorkerMarksTaskCompleted:
 
     @pytest.mark.asyncio
     async def test_worker_marks_task_completed(self, worker, redis, gateway):
-        """After skeleton processing, task should be completed."""
+        """After processing, task should be completed."""
         task_id = await gateway.create_task(
             mode=GenerateMode.T2V,
             model=ModelType.A14B,
             workflow={"nodes": []},
         )
+
+        # Inject mock ComfyUI client
+        mock_client = _make_mock_comfyui_client()
+        mock_cos = MagicMock()
+        mock_cos.upload_file = MagicMock(return_value="https://cdn.example.com/videos/test.mp4")
+        worker._cos_client = mock_cos
+        worker._comfyui_clients = {"a14b": mock_client}
 
         worker._running = True
 
@@ -274,3 +298,379 @@ class TestHeartbeatUpdatesStatus:
         assert data["status"] == "idle"
 
         await heartbeat.stop()
+
+
+# ---------------------------------------------------------------------------
+# ComfyUI integration tests (mocked client)
+# ---------------------------------------------------------------------------
+
+
+def _make_mock_comfyui_client(
+    prompt_id: str = "test-prompt-123",
+    output_files: list[dict] | None = None,
+    download_data: bytes = b"fake-video-data",
+    upload_result: dict | None = None,
+):
+    """Build an AsyncMock ComfyUIClient with sensible defaults."""
+    client = AsyncMock()
+    client.base_url = "http://127.0.0.1:8188"
+    client.queue_prompt = AsyncMock(return_value=prompt_id)
+    client.wait_for_completion = AsyncMock(return_value={
+        "outputs": {"10": {"gifs": output_files or [
+            {"filename": "result_00001_.mp4", "subfolder": "", "type": "output"}
+        ]}},
+        "status": {"completed": True},
+    })
+    client.get_output_files = AsyncMock(return_value=output_files or [
+        {"filename": "result_00001_.mp4", "subfolder": "", "type": "output"}
+    ])
+    client.download_file = AsyncMock(return_value=download_data)
+    client.upload_image = AsyncMock(return_value=upload_result or {"name": "uploaded.png"})
+    client.free_memory = AsyncMock(return_value=True)
+    client.close = AsyncMock()
+    return client
+
+
+class TestProcessTaskSubmitsWorkflow:
+    """Verify _process_task submits the workflow JSON to ComfyUI."""
+
+    @pytest.mark.asyncio
+    async def test_submits_workflow_to_comfyui(self, worker, redis, gateway):
+        """The stored workflow should be sent to ComfyUI queue_prompt."""
+        workflow = {"1": {"class_type": "KSampler", "inputs": {}}}
+        task_id = await gateway.create_task(
+            mode=GenerateMode.T2V,
+            model=ModelType.A14B,
+            workflow=workflow,
+        )
+
+        mock_client = _make_mock_comfyui_client()
+        mock_cos = MagicMock()
+        mock_cos.upload_file = MagicMock(return_value="https://cdn.example.com/videos/test.mp4")
+
+        worker._cos_client = mock_cos
+        worker._comfyui_clients = {"a14b": mock_client}
+
+        await worker._process_task(task_id)
+
+        mock_client.queue_prompt.assert_awaited_once_with(workflow)
+
+
+class TestProcessTaskDownloadsAndUploadsResult:
+    """Verify _process_task downloads result from ComfyUI and uploads to COS."""
+
+    @pytest.mark.asyncio
+    async def test_downloads_and_uploads_result(self, worker, redis, gateway):
+        """Result video should be downloaded from ComfyUI and uploaded to COS."""
+        task_id = await gateway.create_task(
+            mode=GenerateMode.T2V,
+            model=ModelType.A14B,
+            workflow={"nodes": []},
+        )
+
+        video_bytes = b"fake-mp4-content"
+        mock_client = _make_mock_comfyui_client(download_data=video_bytes)
+        mock_cos = MagicMock()
+        mock_cos.upload_file = MagicMock(return_value="https://cdn.example.com/videos/result.mp4")
+
+        worker._cos_client = mock_cos
+        worker._comfyui_clients = {"a14b": mock_client}
+
+        await worker._process_task(task_id)
+
+        # Should have downloaded from ComfyUI
+        mock_client.download_file.assert_awaited_once_with(
+            "result_00001_.mp4", "", "output"
+        )
+        # Should have uploaded to COS
+        mock_cos.upload_file.assert_called_once()
+        call_args = mock_cos.upload_file.call_args
+        # First arg is the temp file path, second is subdir, third is filename
+        assert call_args[0][1] == "videos"
+        assert task_id in call_args[0][2]
+
+
+class TestProcessTaskMarksCompleted:
+    """Verify _process_task marks the task as completed with video_url."""
+
+    @pytest.mark.asyncio
+    async def test_marks_completed_with_video_url(self, worker, redis, gateway):
+        """After processing, task status should be completed with video_url set."""
+        task_id = await gateway.create_task(
+            mode=GenerateMode.T2V,
+            model=ModelType.A14B,
+            workflow={"nodes": []},
+        )
+
+        expected_url = "https://cdn.example.com/videos/result.mp4"
+        mock_client = _make_mock_comfyui_client()
+        mock_cos = MagicMock()
+        mock_cos.upload_file = MagicMock(return_value=expected_url)
+
+        worker._cos_client = mock_cos
+        worker._comfyui_clients = {"a14b": mock_client}
+
+        await worker._process_task(task_id)
+
+        task = await gateway.get_task(task_id)
+        assert task["status"] == TaskStatus.COMPLETED.value
+        assert task["video_url"] == expected_url
+
+
+class TestProcessTaskHandlesComfyUIError:
+    """Verify _process_task handles ComfyUI errors gracefully."""
+
+    @pytest.mark.asyncio
+    async def test_handles_comfyui_error(self, worker, redis, gateway):
+        """ComfyUI queue_prompt failure should propagate as an exception."""
+        task_id = await gateway.create_task(
+            mode=GenerateMode.T2V,
+            model=ModelType.A14B,
+            workflow={"nodes": []},
+        )
+
+        mock_client = _make_mock_comfyui_client()
+        mock_client.queue_prompt = AsyncMock(
+            side_effect=RuntimeError("ComfyUI prompt failed (500): internal error")
+        )
+        mock_cos = MagicMock()
+
+        worker._cos_client = mock_cos
+        worker._comfyui_clients = {"a14b": mock_client}
+
+        with pytest.raises(RuntimeError, match="ComfyUI prompt failed"):
+            await worker._process_task(task_id)
+
+
+class TestProcessTaskNoOutputFiles:
+    """Verify _process_task raises when ComfyUI produces no outputs."""
+
+    @pytest.mark.asyncio
+    async def test_raises_on_no_output_files(self, worker, redis, gateway):
+        """If ComfyUI produces no output files, a RuntimeError should be raised."""
+        task_id = await gateway.create_task(
+            mode=GenerateMode.T2V,
+            model=ModelType.A14B,
+            workflow={"nodes": []},
+        )
+
+        mock_client = _make_mock_comfyui_client()
+        mock_client.get_output_files = AsyncMock(return_value=[])
+        mock_cos = MagicMock()
+
+        worker._cos_client = mock_cos
+        worker._comfyui_clients = {"a14b": mock_client}
+
+        with pytest.raises(RuntimeError, match="No output files"):
+            await worker._process_task(task_id)
+
+
+class TestProcessTaskOOMRetry:
+    """Verify OOM detection triggers free_memory and re-queue."""
+
+    @pytest.mark.asyncio
+    async def test_oom_retry(self, worker, redis, gateway):
+        """CUDA OOM on first attempt should free memory and re-queue the task."""
+        task_id = await gateway.create_task(
+            mode=GenerateMode.T2V,
+            model=ModelType.A14B,
+            workflow={"nodes": []},
+        )
+
+        mock_client = _make_mock_comfyui_client()
+        mock_client.wait_for_completion = AsyncMock(
+            side_effect=RuntimeError("CUDA out of memory")
+        )
+        mock_cos = MagicMock()
+
+        worker._cos_client = mock_cos
+        worker._comfyui_clients = {"a14b": mock_client}
+
+        with pytest.raises(RuntimeError, match="CUDA out of memory"):
+            await worker._process_task(task_id)
+
+        # Should have called free_memory
+        mock_client.free_memory.assert_awaited_once()
+
+        # Task should have been re-queued (retry_count incremented)
+        task = await gateway.get_task(task_id)
+        assert task["retry_count"] == 1
+
+        # The task_id should be back in the queue
+        queue = queue_key("a14b")
+        items = await redis.lrange(queue, 0, -1)
+        assert task_id in items
+
+
+class TestProcessTaskOOMMaxRetries:
+    """Verify OOM does not re-queue after max retries."""
+
+    @pytest.mark.asyncio
+    async def test_oom_max_retries_exhausted(self, worker, redis, gateway):
+        """After max OOM retries, the task should not be re-queued."""
+        task_id = await gateway.create_task(
+            mode=GenerateMode.T2V,
+            model=ModelType.A14B,
+            workflow={"nodes": []},
+        )
+
+        # Drain the queue (simulating the worker's BLPOP that normally happens)
+        queue = queue_key("a14b")
+        await redis.lpop(queue)
+
+        # Simulate already retried twice
+        await redis.hset(task_key(task_id), "retry_count", "2")
+
+        mock_client = _make_mock_comfyui_client()
+        mock_client.wait_for_completion = AsyncMock(
+            side_effect=RuntimeError("CUDA out of memory")
+        )
+        mock_cos = MagicMock()
+
+        worker._cos_client = mock_cos
+        worker._comfyui_clients = {"a14b": mock_client}
+
+        with pytest.raises(RuntimeError, match="CUDA out of memory"):
+            await worker._process_task(task_id)
+
+        # Should still free memory
+        mock_client.free_memory.assert_awaited_once()
+
+        # But should NOT re-queue (retry count already at max)
+        items = await redis.lrange(queue, 0, -1)
+        assert task_id not in items
+
+
+class TestProcessTaskInputFilePlaceholder:
+    """Verify input file download from COS and placeholder replacement."""
+
+    @pytest.mark.asyncio
+    async def test_input_file_placeholder_replacement(self, worker, redis, gateway):
+        """Input files should be downloaded from COS, uploaded to ComfyUI,
+        and their placeholders replaced in the workflow."""
+        workflow = {
+            "1": {
+                "class_type": "LoadImage",
+                "inputs": {"image": "PLACEHOLDER_INPUT_IMAGE"},
+            }
+        }
+        input_files = [
+            {"cos_key": "inputs/first_frame.png", "placeholder": "PLACEHOLDER_INPUT_IMAGE"}
+        ]
+        task_id = await gateway.create_task(
+            mode=GenerateMode.I2V,
+            model=ModelType.A14B,
+            workflow=workflow,
+        )
+        # Store input_files in Redis
+        await redis.hset(task_key(task_id), "input_files", json.dumps(input_files))
+
+        mock_client = _make_mock_comfyui_client(
+            upload_result={"name": "first_frame.png"}
+        )
+        mock_cos = MagicMock()
+        mock_cos.upload_file = MagicMock(return_value="https://cdn.example.com/videos/result.mp4")
+
+        # Mock COS download: download_file writes bytes to a local path
+        def mock_cos_download(subdir, filename, local_path):
+            with open(local_path, "wb") as f:
+                f.write(b"fake-image-data")
+
+        mock_cos.download_file = MagicMock(side_effect=mock_cos_download)
+
+        worker._cos_client = mock_cos
+        worker._comfyui_clients = {"a14b": mock_client}
+
+        await worker._process_task(task_id)
+
+        # COS download should have been called
+        mock_cos.download_file.assert_called_once()
+
+        # ComfyUI upload should have been called with the image data
+        mock_client.upload_image.assert_awaited_once()
+        upload_call = mock_client.upload_image.call_args
+        assert upload_call[0][0] == b"fake-image-data"
+
+        # The submitted workflow should have the placeholder replaced
+        submitted_workflow = mock_client.queue_prompt.call_args[0][0]
+        assert submitted_workflow["1"]["inputs"]["image"] == "first_frame.png"
+
+
+class TestProcessTaskExtractLastFrame:
+    """Verify last frame extraction when extract_last_frame is set."""
+
+    @pytest.mark.asyncio
+    async def test_extract_last_frame(self, worker, redis, gateway):
+        """When extract_last_frame is set, the last frame should be extracted and uploaded."""
+        task_id = await gateway.create_task(
+            mode=GenerateMode.T2V,
+            model=ModelType.A14B,
+            workflow={"nodes": []},
+        )
+        await redis.hset(task_key(task_id), "extract_last_frame", "1")
+
+        mock_client = _make_mock_comfyui_client()
+        mock_cos = MagicMock()
+
+        # upload_file called twice: once for video, once for last frame
+        mock_cos.upload_file = MagicMock(side_effect=[
+            "https://cdn.example.com/videos/result.mp4",
+            "https://cdn.example.com/frames/last_frame.png",
+        ])
+
+        worker._cos_client = mock_cos
+        worker._comfyui_clients = {"a14b": mock_client}
+
+        # Mock ffmpeg call for last-frame extraction.
+        # The mock must also write fake data to the output file (the last arg
+        # before capture_output) so that the upload check finds content.
+        def fake_ffmpeg(args, **kwargs):
+            # The output path is the last positional arg in the ffmpeg command
+            output_path = args[-1]
+            with open(output_path, "wb") as f:
+                f.write(b"fake-png-frame-data")
+            return MagicMock(returncode=0)
+
+        with patch("gpu_worker.worker.subprocess.run", side_effect=fake_ffmpeg):
+            await worker._process_task(task_id)
+
+        task = await gateway.get_task(task_id)
+        assert task["status"] == TaskStatus.COMPLETED.value
+        assert task["video_url"] == "https://cdn.example.com/videos/result.mp4"
+        assert task["last_frame_url"] == "https://cdn.example.com/frames/last_frame.png"
+
+
+class TestProcessTaskProgressUpdates:
+    """Verify that progress is updated during processing."""
+
+    @pytest.mark.asyncio
+    async def test_progress_updates(self, worker, redis, gateway):
+        """Progress should be updated at key milestones during processing."""
+        task_id = await gateway.create_task(
+            mode=GenerateMode.T2V,
+            model=ModelType.A14B,
+            workflow={"nodes": []},
+        )
+
+        progress_values: list[float] = []
+        original_update = gateway.update_task_progress
+
+        async def spy_progress(tid, progress):
+            progress_values.append(progress)
+            await original_update(tid, progress)
+
+        gateway.update_task_progress = spy_progress
+
+        mock_client = _make_mock_comfyui_client()
+        mock_cos = MagicMock()
+        mock_cos.upload_file = MagicMock(return_value="https://cdn.example.com/videos/result.mp4")
+
+        worker._cos_client = mock_cos
+        worker._comfyui_clients = {"a14b": mock_client}
+
+        await worker._process_task(task_id)
+
+        # Should have at least the post-completion and post-upload progress updates
+        assert len(progress_values) >= 1
+        # Final progress before marking completed should be 0.9 or higher
+        assert any(p >= 0.9 for p in progress_values)
