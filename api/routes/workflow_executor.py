@@ -847,8 +847,6 @@ async def _execute_workflow(workflow_id: str, req, task_manager, resume: bool = 
                     source_text = "pose_reference"
                 elif first_frame_url and req.reference_image and first_frame_url == req.reference_image:
                     source_text = "reference_image_fallback"
-                elif first_frame_url:
-                    source_text = "recommend"
                 else:
                     source_text = "unknown"
 
@@ -1884,7 +1882,7 @@ async def _analyze_prompt(req, task_manager) -> Optional[dict]:
 async def _find_base_image(workflow_id: str, req, analysis_result: Optional[dict], task_manager) -> Optional[str]:
     """
     Unified base image acquisition logic.
-    Priority: 1) pose reference_image -> 2) recommend library (ref modes only) -> 3) fallback
+    Priority: 1) pose reference_image -> 2) user reference_image fallback (ref modes only)
 
     Returns: URL of base image, or None for pure T2V
     """
@@ -1898,58 +1896,10 @@ async def _find_base_image(workflow_id: str, req, analysis_result: Optional[dict
         pose_url = await convert_video_url_to_frame(pose_url)
         return pose_url
 
-    # 2) Recommend library (only for face_reference / full_body_reference)
+    # 2) Fallback for reference modes: use user's reference_image as base
     if req.mode in ("face_reference", "full_body_reference"):
-        try:
-            from api.routes.recommend import smart_recommend, RecommendRequest
-            min_similarity = 0.3  # lenient for reference modes
-            recommend_req = RecommendRequest(
-                prompt=req.user_prompt,
-                mode=req.mode,
-                include_images=True,
-                include_loras=False,
-                top_k_images=5,
-                min_similarity=min_similarity,
-            )
-            recommend_result = await smart_recommend(recommend_req, _=None)
-            recommended_images = [img.model_dump() for img in recommend_result.images]
-            logger.info(f"[{workflow_id}] Recommend API returned {len(recommended_images)} images")
-
-            if recommended_images:
-                import random
-                selected = random.choice(recommended_images)
-                selected_url = selected.get("url")
-                logger.info(f"[{workflow_id}] Selected recommended image: {selected_url} (similarity: {selected.get('similarity', 0):.3f})")
-
-                # Convert video URL to frame if needed, at high resolution
-                # Calculate dimensions from aspect ratio
-                ar_width, ar_height = 3, 4  # default
-                if req.aspect_ratio:
-                    ar_parts = req.aspect_ratio.split(':')
-                    ar_width, ar_height = int(ar_parts[0]), int(ar_parts[1])
-                else:
-                    video_resolution = _get_config(req, "stage4_video", "generation", {}).get("resolution", "720p_3_4")
-                    if "16_9" in video_resolution or "16:9" in video_resolution:
-                        ar_width, ar_height = 16, 9
-
-                base_res = {'width': 1920, 'height': 1080}
-                if ar_width / ar_height > base_res['width'] / base_res['height']:
-                    width = base_res['width']
-                    height = round(base_res['width'] * ar_height / ar_width)
-                else:
-                    height = base_res['height']
-                    width = round(base_res['height'] * ar_width / ar_height)
-                width = round(width / 8) * 8
-                height = round(height / 8) * 8
-
-                selected_url = await convert_video_url_to_frame(selected_url, width, height)
-                return selected_url
-        except Exception as e:
-            logger.warning(f"[{workflow_id}] Recommend API failed: {e}")
-
-        # 3) Fallback for reference modes: use user's reference_image as base
         if req.reference_image:
-            logger.info(f"[{workflow_id}] No pose/recommend match, using user reference_image as base")
+            logger.info(f"[{workflow_id}] No pose match, using user reference_image as base")
             return req.reference_image
 
     # T2V mode or no base image found -> pure T2V
@@ -2079,25 +2029,20 @@ async def _generate_t2i_image(req, analysis_result: Optional[dict], task_manager
                 ar_width, ar_height = 3, 4
             logger.info(f"T2I: aspect_ratio not provided, derived {ar_width}:{ar_height} from resolution {video_resolution}")
 
-        if req.aspect_ratio or True:  # Always calculate dimensions
-            # 基于 1080p 计算尺寸
-            base_width = 1920
-            base_height = 1080
+        # 基于 1080p 计算尺寸
+        base_width = 1920
+        base_height = 1080
 
-            if ar_width / ar_height > base_width / base_height:
-                width = base_width
-                height = round(base_width * ar_height / ar_width)
-            else:
-                height = base_height
-                width = round(base_height * ar_width / ar_height)
-
-            # 确保是 8 的倍数
-            width = round(width / 8) * 8
-            height = round(height / 8) * 8
+        if ar_width / ar_height > base_width / base_height:
+            width = base_width
+            height = round(base_width * ar_height / ar_width)
         else:
-            # 如果没有宽高比，使用配置的尺寸或默认值
-            width = t2i_config.get("width", 832)
-            height = t2i_config.get("height", 1216)
+            height = base_height
+            width = round(base_height * ar_width / ar_height)
+
+        # 确保是 8 的倍数
+        width = round(width / 8) * 8
+        height = round(height / 8) * 8
 
         steps = t2i_config.get("steps", 20)
         cfg_scale = t2i_config.get("cfg_scale", 7.0)

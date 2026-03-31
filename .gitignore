@@ -25,6 +25,9 @@ storage/uploads/*
 logs/
 *.log
 
+# Claude Code local settings
+.claude/settings.local.json
+
 # IDE
 .vscode/
 .idea/
@@ -61,6 +64,9 @@ asset/
 
 # Pose reference images (too large for git)
 data/pose_references/
+
+# SQLite database (managed per-server, not via git)
+data/wan22.db
 
 # Runtime output
 results/

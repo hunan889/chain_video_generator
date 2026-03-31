@@ -7,7 +7,10 @@ from pydantic import BaseModel
 from typing import Optional, List
 import sqlite3
 import pymysql
+import logging
 from pathlib import Path
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -270,21 +273,190 @@ async def update_pose_reference_image(image_id: int, request: PoseReferenceImage
         conn.close()
 
 
+def _delete_pose_file(image_url: str):
+    """Delete pose reference file from local disk or COS CDN."""
+    if not image_url:
+        return False
+
+    # Local file
+    if image_url.startswith('/pose-files/'):
+        rel_path = image_url[len('/pose-files/'):]
+        local_path = PROJECT_ROOT / "data" / "pose_references" / rel_path
+        if local_path.exists():
+            local_path.unlink()
+            logger.info(f"Deleted local pose file: {local_path}")
+            return True
+        return False
+
+    # COS CDN file
+    try:
+        from api.services.cos_client import parse_cos_url, delete_file
+        parsed = parse_cos_url(image_url)
+        if parsed:
+            subdir, filename = parsed
+            delete_file(subdir, filename)
+            return True
+    except Exception as e:
+        logger.warning(f"Failed to delete COS file {image_url}: {e}")
+
+    return False
+
+
 @router.delete("/admin/poses/reference-images/{image_id}")
 async def remove_pose_reference_image(image_id: int):
-    """删除姿势首帧图关联"""
+    """删除姿势首帧图关联及磁盘文件"""
     conn = _get_connection()
     cursor = conn.cursor()
 
     try:
+        cursor.execute("SELECT image_url FROM pose_reference_images WHERE id = ?", (image_id,))
+        row = cursor.fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="Reference image not found")
+
+        _delete_pose_file(row['image_url'])
+
         cursor.execute("DELETE FROM pose_reference_images WHERE id = ?", (image_id,))
         conn.commit()
 
-        if cursor.rowcount == 0:
-            raise HTTPException(status_code=404, detail="Reference image not found")
-
         return {"success": True, "message": "Reference image removed"}
 
+    finally:
+        conn.close()
+
+
+class BatchDeleteRequest(BaseModel):
+    image_ids: List[int]
+
+
+@router.post("/admin/poses/reference-images/batch-delete")
+async def batch_delete_reference_images(request: BatchDeleteRequest):
+    """批量删除姿势首帧图关联及磁盘文件"""
+    if not request.image_ids:
+        raise HTTPException(status_code=400, detail="No image IDs provided")
+
+    conn = _get_connection()
+    cursor = conn.cursor()
+
+    try:
+        placeholders = ','.join('?' for _ in request.image_ids)
+        cursor.execute(
+            f"SELECT id, image_url FROM pose_reference_images WHERE id IN ({placeholders})",
+            request.image_ids
+        )
+        rows = cursor.fetchall()
+
+        deleted_files = 0
+        for row in rows:
+            if _delete_pose_file(row['image_url']):
+                deleted_files += 1
+
+        cursor.execute(
+            f"DELETE FROM pose_reference_images WHERE id IN ({placeholders})",
+            request.image_ids
+        )
+        conn.commit()
+
+        return {
+            "success": True,
+            "message": f"Deleted {cursor.rowcount} records, {deleted_files} files",
+            "deleted_count": cursor.rowcount,
+            "deleted_files": deleted_files
+        }
+
+    except Exception as e:
+        conn.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        conn.close()
+
+
+class BatchReassignRequest(BaseModel):
+    image_ids: List[int]
+    target_pose_id: int
+    mode: str = "move"  # "move" = reassign, "copy" = keep original + add to target
+
+
+@router.post("/admin/poses/reference-images/batch-reassign")
+async def batch_reassign_reference_images(request: BatchReassignRequest):
+    """批量将参考图移动或复制到另一个姿势"""
+    if not request.image_ids:
+        raise HTTPException(status_code=400, detail="No image IDs provided")
+    if request.mode not in ("move", "copy"):
+        raise HTTPException(status_code=400, detail="mode must be 'move' or 'copy'")
+
+    conn = _get_connection()
+    cursor = conn.cursor()
+
+    try:
+        # Verify target pose exists
+        cursor.execute("SELECT id, pose_key FROM poses WHERE id = ?", (request.target_pose_id,))
+        target = cursor.fetchone()
+        if not target:
+            raise HTTPException(status_code=404, detail="Target pose not found")
+
+        placeholders = ','.join('?' for _ in request.image_ids)
+        cursor.execute(
+            f"SELECT id, pose_id, image_url, angle, style, prompt, model, is_default, quality_score "
+            f"FROM pose_reference_images WHERE id IN ({placeholders})",
+            request.image_ids
+        )
+        rows = cursor.fetchall()
+
+        if not rows:
+            raise HTTPException(status_code=404, detail="No images found")
+
+        moved = 0
+        copied = 0
+        skipped = 0
+
+        for row in rows:
+            # Skip if already belongs to target
+            if row['pose_id'] == request.target_pose_id:
+                skipped += 1
+                continue
+
+            if request.mode == "move":
+                cursor.execute(
+                    "UPDATE pose_reference_images SET pose_id = ?, is_default = 0 WHERE id = ?",
+                    (request.target_pose_id, row['id'])
+                )
+                moved += 1
+            else:  # copy
+                # Check if same URL already exists on target
+                cursor.execute(
+                    "SELECT id FROM pose_reference_images WHERE pose_id = ? AND image_url = ?",
+                    (request.target_pose_id, row['image_url'])
+                )
+                if cursor.fetchone():
+                    skipped += 1
+                    continue
+
+                cursor.execute(
+                    "INSERT INTO pose_reference_images "
+                    "(pose_id, image_url, angle, style, prompt, model, is_default, quality_score) "
+                    "VALUES (?, ?, ?, ?, ?, ?, 0, ?)",
+                    (request.target_pose_id, row['image_url'], row['angle'],
+                     row['style'], row['prompt'], row['model'], row['quality_score'])
+                )
+                copied += 1
+
+        conn.commit()
+
+        action = "moved" if request.mode == "move" else "copied"
+        count = moved if request.mode == "move" else copied
+        return {
+            "success": True,
+            "message": f"{action} {count} images to {target['pose_key']}, skipped {skipped}",
+            "count": count,
+            "skipped": skipped
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        conn.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
     finally:
         conn.close()
 

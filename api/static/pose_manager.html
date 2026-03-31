@@ -2170,7 +2170,14 @@
     }
 
     // 展示所有参考图缩略图弹窗
+    let _refImagesSelectMode = false;
+    let _refImagesSelected = new Set();
+    let _refImagesPoseId = null;
+
     async function showAllReferenceImages(poseId) {
+      _refImagesPoseId = poseId;
+      _refImagesSelectMode = false;
+      _refImagesSelected.clear();
       try {
         const response = await fetch(`/api/v1/poses/${poseId}/config`);
         const data = await response.json();
@@ -2178,21 +2185,32 @@
         const title = `参考图 (${images.length})`;
         document.getElementById('ref-images-modal-title').textContent = title;
 
+        // Toolbar with multi-select toggle
+        const toolbar = `<div id="ref-images-toolbar" style="display:flex;align-items:center;gap:8px;margin-bottom:8px;flex-wrap:wrap;">
+          <button onclick="toggleRefSelectMode()" id="ref-select-mode-btn" style="background:#374151;color:#e5e7eb;border:1px solid #4b5563;border-radius:4px;padding:4px 10px;font-size:12px;cursor:pointer;">多选</button>
+          <button onclick="selectAllRefImages()" id="ref-select-all-btn" style="display:none;background:#374151;color:#e5e7eb;border:1px solid #4b5563;border-radius:4px;padding:4px 10px;font-size:12px;cursor:pointer;">全选</button>
+          <button onclick="showReassignModal()" id="ref-reassign-btn" style="display:none;background:#2563eb;color:#fff;border:none;border-radius:4px;padding:4px 10px;font-size:12px;cursor:pointer;">绑定到... (<span id="ref-selected-count-2">0</span>)</button>
+          <button onclick="batchDeleteSelected()" id="ref-batch-delete-btn" style="display:none;background:#dc2626;color:#fff;border:none;border-radius:4px;padding:4px 10px;font-size:12px;cursor:pointer;">删除选中 (<span id="ref-selected-count">0</span>)</button>
+        </div>`;
+
         if (images.length === 0) {
           document.getElementById('ref-images-modal-body').innerHTML =
             '<div class="pose-preview-empty">暂无参考图</div>';
         } else {
           const items = images.map(img => {
             const isVideo = img.image_url && (img.image_url.endsWith('.mp4') || img.image_url.endsWith('.webm'));
-            const delBtn = `<button onclick="event.stopPropagation();deleteReferenceImageFromModal(${poseId},${img.id})" style="position:absolute;top:2px;left:2px;background:rgba(220,38,38,0.9);color:#fff;border:none;border-radius:3px;font-size:11px;padding:2px 5px;cursor:pointer;z-index:3;">×</button>`;
+            const delBtn = `<button class="ref-single-del" onclick="event.stopPropagation();deleteReferenceImageFromModal(${poseId},${img.id})" style="position:absolute;top:2px;left:2px;background:rgba(220,38,38,0.9);color:#fff;border:none;border-radius:3px;font-size:11px;padding:2px 5px;cursor:pointer;z-index:3;">×</button>`;
+            const reassignBtn = `<button class="ref-single-del" onclick="event.stopPropagation();showSingleReassign(${img.id})" style="position:absolute;bottom:2px;right:2px;background:rgba(37,99,235,0.9);color:#fff;border:none;border-radius:3px;font-size:10px;padding:2px 4px;cursor:pointer;z-index:3;" title="绑定到其他姿势">&#8644;</button>`;
             const skipBtn = `<button onclick="event.stopPropagation();toggleSkipReactor(${poseId},${img.id},${!img.skip_reactor})" style="position:absolute;top:2px;right:2px;background:${img.skip_reactor ? 'rgba(234,179,8,0.9)' : 'rgba(100,100,100,0.6)'};color:#fff;border:none;border-radius:3px;font-size:10px;padding:2px 4px;cursor:pointer;z-index:3;" title="${img.skip_reactor ? '已标记跳过换脸 (点击取消)' : '点击标记跳过换脸'}">${img.skip_reactor ? '🚫脸' : '👤'}</button>`;
+            const checkbox = `<div class="ref-select-checkbox" data-img-id="${img.id}" style="display:none;position:absolute;bottom:2px;left:2px;width:20px;height:20px;border-radius:3px;border:2px solid #7c83ff;background:rgba(0,0,0,0.5);z-index:3;cursor:pointer;text-align:center;line-height:16px;font-size:14px;color:#7c83ff;user-select:none;"></div>`;
+            const wrapper = `<div class="ref-img-item" data-img-id="${img.id}" style="position:relative;width:90px;height:90px;border-radius:6px;overflow:hidden;background:#0a0a23;flex-shrink:0;"`;
             if (isVideo) {
-              return `<div style="position:relative;width:90px;height:90px;border-radius:6px;overflow:hidden;background:#0a0a23;flex-shrink:0;" ondblclick="openImageZoom('${img.image_url}',true)" onmouseenter="playPreviewVideo(this)" onmouseleave="pausePreviewVideo(this)"><video src="${img.image_url}" muted loop playsinline style="width:100%;height:100%;object-fit:cover;pointer-events:none;"></video><span class="pose-preview-badge">视频</span>${delBtn}${skipBtn}</div>`;
+              return `${wrapper} ondblclick="openImageZoom('${img.image_url}',true)" onmouseenter="playPreviewVideo(this)" onmouseleave="pausePreviewVideo(this)"><video src="${img.image_url}" muted loop playsinline style="width:100%;height:100%;object-fit:cover;pointer-events:none;"></video><span class="pose-preview-badge">视频</span>${delBtn}${skipBtn}${reassignBtn}${checkbox}</div>`;
             } else {
-              return `<div style="position:relative;width:90px;height:90px;border-radius:6px;overflow:hidden;background:#0a0a23;flex-shrink:0;" ondblclick="openImageZoom('${img.image_url}',false)"><img src="${img.image_url}" loading="lazy" style="width:100%;height:100%;object-fit:cover;">${delBtn}${skipBtn}</div>`;
+              return `${wrapper} ondblclick="openImageZoom('${img.image_url}',false)"><img src="${img.image_url}" loading="lazy" style="width:100%;height:100%;object-fit:cover;">${delBtn}${skipBtn}${reassignBtn}${checkbox}</div>`;
             }
           }).join('');
-          document.getElementById('ref-images-modal-body').innerHTML = `<div style="display:flex;flex-wrap:wrap;gap:8px;padding:4px 0;">${items}</div>`;
+          document.getElementById('ref-images-modal-body').innerHTML = toolbar + `<div id="ref-images-grid" style="display:flex;flex-wrap:wrap;gap:8px;padding:4px 0;">${items}</div>`;
         }
         document.getElementById('ref-images-modal').classList.add('active');
       } catch (error) {
@@ -2201,12 +2219,259 @@
       }
     }
 
+    function toggleRefSelectMode() {
+      _refImagesSelectMode = !_refImagesSelectMode;
+      _refImagesSelected.clear();
+      const btn = document.getElementById('ref-select-mode-btn');
+      const batchBtn = document.getElementById('ref-batch-delete-btn');
+      const selectAllBtn = document.getElementById('ref-select-all-btn');
+      const reassignBtn = document.getElementById('ref-reassign-btn');
+      btn.textContent = _refImagesSelectMode ? '取消多选' : '多选';
+      btn.style.background = _refImagesSelectMode ? '#7c83ff' : '#374151';
+      const show = _refImagesSelectMode ? 'inline-block' : 'none';
+      batchBtn.style.display = show;
+      selectAllBtn.style.display = show;
+      if (reassignBtn) reassignBtn.style.display = show;
+      // Toggle checkboxes and hide single delete buttons
+      document.querySelectorAll('.ref-select-checkbox').forEach(cb => {
+        cb.style.display = _refImagesSelectMode ? 'block' : 'none';
+        cb.innerHTML = '';
+        cb.parentElement.style.outline = '';
+      });
+      // In select mode: hide delete & reassign buttons, show checkboxes
+      // In normal mode: show all buttons, hide checkboxes
+      // (handled by checkbox display toggle below)
+      _updateSelectedCount();
+    }
+
+    function _setImgSelected(imgId, selected) {
+      const cb = document.querySelector(`.ref-select-checkbox[data-img-id="${imgId}"]`);
+      if (!cb) return;
+      if (selected) {
+        _refImagesSelected.add(imgId);
+        cb.innerHTML = '✓';
+        cb.parentElement.style.outline = '2px solid #7c83ff';
+      } else {
+        _refImagesSelected.delete(imgId);
+        cb.innerHTML = '';
+        cb.parentElement.style.outline = '';
+      }
+    }
+
+    function toggleRefImageSelect(imgId, el) {
+      if (!_refImagesSelectMode) return;
+      _setImgSelected(imgId, !_refImagesSelected.has(imgId));
+      _updateSelectedCount();
+    }
+
+    function selectAllRefImages() {
+      const checkboxes = document.querySelectorAll('.ref-select-checkbox');
+      const allSelected = _refImagesSelected.size === checkboxes.length;
+      checkboxes.forEach(cb => {
+        _setImgSelected(parseInt(cb.dataset.imgId), !allSelected);
+      });
+      document.getElementById('ref-select-all-btn').textContent = allSelected ? '全选' : '取消全选';
+      _updateSelectedCount();
+    }
+
+    function _updateSelectedCount() {
+      const el = document.getElementById('ref-selected-count');
+      if (el) el.textContent = _refImagesSelected.size;
+      const el2 = document.getElementById('ref-selected-count-2');
+      if (el2) el2.textContent = _refImagesSelected.size;
+    }
+
+    // --- Drag-to-select support ---
+    let _dragSelecting = false;
+    let _dragSelectValue = true; // true=select, false=deselect
+
+    function _getImgItemFromEvent(e) {
+      const pt = e.touches ? e.touches[0] : e;
+      const el = document.elementFromPoint(pt.clientX, pt.clientY);
+      if (!el) return null;
+      return el.closest('.ref-img-item');
+    }
+
+    function _onDragStart(e) {
+      if (!_refImagesSelectMode) return;
+      const item = _getImgItemFromEvent(e);
+      if (!item) return;
+      const imgId = parseInt(item.dataset.imgId);
+      // Drag action: if item is unselected -> select mode; if selected -> deselect mode
+      _dragSelectValue = !_refImagesSelected.has(imgId);
+      _dragSelecting = true;
+      _setImgSelected(imgId, _dragSelectValue);
+      _updateSelectedCount();
+      e.preventDefault();
+    }
+
+    function _onDragMove(e) {
+      if (!_dragSelecting) return;
+      const item = _getImgItemFromEvent(e);
+      if (!item) return;
+      const imgId = parseInt(item.dataset.imgId);
+      const isSelected = _refImagesSelected.has(imgId);
+      if (_dragSelectValue !== isSelected) {
+        _setImgSelected(imgId, _dragSelectValue);
+        _updateSelectedCount();
+      }
+      e.preventDefault();
+    }
+
+    function _onDragEnd() {
+      _dragSelecting = false;
+    }
+
+    function _isControlButton(e) {
+      const t = e.target;
+      return t.closest('button') || t.closest('.ref-select-checkbox');
+    }
+
+    // Attach listeners to the grid container (event delegation)
+    document.addEventListener('mousedown', e => {
+      if (e.target.closest('#ref-images-grid') && _refImagesSelectMode && !_isControlButton(e)) _onDragStart(e);
+    });
+    document.addEventListener('mousemove', e => { if (_dragSelecting) _onDragMove(e); });
+    document.addEventListener('mouseup', _onDragEnd);
+    document.addEventListener('touchstart', e => {
+      if (e.target.closest('#ref-images-grid') && _refImagesSelectMode && !_isControlButton(e)) _onDragStart(e);
+    }, { passive: false });
+    document.addEventListener('touchmove', e => { if (_dragSelecting) _onDragMove(e); }, { passive: false });
+    document.addEventListener('touchend', _onDragEnd);
+
+    async function batchDeleteSelected() {
+      if (_refImagesSelected.size === 0) { alert('请先选择要删除的图片'); return; }
+      if (!confirm(`确定要删除选中的 ${_refImagesSelected.size} 张参考图吗？（图片文件将一并删除）`)) return;
+      try {
+        const response = await fetch('/api/v1/admin/poses/reference-images/batch-delete', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'X-API-Key': 'wan22-default-key-change-me' },
+          body: JSON.stringify({ image_ids: Array.from(_refImagesSelected) })
+        });
+        if (!response.ok) {
+          const error = await response.json();
+          throw new Error(error.detail || '批量删除失败');
+        }
+        const result = await response.json();
+        // Remove deleted images from DOM in place
+        _refImagesSelected.forEach(imgId => {
+          const el = document.querySelector(`.ref-img-item[data-img-id="${imgId}"]`);
+          if (el) el.remove();
+        });
+        const remaining = document.querySelectorAll('.ref-img-item').length;
+        const titleEl = document.getElementById('ref-images-modal-title');
+        if (titleEl) titleEl.textContent = `参考图 (${remaining})`;
+        _refImagesSelected.clear();
+        _updateSelectedCount();
+        loadPoseDetails(_refImagesPoseId);
+      } catch (error) {
+        console.error('批量删除失败:', error);
+        alert('批量删除失败: ' + error.message);
+      }
+    }
+
+    function showSingleReassign(imageId) {
+      _refImagesSelected.clear();
+      _refImagesSelected.add(imageId);
+      _showReassignUI(1);
+    }
+
+    function showReassignModal() {
+      if (_refImagesSelected.size === 0) { alert('请先选择图片'); return; }
+      _showReassignUI(_refImagesSelected.size);
+    }
+
+    function _showReassignUI(count) {
+      // Build pose options (exclude current pose)
+      const options = (allPoses || [])
+        .filter(p => p.id !== _refImagesPoseId && p.enabled)
+        .map(p => `<option value="${p.id}">${p.name_cn || p.pose_key} (${p.pose_key})</option>`)
+        .join('');
+
+      const modal = document.createElement('div');
+      modal.id = 'reassign-modal';
+      modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:10001;display:flex;align-items:center;justify-content:center;';
+      modal.innerHTML = `
+        <div style="background:#1a1a2e;border-radius:10px;padding:20px;min-width:320px;max-width:400px;color:#e5e7eb;">
+          <h3 style="margin:0 0 12px;font-size:15px;">绑定 ${count} 张图片到其他姿势</h3>
+          <div style="margin-bottom:12px;">
+            <label style="font-size:13px;display:block;margin-bottom:4px;">目标姿势</label>
+            <select id="reassign-target" style="width:100%;padding:6px 8px;border-radius:4px;border:1px solid #4b5563;background:#0a0a23;color:#e5e7eb;font-size:13px;">
+              ${options}
+            </select>
+          </div>
+          <div style="margin-bottom:16px;">
+            <label style="font-size:13px;display:block;margin-bottom:6px;">操作方式</label>
+            <label style="display:flex;align-items:center;gap:6px;font-size:13px;margin-bottom:6px;cursor:pointer;">
+              <input type="radio" name="reassign-mode" value="move" checked style="accent-color:#7c83ff;"> 换绑定（从当前姿势移走）
+            </label>
+            <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;">
+              <input type="radio" name="reassign-mode" value="copy" style="accent-color:#7c83ff;"> 同时绑定（保留当前，复制到目标）
+            </label>
+          </div>
+          <div style="display:flex;gap:8px;justify-content:flex-end;">
+            <button onclick="document.getElementById('reassign-modal').remove()" style="background:#374151;color:#e5e7eb;border:1px solid #4b5563;border-radius:4px;padding:6px 16px;font-size:13px;cursor:pointer;">取消</button>
+            <button onclick="executeReassign()" style="background:#2563eb;color:#fff;border:none;border-radius:4px;padding:6px 16px;font-size:13px;cursor:pointer;">确定</button>
+          </div>
+        </div>`;
+      document.body.appendChild(modal);
+    }
+
+    async function executeReassign() {
+      const targetId = parseInt(document.getElementById('reassign-target').value);
+      const mode = document.querySelector('input[name="reassign-mode"]:checked').value;
+      if (!targetId) { alert('请选择目标姿势'); return; }
+
+      try {
+        const response = await fetch('/api/v1/admin/poses/reference-images/batch-reassign', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'X-API-Key': 'wan22-default-key-change-me' },
+          body: JSON.stringify({
+            image_ids: Array.from(_refImagesSelected),
+            target_pose_id: targetId,
+            mode: mode
+          })
+        });
+        if (!response.ok) {
+          const error = await response.json();
+          throw new Error(error.detail || '操作失败');
+        }
+        const result = await response.json();
+        document.getElementById('reassign-modal').remove();
+
+        if (mode === 'move') {
+          // Remove moved images from DOM in place
+          _refImagesSelected.forEach(imgId => {
+            const el = document.querySelector(`.ref-img-item[data-img-id="${imgId}"]`);
+            if (el) el.remove();
+          });
+          // Update title count
+          const remaining = document.querySelectorAll('.ref-img-item').length;
+          const titleEl = document.getElementById('ref-images-modal-title');
+          if (titleEl) titleEl.textContent = `参考图 (${remaining})`;
+        }
+
+        _refImagesSelected.clear();
+        _updateSelectedCount();
+
+        // Refresh pose cards in background
+        loadPoseDetails(_refImagesPoseId);
+        const targetDetails = document.getElementById(`pose-details-${targetId}`);
+        if (targetDetails) loadPoseDetails(targetId);
+      } catch (error) {
+        console.error('绑定操作失败:', error);
+        alert('操作失败: ' + error.message);
+      }
+    }
+
     function closeRefImagesModal() {
+      _refImagesSelectMode = false;
+      _refImagesSelected.clear();
       document.getElementById('ref-images-modal').classList.remove('active');
     }
 
     async function deleteReferenceImageFromModal(poseId, imageId) {
-      if (!confirm('确定要删除这张参考图吗？')) return;
+      if (!confirm('确定要删除这张参考图吗？（图片文件将一并删除）')) return;
       try {
         const response = await fetch(`/api/v1/admin/poses/reference-images/${imageId}`, {
           method: 'DELETE',
@@ -2216,9 +2481,15 @@
           const error = await response.json();
           throw new Error(error.detail || '删除失败');
         }
-        await loadPoseDetails(poseId);
-        // 刷新弹窗
-        await showAllReferenceImages(poseId);
+        // Remove from DOM in place
+        const el = document.querySelector(`.ref-img-item[data-img-id="${imageId}"]`);
+        if (el) el.remove();
+        const remaining = document.querySelectorAll('.ref-img-item').length;
+        const titleEl = document.getElementById('ref-images-modal-title');
+        if (titleEl) titleEl.textContent = `参考图 (${remaining})`;
+        _refImagesSelected.delete(imageId);
+        _updateSelectedCount();
+        loadPoseDetails(poseId);
       } catch (error) {
         console.error('删除参考图失败:', error);
         alert('删除失败: ' + error.message);
@@ -2245,7 +2516,7 @@
 
     // 删除参考图
     async function deleteReferenceImage(poseId, imageId) {
-      if (!confirm('确定要删除这张参考图吗？')) return;
+      if (!confirm('确定要删除这张参考图吗？（图片文件将一并删除）')) return;
 
       try {
         const response = await fetch(`/api/v1/admin/poses/reference-images/${imageId}`, {
