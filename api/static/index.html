@@ -13,6 +13,7 @@
 <div class="main-tabs">
 <div class="main-tab active" data-main="video">视频生成</div>
 <div class="main-tab" data-main="image">图片生成</div>
+<div class="main-tab" data-main="vace">VACE 编辑</div>
 <div class="main-tab" data-main="workflow">高级工作流</div>
 <div class="main-tab" data-main="wf-history">Workflow 历史</div>
 <div class="main-tab" data-main="favorites">我的收藏</div>
@@ -59,11 +60,52 @@
 </div>
 
 <div class="main-section" id="section-settings">
-<div style="background:#16213e;border:1px solid #333;border-radius:8px;padding:20px;max-width:500px">
+<div style="background:#16213e;border:1px solid #333;border-radius:8px;padding:20px;max-width:500px;margin-bottom:20px">
 <h3 style="color:#7c83ff;margin-bottom:16px;font-size:15px">设置</h3>
 <div style="margin-bottom:16px">
 <label style="display:block;margin-bottom:6px;font-size:13px;color:#aaa">API Key</label>
 <input type="password" id="apiKey" value="wan22-default-key-change-me" style="width:100%;padding:8px 10px;background:#0a0a23;border:1px solid #444;border-radius:6px;color:#e0e0e0;font-size:14px" placeholder="Enter API Key" onchange="localStorage.setItem('wan22_api_key', this.value)">
+</div>
+<div style="margin-top:16px;padding-top:16px;border-top:1px solid #333">
+<h4 style="color:#7c83ff;margin-bottom:12px;font-size:14px">Prompt 优化</h4>
+<div style="margin-bottom:10px">
+<label style="display:block;margin-bottom:6px;font-size:13px;color:#aaa">短 prompt 自动优化阈值（字符数）</label>
+<input type="number" id="promptMinChars" value="20" min="0" max="500" style="width:100px;padding:6px 10px;background:#0a0a23;border:1px solid #444;border-radius:6px;color:#e0e0e0;font-size:14px">
+</div>
+<div style="margin-bottom:12px">
+<label style="font-size:13px;color:#aaa;display:flex;align-items:center;gap:6px;cursor:pointer">
+<input type="checkbox" id="promptNonTurbo" checked style="accent-color:#7c83ff"> 非 Turbo 模式自动优化 Prompt
+</label>
+</div>
+<div style="margin-bottom:12px">
+<label style="font-size:13px;color:#aaa;display:flex;align-items:center;gap:6px;cursor:pointer">
+<input type="checkbox" id="injectTriggerPrompt" checked style="accent-color:#7c83ff"> 自动注入 Trigger Prompt
+</label>
+</div>
+<div style="margin-bottom:12px">
+<label style="font-size:13px;color:#aaa;display:flex;align-items:center;gap:6px;cursor:pointer">
+<input type="checkbox" id="injectTriggerWords" checked style="accent-color:#7c83ff"> 自动注入 Trigger Words
+</label>
+</div>
+<button class="btn btn-sm" style="padding:6px 16px;font-size:12px" onclick="savePromptSettings()">保存</button>
+<span id="promptSettingsMsg" style="font-size:12px;color:#4caf50;margin-left:8px;display:none">已保存</span>
+</div>
+</div>
+
+<!-- GPU Monitor -->
+<div style="background:#16213e;border:1px solid #333;border-radius:8px;padding:20px">
+<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+<h3 style="color:#7c83ff;font-size:15px;margin:0">GPU 状态监控</h3>
+<div style="display:flex;align-items:center;gap:10px">
+<span id="gpu-update-time" style="font-size:11px;color:#666"></span>
+<button class="btn btn-sm" style="padding:6px 14px;font-size:12px" onclick="fetchGpuStatus()">刷新</button>
+<label style="font-size:12px;color:#aaa;display:flex;align-items:center;gap:4px;cursor:pointer">
+<input type="checkbox" id="gpu-auto-refresh" style="accent-color:#7c83ff" checked> 自动刷新
+</label>
+</div>
+</div>
+<div id="gpu-container">
+<div style="color:#888;font-size:13px;padding:20px;text-align:center">加载中...</div>
 </div>
 </div>
 </div>
@@ -110,7 +152,7 @@ const IFRAME_SRCS = {
 };
 
 // Module tabs load HTML fragments; iframe tabs show iframes
-const MODULE_TABS = new Set(['video', 'image']);
+const MODULE_TABS = new Set(['video', 'image', 'vace']);
 
 // Init API Key from localStorage
 const _savedKey = localStorage.getItem('wan22_api_key');
@@ -195,6 +237,219 @@ document.querySelectorAll('#section-poses [data-posetab]').forEach(t => {
     await ModuleLoader.load('video', 'module-content');
   }
 })();
+
+// ========== GPU Status Monitor ==========
+let _gpuTimer = null;
+const GPU_REFRESH_INTERVAL = 5000;
+
+function _gpuBarColor(pct) {
+  if (pct < 50) return '#4ade80';
+  if (pct < 80) return '#facc15';
+  return '#f87171';
+}
+
+function _fmtMem(mb) {
+  if (mb == null || mb === 0) return 'N/A';
+  return mb >= 1024 ? (mb / 1024).toFixed(1) + ' GB' : mb.toFixed(0) + ' MB';
+}
+
+function _bar(pct, label, color) {
+  const p = pct != null ? Math.min(100, Math.max(0, pct)) : 0;
+  return `<div style="margin-bottom:8px">
+    <div style="display:flex;justify-content:space-between;font-size:11px;color:#aaa;margin-bottom:3px">
+      <span>${label}</span><span style="color:${color || '#e0e0e0'}">${pct != null ? pct.toFixed(1) + '%' : 'N/A'}</span>
+    </div>
+    <div style="height:6px;background:#333;border-radius:3px;overflow:hidden">
+      <div style="height:100%;width:${p}%;background:${color || '#7c83ff'};border-radius:3px;transition:width .5s"></div>
+    </div>
+  </div>`;
+}
+
+function _fmtElapsed(ts) {
+  if (!ts) return '';
+  const sec = Math.floor(Date.now() / 1000 - ts);
+  if (sec < 60) return sec + '秒';
+  if (sec < 3600) return Math.floor(sec / 60) + '分' + (sec % 60) + '秒';
+  return Math.floor(sec / 3600) + '时' + Math.floor((sec % 3600) / 60) + '分';
+}
+
+function renderGpuCards(data) {
+  const container = document.getElementById('gpu-container');
+  if (!data.gpus || data.gpus.length === 0) {
+    container.innerHTML = '<div style="color:#888;font-size:13px;padding:20px;text-align:center">未检测到已注册的 ComfyUI Worker</div>';
+    return;
+  }
+
+  // Queue info
+  const ql = data.queue_lengths || {};
+  const queueHtml = (ql.a14b || ql['5b']) ?
+    `<div style="margin-bottom:12px;font-size:12px;color:#aaa;display:flex;gap:16px">
+      ${ql.a14b ? '<span>A14B 队列: <b style="color:#facc15">' + ql.a14b + '</b> 个任务等待中</span>' : ''}
+      ${ql['5b'] ? '<span>5B 队列: <b style="color:#facc15">' + ql['5b'] + '</b> 个任务等待中</span>' : ''}
+    </div>` : '';
+
+  const cards = data.gpus.map(gpu => {
+    const vramPct = gpu.vram_total_mb ? (gpu.vram_used_mb / gpu.vram_total_mb * 100) : null;
+    const torchPct = gpu.torch_vram_total_mb ? (gpu.torch_vram_used_mb / gpu.torch_vram_total_mb * 100) : null;
+    const vramColor = _gpuBarColor(vramPct || 0);
+    const torchColor = _gpuBarColor(torchPct || 0);
+
+    // Parse GPU name from device_name like "cuda:0 NVIDIA GeForce RTX 4090 : native"
+    let gpuName = gpu.device_name || 'Unknown';
+    const nameMatch = gpuName.match(/cuda:\d+\s+(.+?)\s*:\s*\w+$/);
+    if (nameMatch) gpuName = nameMatch[1];
+
+    // Status badge
+    const aliveColor = gpu.alive ? '#4ade80' : '#f87171';
+    let statusBadge;
+    if (!gpu.alive) {
+      statusBadge = '<span style="background:#4a1a1a;color:#f87171;font-size:10px;padding:2px 8px;border-radius:10px;font-weight:600">离线</span>';
+    } else if (gpu.task) {
+      statusBadge = '<span style="background:#0f3460;color:#7c83ff;font-size:10px;padding:2px 8px;border-radius:10px;font-weight:600">任务中</span>';
+    } else {
+      statusBadge = '<span style="background:#1a4a2e;color:#4ade80;font-size:10px;padding:2px 8px;border-radius:10px;font-weight:600">空闲</span>';
+    }
+
+    // Task info section
+    let taskHtml = '';
+    if (gpu.task) {
+      const t = gpu.task;
+      const pct = (t.progress * 100).toFixed(1);
+      const modeLabel = t.mode === 'i2v' ? '图生视频' : t.mode === 'extend' ? '视频续写' : '文生视频';
+      taskHtml = `<div style="margin-top:10px;padding:10px;background:#0f1a3e;border:1px solid #2a3a6a;border-radius:6px">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+          <span style="font-size:11px;color:#7c83ff;font-weight:600">当前任务</span>
+          <span style="font-size:10px;color:#888">${modeLabel} | ${t.model ? t.model.toUpperCase() : ''}</span>
+        </div>
+        <div style="font-size:11px;color:#ccc;margin-bottom:6px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"
+             title="${(t.prompt || '').replace(/"/g, '&quot;')}">
+          ${t.prompt ? t.prompt : '<span style="color:#666">无 prompt 信息</span>'}
+        </div>
+        <div style="display:flex;align-items:center;gap:8px">
+          <div style="flex:1;height:4px;background:#333;border-radius:2px;overflow:hidden">
+            <div style="height:100%;width:${pct}%;background:linear-gradient(90deg,#7c83ff,#4ade80);border-radius:2px;transition:width .5s"></div>
+          </div>
+          <span style="font-size:11px;color:#7c83ff;min-width:40px;text-align:right">${pct}%</span>
+        </div>
+        <div style="display:flex;justify-content:space-between;margin-top:4px;font-size:10px;color:#666">
+          <span>ID: ${t.task_id ? t.task_id.substring(0, 8) + '...' : 'N/A'}</span>
+          <span>已运行: ${_fmtElapsed(t.created_at)}</span>
+        </div>
+      </div>`;
+    } else if (gpu.alive) {
+      taskHtml = `<div style="margin-top:10px;padding:8px;background:#0a1520;border:1px dashed #333;border-radius:6px;text-align:center">
+        <span style="font-size:11px;color:#555">无运行中的任务</span>
+      </div>`;
+    }
+
+    // Version info
+    const versionHtml = gpu.comfyui_version ?
+      `<span style="font-size:10px;color:#555;margin-left:auto">ComfyUI ${gpu.comfyui_version} | PyTorch ${gpu.pytorch_version}</span>` : '';
+
+    return `<div style="background:#0a0a23;border:1px solid ${gpu.alive ? '#333' : '#4a1a1a'};border-radius:8px;padding:14px;${gpu.alive ? '' : 'opacity:0.7'}">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+        <div>
+          <span style="color:#7c83ff;font-weight:600;font-size:13px">${gpu.model_key.toUpperCase()}</span>
+          <span style="color:#888;font-size:12px;margin-left:6px">${gpuName}</span>
+          <span style="font-size:10px;color:#666;margin-left:4px">${gpu.url}</span>
+        </div>
+        ${statusBadge}
+      </div>
+      ${gpu.alive ? _bar(vramPct, 'VRAM (' + _fmtMem(gpu.vram_used_mb) + ' / ' + _fmtMem(gpu.vram_total_mb) + ')', vramColor) : ''}
+      ${gpu.alive && gpu.torch_vram_total_mb ? _bar(torchPct, 'Torch 显存 (' + _fmtMem(gpu.torch_vram_used_mb) + ' / ' + _fmtMem(gpu.torch_vram_total_mb) + ')', torchColor) : ''}
+      ${!gpu.alive ? '<div style="color:#f87171;font-size:12px;padding:8px 0">Worker 不可达，请检查 ComfyUI 是否运行</div>' : ''}
+      <div style="display:flex;align-items:center;margin-top:6px">
+        ${versionHtml}
+      </div>
+      ${taskHtml}
+    </div>`;
+  }).join('');
+
+  container.innerHTML = queueHtml + '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(380px,1fr));gap:12px">' + cards + '</div>';
+}
+
+async function fetchGpuStatus() {
+  try {
+    const key = localStorage.getItem('wan22_api_key') || 'wan22-default-key-change-me';
+    const resp = await fetch(`${window.location.origin}/api/v1/admin/gpu-status`, {
+      headers: { 'X-API-Key': key }
+    });
+    if (!resp.ok) throw new Error('HTTP ' + resp.status);
+    const data = await resp.json();
+    renderGpuCards(data);
+    document.getElementById('gpu-update-time').textContent = '更新于 ' + new Date().toLocaleTimeString();
+  } catch (e) {
+    document.getElementById('gpu-container').innerHTML =
+      `<div style="color:#f87171;font-size:13px;padding:20px;text-align:center">获取 GPU 状态失败: ${e.message}</div>`;
+  }
+}
+
+function _startGpuRefresh() {
+  if (_gpuTimer) clearInterval(_gpuTimer);
+  if (document.getElementById('gpu-auto-refresh').checked) {
+    _gpuTimer = setInterval(() => {
+      // Only refresh when settings tab is visible
+      const section = document.getElementById('section-settings');
+      if (section && section.classList.contains('active')) fetchGpuStatus();
+    }, GPU_REFRESH_INTERVAL);
+  }
+}
+
+document.getElementById('gpu-auto-refresh').addEventListener('change', _startGpuRefresh);
+
+// --- Prompt Optimization Settings ---
+async function loadPromptSettings() {
+  try {
+    const key = document.getElementById('apiKey').value;
+    const resp = await fetch(`${window.location.origin}/api/v1/admin/settings`, {
+      headers: { 'X-API-Key': key }
+    });
+    if (!resp.ok) return;
+    const data = await resp.json();
+    document.getElementById('promptMinChars').value = data.prompt_optimize_min_chars ?? 20;
+    document.getElementById('promptNonTurbo').checked = data.prompt_optimize_non_turbo ?? true;
+    document.getElementById('injectTriggerPrompt').checked = data.inject_trigger_prompt ?? true;
+    document.getElementById('injectTriggerWords').checked = data.inject_trigger_words ?? true;
+  } catch (e) { console.warn('Failed to load prompt settings:', e); }
+}
+
+async function savePromptSettings() {
+  try {
+    const key = document.getElementById('apiKey').value;
+    const body = {
+      prompt_optimize_min_chars: parseInt(document.getElementById('promptMinChars').value) || 20,
+      prompt_optimize_non_turbo: document.getElementById('promptNonTurbo').checked,
+      inject_trigger_prompt: document.getElementById('injectTriggerPrompt').checked,
+      inject_trigger_words: document.getElementById('injectTriggerWords').checked
+    };
+    const resp = await fetch(`${window.location.origin}/api/v1/admin/settings`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json', 'X-API-Key': key },
+      body: JSON.stringify(body)
+    });
+    if (resp.ok) {
+      const msg = document.getElementById('promptSettingsMsg');
+      msg.style.display = 'inline';
+      setTimeout(() => msg.style.display = 'none', 2000);
+    }
+  } catch (e) { console.warn('Failed to save prompt settings:', e); }
+}
+
+// Fetch GPU status when settings tab is first shown
+const _origSettingsClick = () => {
+  fetchGpuStatus();
+  _startGpuRefresh();
+  loadPromptSettings();
+};
+document.querySelector('.main-tab[data-main="settings"]').addEventListener('click', _origSettingsClick);
+
+// Init on page load: the IIFE at line 229 fires mt.click() before
+// _origSettingsClick is registered, so we must call these explicitly.
+loadPromptSettings();
+if (localStorage.getItem('wan22_main_tab') === 'settings') {
+  fetchGpuStatus();
+  _startGpuRefresh();
+}
 </script>
 </body>
 </html>

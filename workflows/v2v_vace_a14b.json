@@ -36,10 +36,10 @@
   "5": {
     "class_type": "WanVideoBlockSwap",
     "inputs": {
-      "blocks_to_swap": 10,
-      "offload_img_emb": false,
-      "offload_txt_emb": false,
-      "vace_blocks_to_swap": 5
+      "blocks_to_swap": 20,
+      "offload_img_emb": true,
+      "offload_txt_emb": true,
+      "vace_blocks_to_swap": 10
     }
   },
   "6": {

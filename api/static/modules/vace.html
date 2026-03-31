@@ -1,0 +1,763 @@
+<!-- VACE Module -->
+<div class="main-section active" id="section-vace">
+<div class="tabs">
+<div class="tab active" data-vacetab="ref2v">Ref2V 参考图生成视频</div>
+<div class="tab" data-vacetab="v2v">V2V 视频风格转绘</div>
+<div class="tab" data-vacetab="inpainting">Inpainting 视频修复</div>
+<div class="tab" data-vacetab="flf2v">FLF2V 首末帧生成视频</div>
+</div>
+
+<!-- ==================== Ref2V Panel ==================== -->
+<div class="panel active" id="vacepanel-ref2v">
+<div class="row">
+<div class="field" style="flex:1;max-width:300px"><label>参考图片</label>
+<div class="upload-area" id="vace-ref2v-img-area">
+<img id="vace-ref2v-img-preview" style="display:none">
+<span id="vace-ref2v-img-text">点击或拖拽上传参考图片</span>
+<input type="file" id="vace-ref2v-img-file" accept="image/*">
+</div></div>
+<div class="field" style="flex:2"><label>正向提示词</label>
+<textarea id="vace-ref2v-prompt" placeholder="描述你想要生成的视频内容..." style="min-height:120px"></textarea>
+</div></div>
+<div class="row"><div class="field" style="flex:3">
+<div class="collapsible" onclick="this.nextElementSibling.classList.toggle('active')">
+<span>负向提示词</span><span style="font-size:12px">&#9660;</span>
+</div>
+<div class="collapsible-content">
+<input id="vace-ref2v-neg" placeholder="负向提示词 (可选)" value="色调艳丽，过曝，静态，细节模糊不清，字幕，风格，作品，画作，画面，静止，整体发灰，最差质量，低质量，JPEG压缩残留，丑陋的，残缺的，多余的手指，画得不好的手部，画得不好的脸部，畸形的，毁容的，形态畸形的肢体，手指融合，静止不动的画面，杂乱的背景，三条腿，背景人很多，倒着走">
+</div></div></div>
+<div class="row">
+<div class="field"><label>宽度</label><input type="number" id="vace-ref2v-w" value="832" step="16" onchange="align16(this)"></div>
+<div class="field"><label>高度</label><input type="number" id="vace-ref2v-h" value="480" step="16" onchange="align16(this)"></div>
+<div class="field"><label>时长(秒) <span id="vace-ref2v-dur-frames" style="color:#7c83ff;font-size:11px"></span></label>
+<input type="range" id="vace-ref2v-duration" min="1" max="10" step="0.5" value="5" oninput="vaceUpdateDurLabel('ref2v')">
+</div>
+<div class="field"><label>FPS</label><input type="number" id="vace-ref2v-fps" value="16" onchange="vaceUpdateDurLabel('ref2v')"></div>
+</div>
+<div class="row">
+<div class="field"><label>Steps</label><input type="number" id="vace-ref2v-steps" value="20"></div>
+<div class="field"><label>CFG</label><input type="number" id="vace-ref2v-cfg" value="6.0" step="0.5"></div>
+<div class="field"><label>Shift</label><input type="number" id="vace-ref2v-shift" value="5.0" step="0.5"></div>
+<div class="field"><label>Seed (-1=随机)</label><input type="number" id="vace-ref2v-seed" value="-1"></div>
+</div>
+<div class="row">
+<div class="field"><label>Strength <span id="vace-ref2v-strength-val" style="color:#7c83ff">1.0</span></label>
+<input type="range" id="vace-ref2v-strength" min="0" max="2" step="0.05" value="1.0" oninput="document.getElementById('vace-ref2v-strength-val').textContent=this.value">
+</div>
+<div class="field" style="min-width:auto;flex:none;display:flex;align-items:flex-end;padding-bottom:4px">
+<label style="cursor:pointer"><input type="checkbox" id="vace-ref2v-lightning" onchange="vaceToggleLightning('ref2v')" style="accent-color:#7c83ff;width:16px;height:16px;vertical-align:middle;margin-right:6px">Lightning 快速模式</label>
+</div>
+</div>
+<div id="vace-ref2v-lightning-badge" style="display:none;margin-bottom:12px;padding:8px 14px;background:#2d1b00;border:1px solid #f59e0b;border-radius:6px;font-size:13px;color:#fbbf24">&#9889; Lightning 4步快速模式</div>
+<div class="btn-row"><button class="btn" onclick="vaceSubmit('ref2v')">生成视频</button></div>
+<div id="vace-ref2v-status" style="margin-top:16px"></div>
+<div id="vace-ref2v-result" style="margin-top:12px"></div>
+</div>
+
+<!-- ==================== V2V Panel ==================== -->
+<div class="panel" id="vacepanel-v2v">
+<div class="row">
+<div class="field" style="flex:1;max-width:300px"><label>输入视频</label>
+<div class="upload-area" id="vace-v2v-video-area">
+<video id="vace-v2v-video-preview" style="display:none;max-width:100%;max-height:200px;border-radius:6px" controls></video>
+<span id="vace-v2v-video-text">点击或拖拽上传视频</span>
+<input type="file" id="vace-v2v-video-file" accept="video/*">
+</div></div>
+<div class="field" style="flex:1;max-width:200px"><label>参考图片 (可选)</label>
+<div class="upload-area" id="vace-v2v-img-area" style="min-height:120px">
+<img id="vace-v2v-img-preview" style="display:none">
+<span id="vace-v2v-img-text" style="font-size:12px">点击上传参考图 (可选)</span>
+<input type="file" id="vace-v2v-img-file" accept="image/*">
+</div></div>
+<div class="field" style="flex:2">
+<label>风格预设</label>
+<div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px" id="vace-v2v-style-presets"></div>
+<label>正向提示词</label>
+<textarea id="vace-v2v-prompt" placeholder="选择风格预设或手动输入..." style="min-height:120px"></textarea>
+</div></div>
+<div class="row"><div class="field" style="flex:3">
+<div class="collapsible" onclick="this.nextElementSibling.classList.toggle('active')">
+<span>负向提示词</span><span style="font-size:12px">&#9660;</span>
+</div>
+<div class="collapsible-content">
+<input id="vace-v2v-neg" placeholder="负向提示词 (可选)" value="色调艳丽，过曝，静态，细节模糊不清，字幕，风格，作品，画作，画面，静止，整体发灰，最差质量，低质量，JPEG压缩残留，丑陋的，残缺的，多余的手指，画得不好的手部，画得不好的脸部，畸形的，毁容的，形态畸形的肢体，手指融合，静止不动的画面，杂乱的背景，三条腿，背景人很多，倒着走">
+</div></div></div>
+<div class="row">
+<div class="field"><label>宽度</label><input type="number" id="vace-v2v-w" value="832" step="16" onchange="align16(this)"></div>
+<div class="field"><label>高度</label><input type="number" id="vace-v2v-h" value="480" step="16" onchange="align16(this)"></div>
+<div class="field"><label>时长(秒) <span id="vace-v2v-dur-frames" style="color:#7c83ff;font-size:11px"></span></label>
+<input type="range" id="vace-v2v-duration" min="1" max="10" step="0.5" value="5" oninput="vaceUpdateDurLabel('v2v')">
+</div>
+<div class="field"><label>FPS</label><input type="number" id="vace-v2v-fps" value="16" onchange="vaceUpdateDurLabel('v2v')"></div>
+</div>
+<div class="row">
+<div class="field"><label>Steps</label><input type="number" id="vace-v2v-steps" value="20"></div>
+<div class="field"><label>CFG</label><input type="number" id="vace-v2v-cfg" value="6.0" step="0.5"></div>
+<div class="field"><label>Shift</label><input type="number" id="vace-v2v-shift" value="5.0" step="0.5"></div>
+<div class="field"><label>Seed (-1=随机)</label><input type="number" id="vace-v2v-seed" value="-1"></div>
+</div>
+<div class="row">
+<div class="field"><label>Strength <span id="vace-v2v-strength-val" style="color:#7c83ff">1.0</span></label>
+<input type="range" id="vace-v2v-strength" min="0" max="2" step="0.05" value="1.0" oninput="document.getElementById('vace-v2v-strength-val').textContent=this.value">
+</div>
+<div class="field" style="min-width:auto;flex:none;display:flex;align-items:flex-end;padding-bottom:4px">
+<label style="cursor:pointer"><input type="checkbox" id="vace-v2v-lightning" onchange="vaceToggleLightning('v2v')" style="accent-color:#7c83ff;width:16px;height:16px;vertical-align:middle;margin-right:6px">Lightning 快速模式</label>
+</div>
+</div>
+<div id="vace-v2v-lightning-badge" style="display:none;margin-bottom:12px;padding:8px 14px;background:#2d1b00;border:1px solid #f59e0b;border-radius:6px;font-size:13px;color:#fbbf24">&#9889; Lightning 4步快速模式</div>
+<div class="btn-row"><button class="btn" onclick="vaceSubmit('v2v')">生成视频</button></div>
+<div id="vace-v2v-status" style="margin-top:16px"></div>
+<div id="vace-v2v-result" style="margin-top:12px"></div>
+</div>
+
+<!-- ==================== Inpainting Panel ==================== -->
+<div class="panel" id="vacepanel-inpainting">
+<div class="row">
+<div class="field" style="flex:1;max-width:250px"><label>输入视频</label>
+<div class="upload-area" id="vace-inpaint-video-area" style="min-height:130px">
+<video id="vace-inpaint-video-preview" style="display:none;max-width:100%;max-height:180px;border-radius:6px" controls></video>
+<span id="vace-inpaint-video-text">点击或拖拽上传视频</span>
+<input type="file" id="vace-inpaint-video-file" accept="video/*">
+</div></div>
+<div class="field" style="flex:1;max-width:250px"><label>蒙版视频 (Mask)</label>
+<div class="upload-area" id="vace-inpaint-mask-area" style="min-height:130px">
+<video id="vace-inpaint-mask-preview" style="display:none;max-width:100%;max-height:180px;border-radius:6px" controls></video>
+<span id="vace-inpaint-mask-text">点击或拖拽上传蒙版视频</span>
+<input type="file" id="vace-inpaint-mask-file" accept="video/*">
+</div></div>
+<div class="field" style="flex:1;max-width:180px"><label>参考图片 (可选)</label>
+<div class="upload-area" id="vace-inpaint-img-area" style="min-height:130px">
+<img id="vace-inpaint-img-preview" style="display:none">
+<span id="vace-inpaint-img-text" style="font-size:12px">点击上传参考图 (可选)</span>
+<input type="file" id="vace-inpaint-img-file" accept="image/*">
+</div></div>
+</div>
+<div class="row"><div class="field" style="flex:3"><label>正向提示词</label>
+<textarea id="vace-inpaint-prompt" placeholder="描述你想要修复/替换的内容..." style="min-height:80px"></textarea>
+</div></div>
+<div class="row"><div class="field" style="flex:3">
+<div class="collapsible" onclick="this.nextElementSibling.classList.toggle('active')">
+<span>负向提示词</span><span style="font-size:12px">&#9660;</span>
+</div>
+<div class="collapsible-content">
+<input id="vace-inpaint-neg" placeholder="负向提示词 (可选)" value="色调艳丽，过曝，静态，细节模糊不清，字幕，风格，作品，画作，画面，静止，整体发灰，最差质量，低质量，JPEG压缩残留，丑陋的，残缺的，多余的手指，画得不好的手部，画得不好的脸部，畸形的，毁容的，形态畸形的肢体，手指融合，静止不动的画面，杂乱的背景，三条腿，背景人很多，倒着走">
+</div></div></div>
+<div class="row">
+<div class="field"><label>宽度</label><input type="number" id="vace-inpaint-w" value="832" step="16" onchange="align16(this)"></div>
+<div class="field"><label>高度</label><input type="number" id="vace-inpaint-h" value="480" step="16" onchange="align16(this)"></div>
+<div class="field"><label>时长(秒) <span id="vace-inpaint-dur-frames" style="color:#7c83ff;font-size:11px"></span></label>
+<input type="range" id="vace-inpaint-duration" min="1" max="10" step="0.5" value="5" oninput="vaceUpdateDurLabel('inpaint')">
+</div>
+<div class="field"><label>FPS</label><input type="number" id="vace-inpaint-fps" value="16" onchange="vaceUpdateDurLabel('inpaint')"></div>
+</div>
+<div class="row">
+<div class="field"><label>Steps</label><input type="number" id="vace-inpaint-steps" value="20"></div>
+<div class="field"><label>CFG</label><input type="number" id="vace-inpaint-cfg" value="6.0" step="0.5"></div>
+<div class="field"><label>Shift</label><input type="number" id="vace-inpaint-shift" value="5.0" step="0.5"></div>
+<div class="field"><label>Seed (-1=随机)</label><input type="number" id="vace-inpaint-seed" value="-1"></div>
+</div>
+<div class="row">
+<div class="field"><label>Strength <span id="vace-inpaint-strength-val" style="color:#7c83ff">1.0</span></label>
+<input type="range" id="vace-inpaint-strength" min="0" max="2" step="0.05" value="1.0" oninput="document.getElementById('vace-inpaint-strength-val').textContent=this.value">
+</div>
+<div class="field" style="min-width:auto;flex:none;display:flex;align-items:flex-end;padding-bottom:4px">
+<label style="cursor:pointer"><input type="checkbox" id="vace-inpaint-lightning" onchange="vaceToggleLightning('inpaint')" style="accent-color:#7c83ff;width:16px;height:16px;vertical-align:middle;margin-right:6px">Lightning 快速模式</label>
+</div>
+</div>
+<div id="vace-inpaint-lightning-badge" style="display:none;margin-bottom:12px;padding:8px 14px;background:#2d1b00;border:1px solid #f59e0b;border-radius:6px;font-size:13px;color:#fbbf24">&#9889; Lightning 4步快速模式</div>
+<div class="btn-row"><button class="btn" onclick="vaceSubmit('inpaint')">生成视频</button></div>
+<div id="vace-inpaint-status" style="margin-top:16px"></div>
+<div id="vace-inpaint-result" style="margin-top:12px"></div>
+</div>
+
+<!-- ==================== FLF2V Panel ==================== -->
+<div class="panel" id="vacepanel-flf2v">
+<div class="row">
+<div class="field" style="flex:1;max-width:300px"><label>首帧图片</label>
+<div class="upload-area" id="vace-flf2v-start-area">
+<img id="vace-flf2v-start-preview" style="display:none">
+<span id="vace-flf2v-start-text">点击或拖拽上传首帧图片</span>
+<input type="file" id="vace-flf2v-start-file" accept="image/*">
+</div></div>
+<div class="field" style="flex:1;max-width:300px"><label>末帧图片 (可选)</label>
+<div class="upload-area" id="vace-flf2v-end-area">
+<img id="vace-flf2v-end-preview" style="display:none">
+<span id="vace-flf2v-end-text">点击或拖拽上传末帧图片 (可选)</span>
+<input type="file" id="vace-flf2v-end-file" accept="image/*">
+</div></div>
+<div class="field" style="flex:2"><label>正向提示词</label>
+<textarea id="vace-flf2v-prompt" placeholder="描述首帧到末帧之间的动作/变化..." style="min-height:120px"></textarea>
+</div></div>
+<div class="row"><div class="field" style="flex:3">
+<div class="collapsible" onclick="this.nextElementSibling.classList.toggle('active')">
+<span>负向提示词</span><span style="font-size:12px">&#9660;</span>
+</div>
+<div class="collapsible-content">
+<input id="vace-flf2v-neg" placeholder="负向提示词 (可选)" value="色调艳丽，过曝，静态，细节模糊不清，字幕，风格，作品，画作，画面，静止，整体发灰，最差质量，低质量，JPEG压缩残留，丑陋的，残缺的，多余的手指，画得不好的手部，画得不好的脸部，畸形的，毁容的，形态畸形的肢体，手指融合，静止不动的画面，杂乱的背景，三条腿，背景人很多，倒着走">
+</div></div></div>
+<div class="row">
+<div class="field"><label>宽度</label><input type="number" id="vace-flf2v-w" value="832" step="16" onchange="align16(this)"></div>
+<div class="field"><label>高度</label><input type="number" id="vace-flf2v-h" value="480" step="16" onchange="align16(this)"></div>
+<div class="field"><label>时长(秒) <span id="vace-flf2v-dur-frames" style="color:#7c83ff;font-size:11px"></span></label>
+<input type="range" id="vace-flf2v-duration" min="1" max="10" step="0.5" value="5" oninput="vaceUpdateDurLabel('flf2v')">
+</div>
+<div class="field"><label>FPS</label><input type="number" id="vace-flf2v-fps" value="16" onchange="vaceUpdateDurLabel('flf2v')"></div>
+</div>
+<div class="row">
+<div class="field"><label>Steps</label><input type="number" id="vace-flf2v-steps" value="20"></div>
+<div class="field"><label>CFG</label><input type="number" id="vace-flf2v-cfg" value="6.0" step="0.5"></div>
+<div class="field"><label>Shift</label><input type="number" id="vace-flf2v-shift" value="5.0" step="0.5"></div>
+<div class="field"><label>Seed (-1=随机)</label><input type="number" id="vace-flf2v-seed" value="-1"></div>
+</div>
+<div class="row">
+<div class="field"><label>Strength <span id="vace-flf2v-strength-val" style="color:#7c83ff">1.0</span></label>
+<input type="range" id="vace-flf2v-strength" min="0" max="2" step="0.05" value="1.0" oninput="document.getElementById('vace-flf2v-strength-val').textContent=this.value">
+</div>
+<div class="field" style="min-width:auto;flex:none;display:flex;align-items:flex-end;padding-bottom:4px">
+<label style="cursor:pointer"><input type="checkbox" id="vace-flf2v-lightning" onchange="vaceToggleLightning('flf2v')" style="accent-color:#7c83ff;width:16px;height:16px;vertical-align:middle;margin-right:6px">Lightning 快速模式</label>
+</div>
+</div>
+<div id="vace-flf2v-lightning-badge" style="display:none;margin-bottom:12px;padding:8px 14px;background:#2d1b00;border:1px solid #f59e0b;border-radius:6px;font-size:13px;color:#fbbf24">&#9889; Lightning 4步快速模式</div>
+<div class="btn-row"><button class="btn" onclick="vaceSubmit('flf2v')">生成视频</button></div>
+<div id="vace-flf2v-status" style="margin-top:16px"></div>
+<div id="vace-flf2v-result" style="margin-top:12px"></div>
+</div>
+
+</div><!-- end #section-vace -->
+
+<script>
+// ==================== VACE Module Script ====================
+
+// --- Uploaded file tracking ---
+const _vaceFiles = {
+  'ref2v-img': null,
+  'v2v-video': null,
+  'v2v-img': null,
+  'inpaint-video': null,
+  'inpaint-mask': null,
+  'inpaint-img': null,
+  'flf2v-start': null,
+  'flf2v-end': null
+};
+
+// --- Uploaded server filenames (after /api/v1/vace/upload) ---
+const _vaceUploaded = {};
+
+// --- Polling timers ---
+const _vacePolling = {};
+
+// ==================== Persist parameters to localStorage ====================
+
+const VACE_TABS = ['ref2v', 'v2v', 'inpaint', 'flf2v'];
+const VACE_FIELDS = ['w', 'h', 'duration', 'fps', 'steps', 'cfg', 'shift', 'seed', 'strength', 'lightning', 'prompt', 'neg'];
+const VACE_STORAGE_KEY = 'vace_params';
+
+function _vacePrefix(tab) {
+  return (tab === 'inpaint') ? 'vace-inpaint' : 'vace-' + tab;
+}
+
+function vaceSaveParams() {
+  var data = {};
+  VACE_TABS.forEach(function(tab) {
+    var p = _vacePrefix(tab);
+    var t = {};
+    VACE_FIELDS.forEach(function(f) {
+      var el = document.getElementById(p + '-' + f);
+      if (!el) return;
+      if (el.type === 'checkbox') {
+        t[f] = el.checked;
+      } else {
+        t[f] = el.value;
+      }
+    });
+    data[tab] = t;
+  });
+  // Also save active tab
+  var activeTab = document.querySelector('#section-vace [data-vacetab].active');
+  if (activeTab) data._activeTab = activeTab.dataset.vacetab;
+  try { localStorage.setItem(VACE_STORAGE_KEY, JSON.stringify(data)); } catch(e) {}
+}
+
+function vaceRestoreParams() {
+  var raw;
+  try { raw = localStorage.getItem(VACE_STORAGE_KEY); } catch(e) {}
+  if (!raw) return;
+  var data;
+  try { data = JSON.parse(raw); } catch(e) { return; }
+
+  VACE_TABS.forEach(function(tab) {
+    var saved = data[tab];
+    if (!saved) return;
+    var p = _vacePrefix(tab);
+    VACE_FIELDS.forEach(function(f) {
+      if (!(f in saved)) return;
+      var el = document.getElementById(p + '-' + f);
+      if (!el) return;
+      if (el.type === 'checkbox') {
+        el.checked = saved[f];
+      } else {
+        el.value = saved[f];
+      }
+    });
+    // Update strength label
+    var strengthValEl = document.getElementById(p + '-strength-val');
+    var strengthEl = document.getElementById(p + '-strength');
+    if (strengthValEl && strengthEl) strengthValEl.textContent = strengthEl.value;
+    // Before applying lightning, save the restored steps/cfg as prevValue
+    // so toggling off lightning restores the user's actual values
+    var stepsEl = document.getElementById(p + '-steps');
+    var cfgEl = document.getElementById(p + '-cfg');
+    if (stepsEl && saved.steps) stepsEl.dataset.prevValue = saved.steps;
+    if (cfgEl && saved.cfg) cfgEl.dataset.prevValue = saved.cfg;
+    // Apply lightning state (will override steps/cfg if checked)
+    vaceToggleLightning(tab);
+    // Update duration label
+    vaceUpdateDurLabel(tab);
+  });
+
+  // Restore active tab
+  if (data._activeTab) {
+    var tabEl = document.querySelector('#section-vace [data-vacetab="' + data._activeTab + '"]');
+    if (tabEl) tabEl.click();
+  }
+}
+
+// ==================== V2V Style Presets ====================
+
+const VACE_STYLE_PRESETS = [
+  { label: '🎬 迪士尼 3D', prompt: 'Disney Pixar 3D animation style, high quality CGI render, smooth plastic-like skin texture, big expressive eyes, soft ambient lighting, vibrant saturated colors, cinematic depth of field, Pixar movie screenshot, detailed character animation, 4K quality' },
+  { label: '🌸 吉卜力', prompt: 'Studio Ghibli anime style, hand-drawn animation, soft watercolor background, warm natural lighting, cel shading, Hayao Miyazaki aesthetic, detailed nature scenery, gentle color palette, beautiful anime art, high quality animation' },
+  { label: '✨ 新海诚', prompt: 'Makoto Shinkai anime style, ultra-detailed sky and clouds, dramatic golden hour lighting, photorealistic backgrounds with anime characters, lens flare, vivid saturated colors, Your Name movie aesthetic, cinematic composition, 8K quality' },
+  { label: '🌙 赛博朋克', prompt: 'cyberpunk neon style, dark futuristic city, glowing neon lights in purple blue and pink, rain-soaked reflective streets, holographic billboards, Blade Runner aesthetic, high contrast cinematic lighting, volumetric fog, 4K' },
+  { label: '🎨 水彩画', prompt: 'beautiful watercolor painting style, soft brush strokes, wet-on-wet technique, flowing transparent colors, paper texture, artistic color bleeding, impressionist feel, delicate pastel tones, fine art quality' },
+  { label: '🖌️ 油画', prompt: 'classical oil painting style, thick impasto brush strokes, rich warm color palette, Renaissance lighting, dramatic chiaroscuro, museum quality artwork, canvas texture, masterpiece painting' },
+  { label: '📸 电影质感', prompt: 'cinematic film style, 35mm film grain, shallow depth of field, warm golden hour lighting, professional color grading, ARRI Alexa camera look, anamorphic lens flare, high production value, movie screenshot' },
+  { label: '🎮 像素风', prompt: 'pixel art style, retro 16-bit video game aesthetic, clean pixel edges, limited color palette, nostalgic SNES era graphics, bright cheerful colors, charming sprite art, crisp pixel detail' },
+  { label: '📓 漫画', prompt: 'manga comic style, black ink line art with screen tones, dramatic speed lines, high contrast black and white, expressive character art, Japanese manga aesthetic, detailed cross-hatching, sharp clean lines' },
+  { label: '🌈 波普艺术', prompt: 'pop art style, bold primary colors, Ben-Day dots pattern, Andy Warhol aesthetic, high contrast flat colors, thick black outlines, comic book halftone, vibrant retro 1960s design' },
+  { label: '🏔️ 国风水墨', prompt: 'traditional Chinese ink wash painting style, sumi-e brush strokes, black ink on rice paper, elegant minimalist composition, mountain and water landscape, flowing calligraphic lines, Song dynasty aesthetic, misty atmospheric perspective' },
+  { label: '💎 3D 写实', prompt: 'photorealistic 3D render, Unreal Engine 5 quality, ray-traced global illumination, subsurface scattering on skin, PBR materials, 8K ultra-detailed textures, professional studio lighting, hyper-realistic CGI' },
+  { label: '🧸 黏土动画', prompt: 'claymation stop-motion style, handmade clay figures, soft rounded shapes, fingerprint texture on surfaces, warm studio lighting, Aardman animation aesthetic, playful colorful characters, miniature set design' },
+  { label: '🌺 浮世绘', prompt: 'Ukiyo-e Japanese woodblock print style, flat color areas with bold outlines, Hokusai and Hiroshige aesthetic, wave patterns, traditional Japanese color palette, decorative composition, Edo period art style' },
+  { label: '🔮 奇幻魔法', prompt: 'fantasy magical style, glowing ethereal particles, enchanted forest atmosphere, mystical purple and teal color scheme, fairy tale lighting, sparkling magical effects, dreamy soft focus, otherworldly beauty' },
+  { label: '🌑 黑白电影', prompt: 'classic black and white film noir style, high contrast monochrome, dramatic shadows, 1940s Hollywood cinematography, moody atmospheric lighting, grain texture, vintage film aesthetic' },
+];
+
+function _vaceRenderStylePresets() {
+  var container = document.getElementById('vace-v2v-style-presets');
+  if (!container) return;
+  var html = '';
+  VACE_STYLE_PRESETS.forEach(function(s, i) {
+    html += '<button class="btn btn-sm vace-style-btn" data-idx="' + i + '" ' +
+      'style="background:#16213e;border:1px solid #444;font-size:12px;padding:4px 10px;cursor:pointer;white-space:nowrap" ' +
+      'onclick="_vaceApplyStyle(' + i + ')" title="' + s.prompt.substring(0, 80) + '...">' +
+      s.label + '</button>';
+  });
+  container.innerHTML = html;
+}
+
+function _vaceApplyStyle(idx) {
+  var s = VACE_STYLE_PRESETS[idx];
+  if (!s) return;
+  var el = document.getElementById('vace-v2v-prompt');
+  if (el) {
+    el.value = s.prompt;
+    el.dispatchEvent(new Event('input'));
+  }
+  // Highlight selected button
+  document.querySelectorAll('.vace-style-btn').forEach(function(b) {
+    b.style.borderColor = (parseInt(b.dataset.idx) === idx) ? '#7c83ff' : '#444';
+    b.style.background = (parseInt(b.dataset.idx) === idx) ? '#0f3460' : '#16213e';
+  });
+  vaceSaveParams();
+}
+
+// ==================== Duration helpers ====================
+
+function vaceCalcFrames(seconds, fps) {
+  return Math.round(seconds * fps / 4) * 4 + 1;
+}
+
+function vaceUpdateDurLabel(tab) {
+  const prefix = (tab === 'inpaint') ? 'vace-inpaint' : 'vace-' + tab;
+  const durEl = document.getElementById(prefix + '-duration');
+  const fpsEl = document.getElementById(prefix + '-fps');
+  const labelEl = document.getElementById(prefix + '-dur-frames');
+  if (!durEl || !fpsEl || !labelEl) return;
+  const sec = parseFloat(durEl.value) || 5;
+  const fps = parseInt(fpsEl.value) || 16;
+  const frames = vaceCalcFrames(sec, fps);
+  labelEl.textContent = sec.toFixed(1) + 's = ' + frames + ' frames';
+}
+
+// ==================== Lightning toggle ====================
+
+function vaceToggleLightning(tab) {
+  const prefix = (tab === 'inpaint') ? 'vace-inpaint' : 'vace-' + tab;
+  const cb = document.getElementById(prefix + '-lightning');
+  const stepsEl = document.getElementById(prefix + '-steps');
+  const cfgEl = document.getElementById(prefix + '-cfg');
+  const badge = document.getElementById(prefix + '-lightning-badge');
+  if (!cb || !stepsEl || !cfgEl) return;
+
+  if (cb.checked) {
+    // Only set defaults on first toggle (not on restore), user can still edit freely
+    if (!cb.dataset.wasLightning) {
+      stepsEl.dataset.prevValue = stepsEl.value;
+      cfgEl.dataset.prevValue = cfgEl.value;
+      stepsEl.value = 4;
+      cfgEl.value = 1.0;
+    }
+    cb.dataset.wasLightning = '1';
+    if (badge) badge.style.display = 'block';
+  } else {
+    // Restore previous values when turning off
+    if (stepsEl.dataset.prevValue) stepsEl.value = stepsEl.dataset.prevValue;
+    if (cfgEl.dataset.prevValue) cfgEl.value = cfgEl.dataset.prevValue;
+    cb.dataset.wasLightning = '';
+    if (badge) badge.style.display = 'none';
+  }
+  vaceSaveParams();
+}
+
+// ==================== File upload helpers ====================
+
+function _vaceGetKey() {
+  // Use the global getKey() from common.js (reads from #apiKey input in index.html)
+  if (typeof getKey === 'function') return getKey();
+  return localStorage.getItem('wan22_api_key') || 'wan22-default-key-change-me';
+}
+
+async function _vaceUploadFile(file, fileKey) {
+  // Check if already uploaded
+  if (_vaceUploaded[fileKey]) return _vaceUploaded[fileKey];
+
+  const fd = new FormData();
+  fd.append('file', file);
+
+  const r = await fetch(BASE + '/api/v1/vace/upload', {
+    method: 'POST',
+    headers: { 'X-API-Key': _vaceGetKey() },
+    body: fd
+  });
+
+  if (!r.ok) {
+    const err = await r.json().catch(() => ({}));
+    throw new Error(err.detail || '上传失败 (' + r.status + ')');
+  }
+
+  const data = await r.json();
+  _vaceUploaded[fileKey] = data.filename;
+  return data.filename;
+}
+
+function _vaceSetupImageUpload(inputId, previewId, textId, fileKey) {
+  const input = document.getElementById(inputId);
+  if (!input) return;
+  input.addEventListener('change', function() {
+    const file = this.files[0];
+    if (!file) return;
+    _vaceFiles[fileKey] = file;
+    delete _vaceUploaded[fileKey]; // reset server filename on new selection
+    const preview = document.getElementById(previewId);
+    const text = document.getElementById(textId);
+    const reader = new FileReader();
+    reader.onload = function(e) {
+      preview.src = e.target.result;
+      preview.style.display = 'block';
+      text.style.display = 'none';
+    };
+    reader.readAsDataURL(file);
+  });
+}
+
+function _vaceSetupVideoUpload(inputId, previewId, textId, fileKey) {
+  const input = document.getElementById(inputId);
+  if (!input) return;
+  input.addEventListener('change', function() {
+    const file = this.files[0];
+    if (!file) return;
+    _vaceFiles[fileKey] = file;
+    delete _vaceUploaded[fileKey];
+    const preview = document.getElementById(previewId);
+    const text = document.getElementById(textId);
+    const url = URL.createObjectURL(file);
+    preview.src = url;
+    preview.style.display = 'block';
+    text.style.display = 'none';
+  });
+}
+
+// ==================== Submit ====================
+
+async function vaceSubmit(tab) {
+  const prefix = (tab === 'inpaint') ? 'vace-inpaint' : 'vace-' + tab;
+  const statusEl = document.getElementById(prefix + '-status');
+  const resultEl = document.getElementById(prefix + '-result');
+
+  // Clear previous
+  resultEl.innerHTML = '';
+
+  // Validate prompt
+  const prompt = document.getElementById(prefix + '-prompt').value.trim();
+  if (!prompt) {
+    statusEl.innerHTML = '<span style="color:#f87171">请输入提示词</span>';
+    return;
+  }
+
+  // Determine mode string for API
+  const modeMap = { ref2v: 'ref2v', v2v: 'v2v', inpaint: 'inpainting', flf2v: 'flf2v' };
+  const mode = modeMap[tab];
+
+  // Show uploading status
+  statusEl.innerHTML = '<span style="color:#7c83ff">&#8987; 正在上传文件...</span>';
+
+  try {
+    // --- Upload required files per mode ---
+    let ref_image = null;
+    let input_video = null;
+    let mask_video = null;
+    let start_image = null;
+    let end_image = null;
+
+    if (tab === 'ref2v') {
+      if (!_vaceFiles['ref2v-img']) { statusEl.innerHTML = '<span style="color:#f87171">请上传参考图片</span>'; return; }
+      ref_image = await _vaceUploadFile(_vaceFiles['ref2v-img'], 'ref2v-img');
+    } else if (tab === 'v2v') {
+      if (!_vaceFiles['v2v-video']) { statusEl.innerHTML = '<span style="color:#f87171">请上传输入视频</span>'; return; }
+      input_video = await _vaceUploadFile(_vaceFiles['v2v-video'], 'v2v-video');
+      if (_vaceFiles['v2v-img']) {
+        ref_image = await _vaceUploadFile(_vaceFiles['v2v-img'], 'v2v-img');
+      }
+    } else if (tab === 'inpaint') {
+      if (!_vaceFiles['inpaint-video']) { statusEl.innerHTML = '<span style="color:#f87171">请上传输入视频</span>'; return; }
+      if (!_vaceFiles['inpaint-mask']) { statusEl.innerHTML = '<span style="color:#f87171">请上传蒙版视频</span>'; return; }
+      input_video = await _vaceUploadFile(_vaceFiles['inpaint-video'], 'inpaint-video');
+      mask_video = await _vaceUploadFile(_vaceFiles['inpaint-mask'], 'inpaint-mask');
+      if (_vaceFiles['inpaint-img']) {
+        ref_image = await _vaceUploadFile(_vaceFiles['inpaint-img'], 'inpaint-img');
+      }
+    } else if (tab === 'flf2v') {
+      if (!_vaceFiles['flf2v-start']) { statusEl.innerHTML = '<span style="color:#f87171">请上传首帧图片</span>'; return; }
+      start_image = await _vaceUploadFile(_vaceFiles['flf2v-start'], 'flf2v-start');
+      if (_vaceFiles['flf2v-end']) {
+        end_image = await _vaceUploadFile(_vaceFiles['flf2v-end'], 'flf2v-end');
+      }
+    }
+
+    // --- Gather common params ---
+    const duration = parseFloat(document.getElementById(prefix + '-duration').value) || 5;
+    const fps = parseInt(document.getElementById(prefix + '-fps').value) || 16;
+    const num_frames = vaceCalcFrames(duration, fps);
+
+    const body = {
+      mode: mode,
+      prompt: prompt,
+      negative_prompt: document.getElementById(prefix + '-neg').value || '',
+      width: parseInt(document.getElementById(prefix + '-w').value) || 832,
+      height: parseInt(document.getElementById(prefix + '-h').value) || 480,
+      num_frames: num_frames,
+      fps: fps,
+      steps: parseInt(document.getElementById(prefix + '-steps').value) || 20,
+      cfg: parseFloat(document.getElementById(prefix + '-cfg').value) || 6.0,
+      shift: parseFloat(document.getElementById(prefix + '-shift').value) || 5.0,
+      seed: parseInt(document.getElementById(prefix + '-seed').value),
+      strength: parseFloat(document.getElementById(prefix + '-strength').value) || 1.0,
+      lightning: document.getElementById(prefix + '-lightning').checked
+    };
+
+    // Attach file references
+    if (ref_image) body.ref_image = ref_image;
+    if (input_video) body.input_video = input_video;
+    if (mask_video) body.mask_video = mask_video;
+    if (start_image) body.start_image = start_image;
+    if (end_image) body.end_image = end_image;
+
+    // --- Submit generate request ---
+    statusEl.innerHTML = '<span style="color:#7c83ff">&#8987; 提交生成任务...</span>';
+
+    const r = await fetch(BASE + '/api/v1/vace/generate', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-API-Key': _vaceGetKey()
+      },
+      body: JSON.stringify(body)
+    });
+
+    if (!r.ok) {
+      const err = await r.json().catch(() => ({}));
+      throw new Error(err.detail || '提交失败 (' + r.status + ')');
+    }
+
+    const result = await r.json();
+    const promptId = result.prompt_id;
+    const isLightning = result.lightning;
+
+    statusEl.innerHTML = '<div style="background:#0a0a23;border:1px solid #444;border-radius:8px;padding:16px">' +
+      '<div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">' +
+      '<div class="vace-spinner"></div>' +
+      '<span style="color:#7c83ff;font-weight:600">生成中...</span>' +
+      (isLightning ? ' <span style="color:#fbbf24;font-size:12px">&#9889; Lightning</span>' : '') +
+      '</div>' +
+      '<div style="font-size:12px;color:#666">Task: ' + promptId + '</div>' +
+      '<div class="progress-bar" style="margin-top:8px"><div class="progress-fill" id="vace-progress-' + tab + '" style="width:0%"></div></div>' +
+      '<div id="vace-pct-' + tab + '" style="font-size:12px;color:#666;margin-top:4px">0%</div>' +
+      '</div>';
+
+    // Start polling
+    _vacePollStatus(tab, promptId);
+
+  } catch (err) {
+    statusEl.innerHTML = '<span style="color:#f87171">&#10060; ' + err.message + '</span>';
+  }
+}
+
+// ==================== Poll status ====================
+
+function _vacePollStatus(tab, promptId) {
+  // Clear any existing poll for this tab
+  if (_vacePolling[tab]) {
+    clearInterval(_vacePolling[tab]);
+  }
+
+  const prefix = (tab === 'inpaint') ? 'vace-inpaint' : 'vace-' + tab;
+
+  _vacePolling[tab] = setInterval(async () => {
+    try {
+      const r = await fetch(BASE + '/api/v1/vace/status/' + promptId, {
+        headers: { 'X-API-Key': _vaceGetKey() }
+      });
+
+      if (!r.ok) {
+        console.warn('[VACE] Status poll failed:', r.status, r.statusText);
+        if (r.status === 401 || r.status === 403) {
+          clearInterval(_vacePolling[tab]);
+          delete _vacePolling[tab];
+          var statusEl2 = document.getElementById(prefix + '-status');
+          if (statusEl2) statusEl2.innerHTML = '<span style="color:#f87171">&#10060; API Key 错误，请在设置中配置</span>';
+        }
+        return;
+      }
+      const data = await r.json();
+
+      // Update progress bar if running
+      var fill = document.getElementById('vace-progress-' + tab);
+      var pctEl = document.getElementById('vace-pct-' + tab);
+      if (data.status === 'running' || data.status === 'queued') {
+        if (fill) fill.style.width = (data.status === 'queued' ? '5' : '50') + '%';
+        if (pctEl) pctEl.textContent = data.status === 'queued' ? '排队中...' : '生成中...';
+      }
+      if (data.progress !== undefined) {
+        const pct = Math.round((data.progress || 0) * 100);
+        const fill = document.getElementById('vace-progress-' + tab);
+        const pctEl = document.getElementById('vace-pct-' + tab);
+        if (fill) fill.style.width = pct + '%';
+        if (pctEl) pctEl.textContent = pct + '%';
+      }
+
+      if (data.status === 'completed') {
+        clearInterval(_vacePolling[tab]);
+        delete _vacePolling[tab];
+
+        const statusEl = document.getElementById(prefix + '-status');
+        const resultEl = document.getElementById(prefix + '-result');
+
+        const durStr = data.duration_seconds ? data.duration_seconds.toFixed(1) + '秒' : '';
+        statusEl.innerHTML = '<span style="color:#4ade80">&#10004; 生成完成' + (durStr ? ' (' + durStr + ')' : '') + '</span>';
+
+        // Render video results
+        if (data.videos && data.videos.length > 0) {
+          let html = '';
+          data.videos.forEach(function(v, i) {
+            const videoUrl = BASE + '/api/v1/vace/video/' + v.filename + (v.subfolder ? '?subfolder=' + encodeURIComponent(v.subfolder) : '');
+            html += '<div class="video-result" style="margin-bottom:16px">' +
+              '<video src="' + videoUrl + '" controls loop autoplay style="max-width:100%;max-height:400px;border-radius:6px"></video>' +
+              '<div style="margin-top:6px;display:flex;gap:12px;align-items:center">' +
+              '<a href="' + videoUrl + '" download style="color:#7c83ff;font-size:13px">&#11015; 下载视频</a>' +
+              (v.filename ? '<span style="font-size:11px;color:#666">' + v.filename + '</span>' : '') +
+              '</div></div>';
+          });
+          resultEl.innerHTML = html;
+        } else if (data.video_url) {
+          // Fallback: single video_url field
+          resultEl.innerHTML = '<div class="video-result">' +
+            '<video src="' + data.video_url + '" controls loop autoplay style="max-width:100%;max-height:400px;border-radius:6px"></video>' +
+            '<div style="margin-top:6px"><a href="' + data.video_url + '" download style="color:#7c83ff;font-size:13px">&#11015; 下载视频</a></div></div>';
+        }
+
+      } else if (data.status === 'failed') {
+        clearInterval(_vacePolling[tab]);
+        delete _vacePolling[tab];
+
+        const statusEl = document.getElementById(prefix + '-status');
+        statusEl.innerHTML = '<span style="color:#f87171">&#10060; 生成失败' + (data.error ? ': ' + data.error : '') + '</span>';
+      }
+
+    } catch (e) {
+      // Network error — keep polling
+    }
+  }, 3000);
+}
+
+// ==================== Module Init ====================
+
+function __init_vace() {
+  // --- Sub-tab switching ---
+  document.querySelectorAll('#section-vace [data-vacetab]').forEach(function(t) {
+    t.addEventListener('click', function() {
+      document.querySelectorAll('#section-vace [data-vacetab]').forEach(function(x) { x.classList.remove('active'); });
+      document.querySelectorAll('#section-vace [id^="vacepanel-"]').forEach(function(x) { x.classList.remove('active'); });
+      t.classList.add('active');
+      var panel = document.getElementById('vacepanel-' + t.dataset.vacetab);
+      if (panel) panel.classList.add('active');
+      vaceSaveParams();
+    });
+  });
+
+  // --- Image uploads ---
+  _vaceSetupImageUpload('vace-ref2v-img-file', 'vace-ref2v-img-preview', 'vace-ref2v-img-text', 'ref2v-img');
+  _vaceSetupImageUpload('vace-v2v-img-file', 'vace-v2v-img-preview', 'vace-v2v-img-text', 'v2v-img');
+  _vaceSetupImageUpload('vace-inpaint-img-file', 'vace-inpaint-img-preview', 'vace-inpaint-img-text', 'inpaint-img');
+  _vaceSetupImageUpload('vace-flf2v-start-file', 'vace-flf2v-start-preview', 'vace-flf2v-start-text', 'flf2v-start');
+  _vaceSetupImageUpload('vace-flf2v-end-file', 'vace-flf2v-end-preview', 'vace-flf2v-end-text', 'flf2v-end');
+
+  // --- Video uploads ---
+  _vaceSetupVideoUpload('vace-v2v-video-file', 'vace-v2v-video-preview', 'vace-v2v-video-text', 'v2v-video');
+  _vaceSetupVideoUpload('vace-inpaint-video-file', 'vace-inpaint-video-preview', 'vace-inpaint-video-text', 'inpaint-video');
+  _vaceSetupVideoUpload('vace-inpaint-mask-file', 'vace-inpaint-mask-preview', 'vace-inpaint-mask-text', 'inpaint-mask');
+
+  // --- Render V2V style presets ---
+  _vaceRenderStylePresets();
+
+  // --- Initialize duration labels ---
+  ['ref2v', 'v2v', 'inpaint', 'flf2v'].forEach(function(tab) {
+    vaceUpdateDurLabel(tab);
+  });
+
+  // --- Restore saved parameters ---
+  vaceRestoreParams();
+
+  // --- Auto-save parameters on any input change ---
+  document.querySelectorAll('#section-vace input, #section-vace textarea, #section-vace select').forEach(function(el) {
+    // Skip file inputs
+    if (el.type === 'file') return;
+    el.addEventListener('change', vaceSaveParams);
+    if (el.tagName === 'TEXTAREA' || el.type === 'text' || el.type === 'number') {
+      el.addEventListener('input', vaceSaveParams);
+    }
+  });
+}
+</script>
+
+<style>
+/* VACE-specific spinner */
+.vace-spinner {
+  width: 18px;
+  height: 18px;
+  border: 2px solid #333;
+  border-top-color: #7c83ff;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+</style>
