@@ -206,3 +206,8 @@ h1{text-align:center;color:#7c83ff;margin-bottom:24px;font-size:1.6em}
   html{-webkit-overflow-scrolling:touch}
   *{-webkit-tap-highlight-color:transparent}
 }
+
+/* Third-party provider/mode toggle buttons */
+.tp-provider-btn,.tp-mode-btn{background:#16213e;border:1px solid #444;color:#aaa;transition:all .2s}
+.tp-provider-btn.active,.tp-mode-btn.active{background:#0f3460;border-color:#7c83ff;color:#fff}
+.tp-provider-btn:hover,.tp-mode-btn:hover{border-color:#7c83ff}

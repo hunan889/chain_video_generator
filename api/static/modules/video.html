@@ -9,6 +9,7 @@
 <div class="tab" data-tab="civitai">CivitAI</div>
 <div class="tab" data-tab="tts">TTS 语音</div>
 <div class="tab" data-tab="postproc">后期处理</div>
+<div class="tab" data-tab="thirdparty">三方接口</div>
 </div>
 <!-- T2V Panel -->
 <div class="panel active" id="panel-t2v">
@@ -251,7 +252,7 @@
 <div class="row" id="chain-mmaudio-row" style="display:none">
 <div class="field" style="flex:2"><label>音频提示词</label><input id="chain-mmaudio-prompt" placeholder="描述想要的音效 (可选)"></div>
 <div class="field" style="flex:2"><label>音频负向提示词</label><input id="chain-mmaudio-neg" placeholder="不需要的声音 (可选)"></div>
-<div class="field" style="min-width:70px"><label>Steps</label><input type="number" id="chain-mmaudio-steps" value="25" min="1" max="100"></div>
+<div class="field" style="min-width:70px"><label>Steps</label><input type="number" id="chain-mmaudio-steps" value="12" min="1" max="100"></div>
 <div class="field" style="min-width:70px"><label>CFG</label><input type="number" id="chain-mmaudio-cfg" value="4.5" min="0" max="20" step="0.5"></div>
 </div>
 </div>
@@ -611,8 +612,483 @@
 
 <div id="pp-status" style="margin-top:16px"></div>
 </div>
+<!-- Third-party API Panel -->
+<div class="panel" id="panel-thirdparty">
+
+<!-- Provider Selector -->
+<div class="row">
+<div class="field">
+<label>服务商</label>
+<div style="display:flex;gap:8px;margin-top:4px">
+<button id="tp-provider-wan26" class="btn btn-sm tp-provider-btn active" onclick="tpSelectProvider('wan26')" style="flex:1">Wan2.6 (阿里)</button>
+<button id="tp-provider-seedance" class="btn btn-sm tp-provider-btn" onclick="tpSelectProvider('seedance')" style="flex:1">Seedance (字节)</button>
+</div>
+</div>
+<div class="field">
+<label>模式</label>
+<div style="display:flex;gap:8px;margin-top:4px">
+<button id="tp-mode-t2v" class="btn btn-sm tp-mode-btn active" onclick="tpSelectMode('t2v')" style="flex:1">文生视频 (T2V)</button>
+<button id="tp-mode-i2v" class="btn btn-sm tp-mode-btn" onclick="tpSelectMode('i2v')" style="flex:1">图生视频 (I2V)</button>
+</div>
+</div>
+</div>
+
+<!-- Image Upload (I2V) -->
+<div id="tp-image-section" style="display:none">
+<div class="row">
+<div class="field" style="flex:1;max-width:300px">
+<label>参考图片</label>
+<div class="upload-area" id="tp-upload-area" style="min-height:140px">
+<img id="tp-img-preview" style="display:none;max-width:100%;max-height:200px;border-radius:6px">
+<span id="tp-upload-text">点击或拖拽上传图片</span>
+<input type="file" id="tp-file" accept="image/*">
+</div>
+</div>
+</div>
+</div>
+
+<!-- Prompt -->
+<div class="row">
+<div class="field" style="flex:3">
+<label>提示词</label>
+<textarea id="tp-prompt" placeholder="描述你想生成的视频内容..." style="min-height:80px"></textarea>
+</div>
+</div>
+
+<!-- Parameters -->
+<div class="row">
+<div class="field">
+<label>时长</label>
+<select id="tp-duration">
+<option value="5">5 秒</option>
+<option value="10">10 秒</option>
+</select>
+</div>
+<div class="field" id="tp-size-field">
+<label>分辨率</label>
+<select id="tp-size">
+<option value="1280*720">720P 横屏 (1280×720)</option>
+<option value="720*1280">720P 竖屏 (720×1280)</option>
+<option value="1920*1080">1080P 横屏 (1920×1080)</option>
+<option value="1080*1920">1080P 竖屏 (1080×1920)</option>
+<option value="960*960">720P 方形 (960×960)</option>
+</select>
+</div>
+<div class="field" id="tp-resolution-field" style="display:none">
+<label>分辨率</label>
+<select id="tp-resolution">
+<option value="480P">480P</option>
+<option value="720P" selected>720P</option>
+<option value="1080P">1080P</option>
+</select>
+</div>
+<div class="field" id="tp-model-field">
+<label>模型</label>
+<select id="tp-model">
+<option value="wan2.6-t2v">wan2.6-t2v</option>
+</select>
+</div>
+</div>
+
+<!-- Options -->
+<div class="row">
+<div class="field" style="min-width:auto;flex:none">
+<label><input type="checkbox" id="tp-prompt-extend" checked style="accent-color:#7c83ff;width:16px;height:16px;vertical-align:middle;margin-right:6px">智能优化 Prompt</label>
+<div style="font-size:11px;color:#666;margin-top:2px">自动扩展和优化提示词（仅 Wan2.6）</div>
+</div>
+<div class="field" id="tp-audio-field">
+<label>音频 URL <span style="font-size:11px;color:#666;font-weight:normal">（可选，仅 Wan2.6）</span></label>
+<input type="text" id="tp-audio-url" placeholder="输入音频文件 URL，为视频配音">
+</div>
+</div>
+<div class="row">
+<div class="field"><label>负向提示词 <span style="font-size:11px;color:#666;font-weight:normal">（可选）</span></label>
+<input type="text" id="tp-neg-prompt" placeholder="不需要的内容，如: blurry, watermark">
+</div>
+<div class="field" style="min-width:auto;flex:none">
+<label>Seed <span style="font-size:11px;color:#666;font-weight:normal">（可选）</span></label>
+<input type="number" id="tp-seed" value="" placeholder="留空随机" style="width:120px">
+</div>
+</div>
+
+<!-- Submit -->
+<div class="btn-row">
+<button class="btn" id="tp-submit-btn" onclick="tpSubmit()">生成视频</button>
+</div>
+
+<!-- Status -->
+<div id="tp-status-section" style="display:none;margin-top:20px">
+<div style="background:#0a0a23;border:1px solid #333;border-radius:8px;padding:16px">
+<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+<span style="font-size:13px;color:#aaa">Task ID</span>
+<code id="tp-task-id" style="font-size:11px;color:#888;max-width:240px;overflow:hidden;text-overflow:ellipsis"></code>
+</div>
+<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+<span style="font-size:13px;color:#aaa">状态</span>
+<span style="display:flex;align-items:center;gap:6px">
+<span id="tp-task-spinner" class="spinner" style="display:none"></span>
+<span id="tp-task-status" class="stage-status pending" style="font-size:12px">PENDING</span>
+</span>
+</div>
+<div id="tp-error-msg" style="display:none;color:#f87171;font-size:12px;margin-top:8px"></div>
+<div id="tp-result-section" style="display:none;margin-top:12px">
+<video id="tp-result-video" controls style="width:100%;max-height:500px;border-radius:8px;background:#000"></video>
+<div style="text-align:center;margin-top:8px">
+<a id="tp-download-link" href="#" target="_blank" class="btn btn-sm btn-secondary" style="text-decoration:none">下载视频</a>
+</div>
+</div>
+</div>
+</div>
+
+<!-- History -->
+<div style="margin-top:20px">
+<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+<span style="font-size:13px;color:#aaa;font-weight:600">历史记录</span>
+<button class="btn btn-sm" style="background:#333;padding:4px 12px;font-size:11px" onclick="tpClearHistory()">清空</button>
+</div>
+<div id="tp-history-list"></div>
+</div>
+
+</div><!-- end panel-thirdparty -->
+
 </div><!-- end section-video -->
 
 
 <script src="/static/js/video.js"></script>
+<script>
+// ========== Third-party API Logic ==========
+(function() {
+  let _tpProvider = 'wan26';
+  let _tpMode = 't2v';
+  let _tpImageBase64 = null;
+
+  const TP_HISTORY_KEY = 'wan22_tp_history';
+
+  function _loadHistory() {
+    try { return JSON.parse(localStorage.getItem(TP_HISTORY_KEY) || '[]'); }
+    catch { return []; }
+  }
+  function _saveHistory(list) {
+    try { localStorage.setItem(TP_HISTORY_KEY, JSON.stringify(list.slice(0, 50))); }
+    catch {}
+  }
+
+  // --- Provider / Mode selection ---
+  window.tpSelectProvider = function(provider) {
+    _tpProvider = provider;
+    document.querySelectorAll('.tp-provider-btn').forEach(b => b.classList.remove('active'));
+    document.getElementById('tp-provider-' + provider).classList.add('active');
+    _updateModelOptions();
+    _updateResolutionFields();
+  };
+
+  window.tpSelectMode = function(mode) {
+    _tpMode = mode;
+    document.querySelectorAll('.tp-mode-btn').forEach(b => b.classList.remove('active'));
+    document.getElementById('tp-mode-' + mode).classList.add('active');
+    document.getElementById('tp-image-section').style.display = mode === 'i2v' ? '' : 'none';
+    _updateModelOptions();
+    _updateResolutionFields();
+  };
+
+  function _updateModelOptions() {
+    const sel = document.getElementById('tp-model');
+    sel.innerHTML = '';
+    if (_tpProvider === 'wan26') {
+      if (_tpMode === 't2v') {
+        sel.innerHTML = '<option value="wan2.6-t2v">wan2.6-t2v</option>';
+      } else {
+        sel.innerHTML = '<option value="wan2.6-i2v">wan2.6-i2v</option>';
+      }
+    } else {
+      if (_tpMode === 't2v') {
+        sel.innerHTML = '<option value="seedance-1-5-pronew">seedance-1-5-pronew</option>';
+      } else {
+        sel.innerHTML = '<option value="seedance-1-0-pro-250528">seedance-1-0-pro-250528</option>';
+      }
+    }
+  }
+
+  function _updateResolutionFields() {
+    const sizeField = document.getElementById('tp-size-field');
+    const resField = document.getElementById('tp-resolution-field');
+    // Wan2.6 T2V uses size (e.g. 1280*720), everything else uses resolution (720P)
+    if (_tpProvider === 'wan26' && _tpMode === 't2v') {
+      sizeField.style.display = '';
+      resField.style.display = 'none';
+    } else {
+      sizeField.style.display = 'none';
+      resField.style.display = '';
+    }
+  }
+
+  // --- Image upload ---
+  const fileInput = document.getElementById('tp-file');
+  const imgPreview = document.getElementById('tp-img-preview');
+  const uploadText = document.getElementById('tp-upload-text');
+
+  if (fileInput) {
+    fileInput.addEventListener('change', function() {
+      const file = this.files[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = function(e) {
+        _tpImageBase64 = e.target.result;
+        imgPreview.src = e.target.result;
+        imgPreview.style.display = '';
+        uploadText.style.display = 'none';
+      };
+      reader.readAsDataURL(file);
+    });
+  }
+
+  // --- Submit ---
+  window.tpSubmit = async function() {
+    const prompt = document.getElementById('tp-prompt').value.trim();
+    if (_tpMode === 't2v' && !prompt) {
+      alert('请输入提示词'); return;
+    }
+    if (_tpMode === 'i2v' && !_tpImageBase64) {
+      alert('请上传参考图片'); return;
+    }
+
+    const btn = document.getElementById('tp-submit-btn');
+    btn.disabled = true;
+    btn.textContent = '提交中...';
+
+    // Reset status
+    const statusSection = document.getElementById('tp-status-section');
+    statusSection.style.display = '';
+    document.getElementById('tp-task-id').textContent = '';
+    _setStatus('PENDING');
+    document.getElementById('tp-error-msg').style.display = 'none';
+    document.getElementById('tp-result-section').style.display = 'none';
+
+    const duration = parseInt(document.getElementById('tp-duration').value);
+    const model = document.getElementById('tp-model').value;
+    const promptExtend = document.getElementById('tp-prompt-extend').checked;
+    const audioUrl = document.getElementById('tp-audio-url').value.trim();
+    const negPrompt = document.getElementById('tp-neg-prompt').value.trim();
+    const seedVal = document.getElementById('tp-seed').value.trim();
+    const seed = seedVal ? parseInt(seedVal) : undefined;
+
+    let endpoint, body;
+
+    if (_tpProvider === 'wan26') {
+      if (_tpMode === 't2v') {
+        endpoint = '/api/v1/thirdparty/wan26/text-to-video';
+        body = { model, prompt, duration, size: document.getElementById('tp-size').value, prompt_extend: promptExtend };
+      } else {
+        endpoint = '/api/v1/thirdparty/wan26/image-to-video';
+        body = { model, image: _tpImageBase64, prompt: prompt || undefined, duration, resolution: document.getElementById('tp-resolution').value, prompt_extend: promptExtend };
+      }
+      if (negPrompt) body.negative_prompt = negPrompt;
+      if (audioUrl) body.audio_url = audioUrl;
+      if (seed !== undefined) body.seed = seed;
+    } else {
+      if (_tpMode === 't2v') {
+        endpoint = '/api/v1/thirdparty/seedance/text-to-video';
+        body = { model, prompt, duration, resolution: document.getElementById('tp-resolution').value };
+      } else {
+        endpoint = '/api/v1/thirdparty/seedance/image-to-video';
+        body = { model, image: _tpImageBase64, prompt: prompt || undefined, duration, resolution: document.getElementById('tp-resolution').value };
+      }
+    }
+
+    try {
+      const resp = await fetch(BASE + endpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-API-Key': getKey() },
+        body: JSON.stringify(body)
+      });
+      const data = await resp.json();
+
+      if (!data.success || !data.task_id) {
+        throw new Error(data.error || '提交失败');
+      }
+
+      // Submission succeeded — restore button immediately
+      btn.disabled = false;
+      btn.textContent = '生成视频';
+
+      document.getElementById('tp-task-id').textContent = data.task_id;
+      _setStatus('PENDING');
+
+      // Save to history
+      const history = _loadHistory();
+      history.unshift({
+        taskId: data.task_id,
+        provider: _tpProvider,
+        mode: _tpMode,
+        prompt: prompt,
+        status: 'PENDING',
+        timestamp: Date.now()
+      });
+      _saveHistory(history);
+      _renderHistory();
+
+      // Start polling (non-blocking for button)
+      _pollTask(data.task_id);
+
+    } catch (err) {
+      _setStatus('FAILED');
+      document.getElementById('tp-error-msg').textContent = err.message;
+      document.getElementById('tp-error-msg').style.display = '';
+      btn.disabled = false;
+      btn.textContent = '生成视频';
+    }
+  };
+
+  async function _pollTask(taskId) {
+    const provider = _tpProvider;
+    const queryEndpoint = provider === 'seedance'
+      ? '/api/v1/thirdparty/seedance/tasks/'
+      : '/api/v1/thirdparty/wan26/tasks/';
+
+    let errors = 0;
+    while (true) {
+      try {
+        const resp = await fetch(BASE + queryEndpoint + taskId, {
+          headers: { 'X-API-Key': getKey() }
+        });
+        const data = await resp.json();
+        errors = 0;
+
+        const status = data.task_status || 'UNKNOWN';
+        _setStatus(status);
+
+        // Update history
+        const history = _loadHistory();
+        const idx = history.findIndex(h => h.taskId === taskId);
+        if (idx >= 0) { history[idx].status = status; _saveHistory(history); _renderHistory(); }
+
+        if (status === 'SUCCEEDED') {
+          if (data.video_url) {
+            document.getElementById('tp-result-video').src = data.video_url;
+            document.getElementById('tp-download-link').href = data.video_url;
+            document.getElementById('tp-result-section').style.display = '';
+            // Update history with video URL
+            if (idx >= 0) { history[idx].videoUrl = data.video_url; _saveHistory(history); }
+          }
+          return;
+        }
+        if (status === 'FAILED') {
+          document.getElementById('tp-error-msg').textContent = data.error_message || '任务失败';
+          document.getElementById('tp-error-msg').style.display = '';
+          return;
+        }
+      } catch (err) {
+        errors++;
+        if (errors >= 5) {
+          _setStatus('FAILED');
+          document.getElementById('tp-error-msg').textContent = '轮询失败: ' + err.message;
+          document.getElementById('tp-error-msg').style.display = '';
+          return;
+        }
+      }
+      await new Promise(r => setTimeout(r, 3000));
+    }
+  }
+
+  function _setStatus(status) {
+    const el = document.getElementById('tp-task-status');
+    const spinner = document.getElementById('tp-task-spinner');
+    el.textContent = status;
+    el.className = 'stage-status';
+    if (status === 'SUCCEEDED') { el.classList.add('completed'); spinner.style.display = 'none'; }
+    else if (status === 'FAILED') { el.classList.add('failed'); spinner.style.display = 'none'; }
+    else if (status === 'RUNNING') { el.classList.add('running'); spinner.style.display = ''; }
+    else { el.classList.add('pending'); spinner.style.display = ''; }
+  }
+
+  // --- History ---
+  function _renderHistory() {
+    const list = _loadHistory();
+    const container = document.getElementById('tp-history-list');
+    if (!list.length) {
+      container.innerHTML = '<div style="color:#555;font-size:12px;padding:8px;text-align:center">暂无记录</div>';
+      return;
+    }
+    container.innerHTML = list.map((item, i) => {
+      const providerLabel = item.provider === 'seedance' ? 'Seedance' : 'Wan2.6';
+      const modeLabel = item.mode === 'i2v' ? 'I2V' : 'T2V';
+      const statusClass = item.status === 'SUCCEEDED' ? 'completed' : item.status === 'FAILED' ? 'failed' : item.status === 'RUNNING' ? 'running' : 'pending';
+      const promptText = (item.prompt || '(无提示词)').substring(0, 60);
+      const time = new Date(item.timestamp).toLocaleString();
+      return `<div style="background:#0a0a23;border:1px solid #333;border-radius:6px;padding:10px 12px;margin-bottom:6px;cursor:pointer;transition:border-color .2s" onclick="tpQueryHistory(${i})" onmouseenter="this.style.borderColor='#7c83ff'" onmouseleave="this.style.borderColor='#333'">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">
+          <span style="font-size:12px;font-weight:600;color:#7c83ff">${providerLabel}</span>
+          <span style="font-size:11px;color:#888;background:#16213e;padding:1px 6px;border-radius:4px">${modeLabel}</span>
+          <span class="stage-status ${statusClass}" style="font-size:10px;margin-left:auto">${item.status}</span>
+        </div>
+        <div style="font-size:12px;color:#888;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${promptText}</div>
+        <div style="font-size:10px;color:#555;margin-top:4px">${time}</div>
+      </div>`;
+    }).join('');
+  }
+
+  window.tpQueryHistory = async function(index) {
+    const history = _loadHistory();
+    const item = history[index];
+    if (!item) return;
+
+    // Show status section
+    document.getElementById('tp-status-section').style.display = '';
+    document.getElementById('tp-task-id').textContent = item.taskId;
+    _setStatus(item.status);
+    document.getElementById('tp-error-msg').style.display = 'none';
+    document.getElementById('tp-result-section').style.display = 'none';
+
+    // If already succeeded and has video URL, show directly
+    if (item.status === 'SUCCEEDED' && item.videoUrl) {
+      document.getElementById('tp-result-video').src = item.videoUrl;
+      document.getElementById('tp-download-link').href = item.videoUrl;
+      document.getElementById('tp-result-section').style.display = '';
+      return;
+    }
+
+    // Otherwise re-query
+    const queryEndpoint = item.provider === 'seedance'
+      ? '/api/v1/thirdparty/seedance/tasks/'
+      : '/api/v1/thirdparty/wan26/tasks/';
+
+    try {
+      const resp = await fetch(BASE + queryEndpoint + item.taskId, {
+        headers: { 'X-API-Key': getKey() }
+      });
+      const data = await resp.json();
+      const status = data.task_status || 'UNKNOWN';
+      _setStatus(status);
+
+      // Update history
+      history[index].status = status;
+      if (data.video_url) history[index].videoUrl = data.video_url;
+      _saveHistory(history);
+      _renderHistory();
+
+      if (status === 'SUCCEEDED' && data.video_url) {
+        document.getElementById('tp-result-video').src = data.video_url;
+        document.getElementById('tp-download-link').href = data.video_url;
+        document.getElementById('tp-result-section').style.display = '';
+      }
+      if (status === 'FAILED') {
+        document.getElementById('tp-error-msg').textContent = data.error_message || '任务失败';
+        document.getElementById('tp-error-msg').style.display = '';
+      }
+    } catch (err) {
+      document.getElementById('tp-error-msg').textContent = '查询失败: ' + err.message;
+      document.getElementById('tp-error-msg').style.display = '';
+    }
+  };
+
+  window.tpClearHistory = function() {
+    if (!confirm('确定清空所有三方接口历史记录？')) return;
+    localStorage.removeItem(TP_HISTORY_KEY);
+    _renderHistory();
+  };
+
+  // Init
+  _renderHistory();
+})();
+</script>
 
