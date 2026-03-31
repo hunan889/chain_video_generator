@@ -2,7 +2,7 @@
 import logging
 from pathlib import Path
 from qcloud_cos import CosConfig, CosS3Client
-from api.config import COS_SECRET_ID, COS_SECRET_KEY, COS_BUCKET, COS_REGION, COS_PREFIX
+from api.config import COS_SECRET_ID, COS_SECRET_KEY, COS_BUCKET, COS_REGION, COS_PREFIX, COS_CDN_DOMAIN
 
 logger = logging.getLogger(__name__)
 
@@ -19,7 +19,7 @@ def _make_key(subdir: str, filename: str) -> str:
 
 
 def _make_url(key: str) -> str:
-    return f"https://{COS_BUCKET}.cos.{COS_REGION}.myqcloud.com/{key}"
+    return f"https://{COS_CDN_DOMAIN}/{key}"
 
 
 def make_thumbnail_url(url: str, width: int = 400, height: int = 400) -> str:
@@ -37,8 +37,8 @@ def make_thumbnail_url(url: str, width: int = 400, height: int = 400) -> str:
     if not url or not isinstance(url, str):
         return url
 
-    # Only process COS URLs
-    if '.cos.' not in url and '.myqcloud.com' not in url:
+    # Only process COS/CDN URLs
+    if COS_CDN_DOMAIN not in url and '.cos.' not in url and '.myqcloud.com' not in url:
         return url
 
     # Check if it's an image file
@@ -83,11 +83,15 @@ def delete_file(subdir: str, filename: str):
 
 
 def parse_cos_url(url: str) -> tuple[str, str] | None:
-    """Parse a COS URL into (subdir, filename). Returns None if not a COS URL."""
-    prefix = f"https://{COS_BUCKET}.cos.{COS_REGION}.myqcloud.com/"
-    if not url.startswith(prefix):
+    """Parse a COS/CDN URL into (subdir, filename). Returns None if not a COS/CDN URL."""
+    cos_prefix = f"https://{COS_BUCKET}.cos.{COS_REGION}.myqcloud.com/"
+    cdn_prefix = f"https://{COS_CDN_DOMAIN}/"
+    if url.startswith(cdn_prefix):
+        key = url[len(cdn_prefix):]
+    elif url.startswith(cos_prefix):
+        key = url[len(cos_prefix):]
+    else:
         return None
-    key = url[len(prefix):]
     # key format: {COS_PREFIX}/{subdir}/{filename} or {subdir}/{filename}
     parts = key.rsplit("/", 1)
     if len(parts) != 2:
