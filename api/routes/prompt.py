@@ -1,6 +1,9 @@
 import logging
+from typing import Optional
+
 import yaml
 from fastapi import APIRouter, Depends, HTTPException, Body
+from pydantic import BaseModel, Field
 from api.models.schemas import PromptOptimizeRequest, PromptOptimizeResponse
 from api.services.prompt_optimizer import PromptOptimizer
 from api.config import LLM_API_KEY, LORAS_PATH
@@ -83,6 +86,33 @@ async def optimize_prompt(req: PromptOptimizeRequest, _=Depends(verify_api_key))
         trigger_words_used=trigger_words,
         explanation=result.get("explanation", ""),
     )
+
+
+class ContinuationRequest(BaseModel):
+    user_intent: str = Field(..., description="用户续写意图")
+    previous_video_prompt: str = Field(..., description="上一段视频的 prompt")
+    frame_image_base64: Optional[str] = Field(None, description="上一段最后一帧 base64")
+    duration: float = Field(3.0, description="续写时长(秒)")
+    continuation_index: int = Field(1, description="第几次续写")
+
+
+@router.post("/prompt/continuation")
+async def generate_continuation(req: ContinuationRequest, _=Depends(verify_api_key)):
+    """Generate a continuation prompt for the next video segment."""
+    if not LLM_API_KEY:
+        raise HTTPException(501, "LLM_API_KEY not configured")
+
+    try:
+        result = await _get_optimizer().generate_continuation_prompt(
+            user_intent=req.user_intent,
+            previous_video_prompt=req.previous_video_prompt,
+            frame_image_base64=req.frame_image_base64 or "",
+            duration=req.duration,
+            continuation_index=req.continuation_index,
+        )
+        return {"continuation_prompt": result}
+    except Exception as e:
+        raise HTTPException(502, f"Continuation prompt generation failed: {e}")
 
 
 @router.post("/prompt/describe-image")

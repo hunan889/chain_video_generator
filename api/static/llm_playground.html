@@ -1,0 +1,527 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>LLM Playground - AI Studio</title>
+<link rel="stylesheet" href="css/common.css">
+<style>
+.result-box{background:#0a0a23;border:1px solid #333;border-radius:8px;padding:16px;margin-top:16px;min-height:60px;font-size:13px;line-height:1.6;white-space:pre-wrap;word-break:break-word}
+.result-box.error{border-color:#f87171;color:#f87171}
+.result-box.empty{color:#666;font-style:italic}
+.raw-toggle{cursor:pointer;color:#7c83ff;font-size:12px;margin-top:8px;display:inline-block;user-select:none}
+.raw-toggle:hover{text-decoration:underline}
+.raw-content{display:none;background:#050510;border:1px solid #333;border-radius:6px;padding:12px;margin-top:8px;font-family:monospace;font-size:12px;white-space:pre-wrap;word-break:break-word;max-height:400px;overflow:auto}
+.raw-content.show{display:block}
+.timing{font-size:12px;color:#4ade80;margin-top:8px}
+.dual-col{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+.dual-col-label{font-size:12px;color:#aaa;margin-bottom:4px;font-weight:600}
+.tag{display:inline-block;background:#1b3d69;color:#7cb3ff;padding:2px 8px;border-radius:3px;font-size:11px;margin:2px}
+.lora-result-card{background:#0a0a23;border:1px solid #333;border-radius:8px;padding:12px;display:flex;gap:12px;align-items:center}
+.lora-result-card img{width:64px;height:64px;border-radius:6px;object-fit:cover;flex-shrink:0}
+.lora-result-card .lora-info{flex:1;min-width:0}
+.lora-result-card .lora-info .name{color:#7c83ff;font-weight:600;font-size:14px}
+.lora-result-card .lora-info .sim{color:#4ade80;font-size:12px}
+.img-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:8px;margin-top:8px}
+.img-grid img{width:100%;aspect-ratio:1;object-fit:cover;border-radius:6px;border:1px solid #333}
+.pose-table{width:100%;border-collapse:collapse;font-size:13px;margin-top:8px}
+.pose-table th{text-align:left;padding:8px 10px;background:#0f3460;color:#aaa;font-size:12px;border-bottom:1px solid #444}
+.pose-table td{padding:8px 10px;border-bottom:1px solid #222}
+.pose-table tr:hover td{background:#0a0a23}
+.score-bar{display:inline-block;height:6px;background:#4ade80;border-radius:3px;vertical-align:middle;margin-left:6px}
+.pipeline-step{background:#16213e;border:1px solid #333;border-radius:8px;margin-bottom:12px;overflow:hidden}
+.pipeline-header{display:flex;justify-content:space-between;align-items:center;padding:12px 16px;cursor:pointer;user-select:none}
+.pipeline-header .step-title{font-weight:600;color:#7c83ff}
+.pipeline-header .step-status{font-size:12px;padding:3px 10px;border-radius:12px}
+.pipeline-header .step-status.pending{background:#333;color:#888}
+.pipeline-header .step-status.running{background:#0f3460;color:#7c83ff}
+.pipeline-header .step-status.done{background:#1a4a2e;color:#4ade80}
+.pipeline-header .step-status.fail{background:#4a1a1a;color:#f87171}
+.pipeline-body{padding:0 16px 16px;display:none}
+.pipeline-body.show{display:block}
+.spinner{display:inline-block;width:16px;height:16px;border:2px solid #444;border-top-color:#7c83ff;border-radius:50%;animation:spin 0.8s linear infinite;vertical-align:middle;margin-right:6px}
+.upload-box{border:2px dashed #444;border-radius:8px;padding:24px;text-align:center;cursor:pointer;position:relative;min-height:100px;display:flex;align-items:center;justify-content:center;flex-direction:column;transition:border-color .2s}
+.upload-box:hover{border-color:#7c83ff}
+.upload-box input[type=file]{position:absolute;inset:0;opacity:0;cursor:pointer}
+.upload-box img{max-width:100%;max-height:160px;border-radius:6px}
+.upload-box .upload-hint{color:#666;font-size:13px}
+.checkbox-field{display:flex;align-items:center;gap:8px}
+.checkbox-field input[type=checkbox]{accent-color:#7c83ff;width:18px;height:18px}
+.checkbox-field label{font-size:13px;color:#aaa;cursor:pointer}
+</style>
+</head>
+<body>
+<div class="container">
+<h1>LLM Playground</h1>
+
+<div class="api-key-bar">
+  <label>API Key</label>
+  <input type="password" id="apiKey" placeholder="输入 API Key">
+</div>
+
+<div class="tabs" id="tabBar"></div>
+<div id="panels"></div>
+</div>
+
+<script>
+const API_BASE = '/api/v1';
+let apiKey = localStorage.getItem('wan22_api_key') || '';
+document.getElementById('apiKey').value = apiKey;
+document.getElementById('apiKey').addEventListener('input', e => {
+  apiKey = e.target.value;
+  localStorage.setItem('wan22_api_key', apiKey);
+});
+
+// ── Tab definitions ──
+const TABS = [
+  {id:'pose', label:'姿势推荐'},
+  {id:'lora', label:'LoRA 搜索'},
+  {id:'optimize', label:'Prompt 优化'},
+  {id:'continuation', label:'续写 Prompt'},
+  {id:'vlm', label:'图片描述 VLM'},
+  {id:'pipeline', label:'完整 Pipeline'},
+];
+
+// ── Build tabs ──
+const tabBar = document.getElementById('tabBar');
+const panels = document.getElementById('panels');
+TABS.forEach((t, i) => {
+  const tab = document.createElement('div');
+  tab.className = 'tab' + (i === 0 ? ' active' : '');
+  tab.textContent = t.label;
+  tab.onclick = () => switchTab(t.id);
+  tab.id = 'tab-' + t.id;
+  tabBar.appendChild(tab);
+});
+
+function switchTab(id) {
+  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+  document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+  document.getElementById('tab-' + id).classList.add('active');
+  document.getElementById('panel-' + id).classList.add('active');
+}
+
+// ── Helpers ──
+function headers() {
+  return {'Content-Type':'application/json','X-API-Key': apiKey};
+}
+
+async function apiCall(url, body) {
+  const t0 = performance.now();
+  const res = await fetch(API_BASE + url, {method:'POST', headers: headers(), body: JSON.stringify(body)});
+  const elapsed = Math.round(performance.now() - t0);
+  const data = await res.json();
+  if (!res.ok) throw {status: res.status, detail: data.detail || JSON.stringify(data)};
+  return {data, elapsed};
+}
+
+function showResult(containerId, html, elapsed, rawData) {
+  const c = document.getElementById(containerId);
+  c.innerHTML = `<div class="result-box">${html}</div>` +
+    (elapsed != null ? `<div class="timing">耗时: ${elapsed} ms</div>` : '') +
+    (rawData ? `<span class="raw-toggle" onclick="this.nextElementSibling.classList.toggle('show')">查看原始 JSON</span><div class="raw-content">${escHtml(JSON.stringify(rawData, null, 2))}</div>` : '');
+}
+
+function showError(containerId, err) {
+  const msg = err.detail || err.message || String(err);
+  document.getElementById(containerId).innerHTML = `<div class="result-box error">${escHtml(msg)}</div>`;
+}
+
+function showLoading(containerId) {
+  document.getElementById(containerId).innerHTML = '<div class="result-box empty"><span class="spinner"></span>请求中...</div>';
+}
+
+function escHtml(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+function fileToBase64(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result.split(',')[1]);
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+}
+
+function setupUpload(boxId, previewId) {
+  const box = document.getElementById(boxId);
+  const input = box.querySelector('input[type=file]');
+  input.addEventListener('change', async () => {
+    if (!input.files[0]) return;
+    const url = URL.createObjectURL(input.files[0]);
+    document.getElementById(previewId).innerHTML = `<img src="${url}">`;
+    box._base64 = await fileToBase64(input.files[0]);
+  });
+  // drag & drop visual
+  box.addEventListener('dragover', e => { e.preventDefault(); box.style.borderColor = '#7c83ff'; });
+  box.addEventListener('dragleave', () => { box.style.borderColor = '#444'; });
+  box.addEventListener('drop', e => { e.preventDefault(); box.style.borderColor = '#444'; input.files = e.dataTransfer.files; input.dispatchEvent(new Event('change')); });
+}
+
+function getUploadBase64(boxId) {
+  return document.getElementById(boxId)._base64 || null;
+}
+
+function setButtonLoading(btn, loading) {
+  btn.disabled = loading;
+  if (loading) {
+    btn._origText = btn.textContent;
+    btn.textContent = '请求中...';
+  } else {
+    btn.textContent = btn._origText || '执行';
+  }
+}
+
+// ── Panel HTML builders ──
+
+// Tab 1: 姿势推荐
+function buildPosePanel() {
+  return `<div class="panel active" id="panel-pose">
+  <div class="row"><div class="field" style="flex:3"><label>Prompt</label><textarea id="pose-prompt" rows="3" placeholder="描述场景，如: 女生在床上躺着"></textarea></div></div>
+  <div class="row">
+    <div class="field"><label>top_k</label><input type="number" id="pose-topk" value="5" min="1" max="20"></div>
+    <div class="field"><label>min_score</label><input type="number" id="pose-minscore" value="0.3" step="0.1" min="0" max="1"></div>
+    <div class="field" style="align-self:flex-end">
+      <div class="checkbox-field"><input type="checkbox" id="pose-usellm" checked><label for="pose-usellm">use_llm</label></div>
+    </div>
+  </div>
+  <div class="btn-row"><button class="btn" id="pose-btn" onclick="runPose()">执行</button></div>
+  <div id="pose-result"></div>
+</div>`;
+}
+
+async function runPose() {
+  const btn = document.getElementById('pose-btn');
+  setButtonLoading(btn, true);
+  showLoading('pose-result');
+  try {
+    const {data, elapsed} = await apiCall('/poses/recommend', {
+      prompt: document.getElementById('pose-prompt').value,
+      top_k: parseInt(document.getElementById('pose-topk').value),
+      use_llm: document.getElementById('pose-usellm').checked,
+      min_score: parseFloat(document.getElementById('pose-minscore').value),
+    });
+    const recs = data.recommendations || [];
+    if (!recs.length) { showResult('pose-result', '<span style="color:#888">无匹配姿势</span>', elapsed, data); return; }
+    let html = '<table class="pose-table"><thead><tr><th>pose_key</th><th>名称</th><th>分数</th><th>匹配原因</th><th>分类</th></tr></thead><tbody>';
+    recs.forEach(r => {
+      const pct = Math.round((r.score || 0) * 100);
+      html += `<tr><td style="font-family:monospace;color:#7c83ff">${escHtml(r.pose_key)}</td><td>${escHtml(r.name_cn||r.name_en||'')}</td><td>${(r.score||0).toFixed(3)} <span class="score-bar" style="width:${pct}px"></span></td><td style="font-size:12px;color:#aaa">${escHtml(r.match_reason||'')}</td><td><span class="tag">${escHtml(r.category||'-')}</span></td></tr>`;
+    });
+    html += '</tbody></table>';
+    showResult('pose-result', html, elapsed, data);
+  } catch (e) { showError('pose-result', e); }
+  finally { setButtonLoading(btn, false); }
+}
+
+// Tab 2: LoRA 语义搜索
+function buildLoraPanel() {
+  return `<div class="panel" id="panel-lora">
+  <div class="row"><div class="field" style="flex:3"><label>Prompt</label><textarea id="lora-prompt" rows="3" placeholder="描述想要的效果"></textarea></div></div>
+  <div class="row">
+    <div class="field"><label>Mode</label><select id="lora-mode"><option value="">不限</option><option value="T2V">T2V</option><option value="I2V">I2V</option></select></div>
+    <div class="field"><label>top_k</label><input type="number" id="lora-topk" value="5" min="1" max="20"></div>
+    <div class="field"><label>min_similarity</label><input type="number" id="lora-minsim" value="0.6" step="0.05" min="0" max="1"></div>
+  </div>
+  <div class="btn-row"><button class="btn" id="lora-btn" onclick="runLora()">执行</button></div>
+  <div id="lora-result"></div>
+</div>`;
+}
+
+async function runLora() {
+  const btn = document.getElementById('lora-btn');
+  setButtonLoading(btn, true);
+  showLoading('lora-result');
+  try {
+    const mode = document.getElementById('lora-mode').value || undefined;
+    const {data, elapsed} = await apiCall('/recommend', {
+      prompt: document.getElementById('lora-prompt').value,
+      mode: mode,
+      top_k_loras: parseInt(document.getElementById('lora-topk').value),
+      min_similarity: parseFloat(document.getElementById('lora-minsim').value),
+    });
+    let html = '';
+    // video loras
+    const vl = data.video_loras || [];
+    if (vl.length) {
+      html += '<div style="margin-bottom:8px;font-size:12px;color:#aaa;font-weight:600">Video LoRAs</div><div style="display:grid;gap:8px">';
+      vl.forEach(l => {
+        const thumb = l.preview_url ? `<img src="${l.preview_url}" onerror="this.style.display='none'">` : '';
+        html += `<div class="lora-result-card">${thumb}<div class="lora-info"><div class="name">${escHtml(l.name)}</div><div class="sim">相似度: ${(l.similarity||0).toFixed(3)}</div></div></div>`;
+      });
+      html += '</div>';
+    }
+    // images
+    const imgs = data.images || [];
+    if (imgs.length) {
+      html += '<div style="margin:16px 0 8px;font-size:12px;color:#aaa;font-weight:600">参考图片</div><div class="img-grid">';
+      imgs.forEach(im => { html += `<img src="${im.url || im.preview_url || ''}" onerror="this.style.display='none'" title="${escHtml(im.name||'')}">`;});
+      html += '</div>';
+    }
+    if (!vl.length && !imgs.length) html = '<span style="color:#888">无匹配结果</span>';
+    showResult('lora-result', html, elapsed, data);
+  } catch (e) { showError('lora-result', e); }
+  finally { setButtonLoading(btn, false); }
+}
+
+// Tab 3: Prompt 优化
+function buildOptimizePanel() {
+  return `<div class="panel" id="panel-optimize">
+  <div class="row"><div class="field" style="flex:3"><label>Prompt</label><textarea id="opt-prompt" rows="3" placeholder="原始 prompt"></textarea></div></div>
+  <div class="row">
+    <div class="field"><label>Mode</label><select id="opt-mode"><option value="t2v">T2V</option><option value="i2v">I2V</option></select></div>
+    <div class="field"><label>Duration (秒)</label><input type="number" id="opt-duration" value="3.3" step="0.1" min="1"></div>
+    <div class="field"><label>LoRA Names (逗号分隔)</label><input type="text" id="opt-loras" placeholder="lora1, lora2"></div>
+  </div>
+  <div class="row">
+    <div class="field"><label>参考图片 (可选, I2V)</label>
+      <div class="upload-box" id="opt-upload"><span class="upload-hint">点击或拖拽上传图片</span><input type="file" accept="image/*"><div id="opt-preview"></div></div>
+    </div>
+  </div>
+  <div class="btn-row"><button class="btn" id="opt-btn" onclick="runOptimize()">执行</button></div>
+  <div id="opt-result"></div>
+</div>`;
+}
+
+async function runOptimize() {
+  const btn = document.getElementById('opt-btn');
+  setButtonLoading(btn, true);
+  showLoading('opt-result');
+  try {
+    const loraStr = document.getElementById('opt-loras').value.trim();
+    const loraNames = loraStr ? loraStr.split(',').map(s=>s.trim()).filter(Boolean) : [];
+    const body = {
+      prompt: document.getElementById('opt-prompt').value,
+      mode: document.getElementById('opt-mode').value,
+      duration: parseFloat(document.getElementById('opt-duration').value),
+      lora_names: loraNames,
+    };
+    const img64 = getUploadBase64('opt-upload');
+    if (img64) body.image_base64 = img64;
+
+    const {data, elapsed} = await apiCall('/prompt/optimize', body);
+    let html = '<div class="dual-col">';
+    html += `<div><div class="dual-col-label">原始 Prompt</div><div class="result-box">${escHtml(data.original_prompt||'')}</div></div>`;
+    html += `<div><div class="dual-col-label">优化后 Prompt</div><div class="result-box">${escHtml(data.optimized_prompt||'')}</div></div>`;
+    html += '</div>';
+    if (data.trigger_words_used && data.trigger_words_used.length) {
+      html += '<div style="margin-top:12px"><span style="font-size:12px;color:#aaa">Trigger Words: </span>';
+      data.trigger_words_used.forEach(w => { html += `<span class="tag">${escHtml(w)}</span>`; });
+      html += '</div>';
+    }
+    if (data.explanation) {
+      html += `<div style="margin-top:12px;font-size:12px;color:#aaa"><b>Explanation:</b> ${escHtml(data.explanation)}</div>`;
+    }
+    showResult('opt-result', html, elapsed, data);
+  } catch (e) { showError('opt-result', e); }
+  finally { setButtonLoading(btn, false); }
+}
+
+// Tab 4: 续写 Prompt
+function buildContinuationPanel() {
+  return `<div class="panel" id="panel-continuation">
+  <div class="row"><div class="field" style="flex:3"><label>用户续写意图</label><textarea id="cont-intent" rows="3" placeholder="镜头拉远，手伸向衣服"></textarea></div></div>
+  <div class="row"><div class="field" style="flex:3"><label>上段视频的 Prompt</label><textarea id="cont-prev" rows="4" placeholder="上一段视频生成时使用的 prompt"></textarea></div></div>
+  <div class="row">
+    <div class="field"><label>Duration (秒)</label><input type="number" id="cont-duration" value="3" step="0.1" min="1"></div>
+    <div class="field"><label>continuation_index</label><input type="number" id="cont-index" value="1" min="1"></div>
+  </div>
+  <div class="row">
+    <div class="field"><label>上一段最后一帧 (可选)</label>
+      <div class="upload-box" id="cont-upload"><span class="upload-hint">点击或拖拽上传图片</span><input type="file" accept="image/*"><div id="cont-preview"></div></div>
+    </div>
+  </div>
+  <div class="btn-row"><button class="btn" id="cont-btn" onclick="runContinuation()">执行</button></div>
+  <div id="cont-result"></div>
+</div>`;
+}
+
+async function runContinuation() {
+  const btn = document.getElementById('cont-btn');
+  setButtonLoading(btn, true);
+  showLoading('cont-result');
+  try {
+    const body = {
+      user_intent: document.getElementById('cont-intent').value,
+      previous_video_prompt: document.getElementById('cont-prev').value,
+      duration: parseFloat(document.getElementById('cont-duration').value),
+      continuation_index: parseInt(document.getElementById('cont-index').value),
+    };
+    const img64 = getUploadBase64('cont-upload');
+    if (img64) body.frame_image_base64 = img64;
+
+    const {data, elapsed} = await apiCall('/prompt/continuation', body);
+    let html = `<div class="dual-col-label">生成的续写 Prompt</div><div class="result-box">${escHtml(data.continuation_prompt||'')}</div>`;
+    showResult('cont-result', html, elapsed, data);
+  } catch (e) { showError('cont-result', e); }
+  finally { setButtonLoading(btn, false); }
+}
+
+// Tab 5: 图片描述 VLM
+function buildVlmPanel() {
+  return `<div class="panel" id="panel-vlm">
+  <div class="row">
+    <div class="field"><label>上传图片 (必须)</label>
+      <div class="upload-box" id="vlm-upload"><span class="upload-hint">点击或拖拽上传图片</span><input type="file" accept="image/*"><div id="vlm-preview"></div></div>
+    </div>
+  </div>
+  <div class="btn-row"><button class="btn" id="vlm-btn" onclick="runVlm()">执行</button></div>
+  <div id="vlm-result"></div>
+</div>`;
+}
+
+async function runVlm() {
+  const btn = document.getElementById('vlm-btn');
+  const img64 = getUploadBase64('vlm-upload');
+  if (!img64) { showError('vlm-result', {message:'请先上传图片'}); return; }
+  setButtonLoading(btn, true);
+  showLoading('vlm-result');
+  try {
+    const {data, elapsed} = await apiCall('/prompt/describe-image', {image_base64: img64});
+    let html = `<div class="dual-col-label">图片描述</div><div class="result-box">${escHtml(data.description||'')}</div>`;
+    showResult('vlm-result', html, elapsed, data);
+  } catch (e) { showError('vlm-result', e); }
+  finally { setButtonLoading(btn, false); }
+}
+
+// Tab 6: 完整 Pipeline
+function buildPipelinePanel() {
+  return `<div class="panel" id="panel-pipeline">
+  <div class="row"><div class="field" style="flex:3"><label>Prompt</label><textarea id="pipe-prompt" rows="3" placeholder="描述场景"></textarea></div></div>
+  <div class="row">
+    <div class="field"><label>Mode</label><select id="pipe-mode"><option value="t2v">T2V</option><option value="i2v">I2V</option></select></div>
+    <div class="field"><label>Duration (秒)</label><input type="number" id="pipe-duration" value="3.3" step="0.1" min="1"></div>
+  </div>
+  <div class="row">
+    <div class="field"><label>参考图片 (可选, I2V)</label>
+      <div class="upload-box" id="pipe-upload"><span class="upload-hint">点击或拖拽上传图片</span><input type="file" accept="image/*"><div id="pipe-preview"></div></div>
+    </div>
+  </div>
+  <div class="btn-row"><button class="btn" id="pipe-btn" onclick="runPipeline()">执行 Pipeline</button></div>
+  <div id="pipe-steps">
+    <div class="pipeline-step" id="pipe-step-pose"><div class="pipeline-header" onclick="togglePipeStep('pose')"><span class="step-title">Step 1: 姿势推荐</span><span class="step-status pending" id="pipe-status-pose">等待</span></div><div class="pipeline-body" id="pipe-body-pose"></div></div>
+    <div class="pipeline-step" id="pipe-step-lora"><div class="pipeline-header" onclick="togglePipeStep('lora')"><span class="step-title">Step 2: LoRA 搜索</span><span class="step-status pending" id="pipe-status-lora">等待</span></div><div class="pipeline-body" id="pipe-body-lora"></div></div>
+    <div class="pipeline-step" id="pipe-step-opt"><div class="pipeline-header" onclick="togglePipeStep('opt')"><span class="step-title">Step 3: Prompt 优化</span><span class="step-status pending" id="pipe-status-opt">等待</span></div><div class="pipeline-body" id="pipe-body-opt"></div></div>
+  </div>
+</div>`;
+}
+
+function togglePipeStep(step) {
+  document.getElementById('pipe-body-' + step).classList.toggle('show');
+}
+
+function setPipeStatus(step, status, text) {
+  const el = document.getElementById('pipe-status-' + step);
+  el.className = 'step-status ' + status;
+  el.textContent = text;
+}
+
+async function runPipeline() {
+  const btn = document.getElementById('pipe-btn');
+  const prompt = document.getElementById('pipe-prompt').value;
+  const mode = document.getElementById('pipe-mode').value;
+  const duration = parseFloat(document.getElementById('pipe-duration').value);
+  const img64 = getUploadBase64('pipe-upload');
+
+  if (!prompt) return;
+  setButtonLoading(btn, true);
+
+  // Reset
+  ['pose','lora','opt'].forEach(s => { setPipeStatus(s, 'pending', '等待'); document.getElementById('pipe-body-' + s).innerHTML = ''; document.getElementById('pipe-body-' + s).classList.remove('show'); });
+
+  let loraNames = [];
+
+  // Step 1: 姿势推荐
+  setPipeStatus('pose', 'running', '执行中...');
+  document.getElementById('pipe-body-pose').classList.add('show');
+  try {
+    const t0 = performance.now();
+    const res = await fetch(API_BASE + '/poses/recommend', {method:'POST', headers: headers(), body: JSON.stringify({prompt, top_k:5, use_llm:true})});
+    const elapsed = Math.round(performance.now() - t0);
+    const d = await res.json();
+    if (!res.ok) throw {detail: d.detail};
+    const recs = d.recommendations || [];
+    let html = `<div class="timing">耗时: ${elapsed} ms</div>`;
+    if (recs.length) {
+      html += '<table class="pose-table"><thead><tr><th>pose_key</th><th>名称</th><th>分数</th></tr></thead><tbody>';
+      recs.forEach(r => { html += `<tr><td style="font-family:monospace;color:#7c83ff">${escHtml(r.pose_key)}</td><td>${escHtml(r.name_cn||'')}</td><td>${(r.score||0).toFixed(3)}</td></tr>`; });
+      html += '</tbody></table>';
+    } else { html += '<div style="color:#888;font-size:13px">无匹配</div>'; }
+    document.getElementById('pipe-body-pose').innerHTML = html;
+    setPipeStatus('pose', 'done', `完成 (${elapsed}ms)`);
+  } catch (e) {
+    document.getElementById('pipe-body-pose').innerHTML = `<div style="color:#f87171">${escHtml(e.detail||e.message||String(e))}</div>`;
+    setPipeStatus('pose', 'fail', '失败');
+  }
+
+  // Step 2: LoRA 搜索
+  setPipeStatus('lora', 'running', '执行中...');
+  document.getElementById('pipe-body-lora').classList.add('show');
+  try {
+    const t0 = performance.now();
+    const modeParam = mode === 'i2v' ? 'I2V' : (mode === 't2v' ? 'T2V' : undefined);
+    const res = await fetch(API_BASE + '/recommend', {method:'POST', headers: headers(), body: JSON.stringify({prompt, mode: modeParam, top_k_loras:5, min_similarity:0.5})});
+    const elapsed = Math.round(performance.now() - t0);
+    const d = await res.json();
+    if (!res.ok) throw {detail: d.detail};
+    const vl = d.video_loras || [];
+    loraNames = vl.map(l => l.name);
+    let html = `<div class="timing">耗时: ${elapsed} ms</div>`;
+    if (vl.length) {
+      html += '<div style="display:grid;gap:6px;margin-top:8px">';
+      vl.forEach(l => {
+        const thumb = l.preview_url ? `<img src="${l.preview_url}" style="width:48px;height:48px;border-radius:4px;object-fit:cover" onerror="this.style.display='none'">` : '';
+        html += `<div class="lora-result-card">${thumb}<div class="lora-info"><div class="name">${escHtml(l.name)}</div><div class="sim">相似度: ${(l.similarity||0).toFixed(3)}</div></div></div>`;
+      });
+      html += '</div>';
+    } else { html += '<div style="color:#888;font-size:13px;margin-top:8px">无匹配</div>'; }
+    document.getElementById('pipe-body-lora').innerHTML = html;
+    setPipeStatus('lora', 'done', `完成 (${elapsed}ms)`);
+  } catch (e) {
+    document.getElementById('pipe-body-lora').innerHTML = `<div style="color:#f87171">${escHtml(e.detail||e.message||String(e))}</div>`;
+    setPipeStatus('lora', 'fail', '失败');
+  }
+
+  // Step 3: Prompt 优化
+  setPipeStatus('opt', 'running', '执行中...');
+  document.getElementById('pipe-body-opt').classList.add('show');
+  try {
+    const t0 = performance.now();
+    const body = {prompt, mode, duration, lora_names: loraNames};
+    if (img64) body.image_base64 = img64;
+    const res = await fetch(API_BASE + '/prompt/optimize', {method:'POST', headers: headers(), body: JSON.stringify(body)});
+    const elapsed = Math.round(performance.now() - t0);
+    const d = await res.json();
+    if (!res.ok) throw {detail: d.detail};
+    let html = `<div class="timing">耗时: ${elapsed} ms</div>`;
+    html += '<div class="dual-col" style="margin-top:8px">';
+    html += `<div><div class="dual-col-label">原始</div><div class="result-box">${escHtml(d.original_prompt||'')}</div></div>`;
+    html += `<div><div class="dual-col-label">优化后</div><div class="result-box">${escHtml(d.optimized_prompt||'')}</div></div>`;
+    html += '</div>';
+    if (d.trigger_words_used && d.trigger_words_used.length) {
+      html += '<div style="margin-top:8px">';
+      d.trigger_words_used.forEach(w => { html += `<span class="tag">${escHtml(w)}</span>`; });
+      html += '</div>';
+    }
+    document.getElementById('pipe-body-opt').innerHTML = html;
+    setPipeStatus('opt', 'done', `完成 (${elapsed}ms)`);
+  } catch (e) {
+    document.getElementById('pipe-body-opt').innerHTML = `<div style="color:#f87171">${escHtml(e.detail||e.message||String(e))}</div>`;
+    setPipeStatus('opt', 'fail', '失败');
+  }
+
+  setButtonLoading(btn, false);
+}
+
+// ── Render all panels ──
+panels.innerHTML = buildPosePanel() + buildLoraPanel() + buildOptimizePanel() + buildContinuationPanel() + buildVlmPanel() + buildPipelinePanel();
+
+// Setup file uploads
+setupUpload('opt-upload', 'opt-preview');
+setupUpload('cont-upload', 'cont-preview');
+setupUpload('vlm-upload', 'vlm-preview');
+setupUpload('pipe-upload', 'pipe-preview');
+</script>
+</body>
+</html>

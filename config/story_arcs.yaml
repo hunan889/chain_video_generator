@@ -1,0 +1,144 @@
+# Story arc templates for video continuation.
+# Each arc defines narrative direction for a scene category.
+# keywords: used for matching user prompt / previous prompt (EN + CN bilingual)
+# arc: narrative progression (phases separated by →)
+# phases: 4-6 short phase descriptions for rhythm guidance
+
+# ─── Intimate / Adult ─────────────────────────────────────────────
+
+undressing:
+  keywords: [undress, strip, remove clothes, take off, disrobe, unbutton, unzip,
+             脱衣, 脱光, 脱掉, 解开, 脱裤, 脱裙, 解扣, 脱内衣, 脱上衣, 脱下]
+  arc: "remove top clothing → remove bottom clothing → reveal body with confidence → pose or turn to show figure → transition to next intimate action"
+
+sex_foreplay:
+  keywords: [foreplay, kiss, caress, touch body, lick, fondle, make out, tease,
+             前戏, 亲吻, 抚摸, 舔, 爱抚, 接吻, 热吻, 亲嘴, 摸身体, 抚弄]
+  arc: "gentle touching and kissing → hands explore partner's body → remove remaining clothing → increasingly passionate contact → transition to intercourse"
+
+sex_intercourse:
+  keywords: [sex, intercourse, fuck, penetration, riding, cowgirl, doggy, missionary,
+             做爱, 性交, 骑乘, 插入, 后入, 上位, 传教士, 交合, 啪啪, 同房]
+  arc: "initial penetration with slow rhythm → gradually increase speed and intensity → change position or angle → peak intensity with climax → slow aftermath"
+
+sex_oral:
+  keywords: [blowjob, oral, suck, lick, fellatio, cunnilingus, head,
+             口交, 吹箫, 舔, 含, 吸, 口爱, 咬]
+  arc: "approach and kneel or position → begin with gentle licking and kissing → take deeper with rhythm → increase speed and intensity → finish with climax reaction"
+
+sex_solo:
+  keywords: [masturbate, solo, self-pleasure, touch self, finger,
+             自慰, 自摸, 手淫, 抚弄自己, 指, 独自]
+  arc: "begin touching body sensually → hands move to intimate areas → rhythmic self-stimulation → increasing intensity and expression → climax and release"
+
+seduction:
+  keywords: [seduce, tease, flirt, provocative, sexy pose, lingerie, striptease,
+             诱惑, 挑逗, 撩, 性感, 妩媚, 内衣, 情趣, 骚, 风骚, 媚]
+  arc: "make eye contact with confident expression → strike provocative pose → slowly reveal skin → playful teasing gestures → final alluring pose or invitation"
+
+# ─── Dance / Performance ──────────────────────────────────────────
+
+dancing_general:
+  keywords: [dance, dancing, choreography, move to music, groove,
+             跳舞, 舞蹈, 舞, 编舞, 随音乐, 律动, 摇摆]
+  arc: "begin with subtle body sway → build to full movement → execute signature moves at peak energy → dynamic freestyle → graceful ending pose"
+
+dancing_pole:
+  keywords: [pole dance, pole, spin on pole, pole trick,
+             钢管舞, 钢管, 转杆, 钢管技巧]
+  arc: "grip pole and begin slow walk around → climb and hold pose → execute spin or inversion → flowing transition between moves → final dramatic pose"
+
+dancing_sexy:
+  keywords: [sexy dance, twerk, lap dance, body roll, grind,
+             热舞, 性感舞, 扭臀, 电臀舞, 身体波浪, 磨蹭, 骑坐舞]
+  arc: "slow body wave or hip movement → lower to floor with fluid motion → floor work with rolls and arches → rise back up with intensity → final seductive pose"
+
+# ─── Action / Movement ────────────────────────────────────────────
+
+walking:
+  keywords: [walk, walking, stroll, wander, pace,
+             走路, 走, 散步, 漫步, 行走, 踱步]
+  arc: "walk forward with purpose → slow down and look around → pause at point of interest → react or interact with environment → continue or change direction"
+
+running:
+  keywords: [run, sprint, chase, jog, rush,
+             跑步, 跑, 冲刺, 追, 慢跑, 奔跑, 狂奔]
+  arc: "accelerate to full speed → maintain pace with determination → encounter obstacle or turn → push through with effort → slow to stop or reach destination"
+
+fighting:
+  keywords: [fight, punch, kick, combat, martial arts, battle, spar,
+             打架, 打斗, 拳, 踢, 格斗, 武术, 战斗, 搏击, 对打]
+  arc: "take fighting stance → throw first attack → exchange blows back and forth → land decisive hit → victory pose or continue engagement"
+
+exercise:
+  keywords: [workout, exercise, yoga, stretch, pushup, squat, fitness,
+             健身, 运动, 瑜伽, 拉伸, 俯卧撑, 深蹲, 锻炼, 训练]
+  arc: "begin movement with control → increase intensity or depth → hold challenging position → release with controlled motion → transition to next exercise"
+
+# ─── Emotional / Narrative ────────────────────────────────────────
+
+conversation:
+  keywords: [talk, speak, conversation, chat, discuss, argue, laugh,
+             说话, 聊天, 对话, 讨论, 争吵, 笑, 交谈, 讲话]
+  arc: "speak with animated gestures → listen and react with expression → respond emotionally → shared laughter or tension → natural pause or conclusion"
+
+crying:
+  keywords: [cry, tears, sad, emotional, weep, sob,
+             哭, 流泪, 悲伤, 难过, 哭泣, 抽泣, 伤心, 落泪]
+  arc: "expression shifts to sadness → tears begin to form → break down with shoulders shaking → wipe tears or cover face → slowly compose self"
+
+eating:
+  keywords: [eat, drink, taste, sip, bite, meal, food, coffee,
+             吃, 喝, 品尝, 饮, 咬, 用餐, 食物, 咖啡, 吃饭, 喝酒]
+  arc: "pick up food or drink → take first bite or sip → react with enjoyment → continue eating naturally → finish and set down"
+
+# ─── Scene / Environment ─────────────────────────────────────────
+
+waking_up:
+  keywords: [wake up, morning, alarm, get out of bed, stretch in bed,
+             起床, 醒来, 早晨, 闹钟, 下床, 伸懒腰, 赖床]
+  arc: "stir and slowly open eyes → stretch limbs in bed → sit up and look around → swing legs off bed → stand and begin morning routine"
+
+bathing:
+  keywords: [bath, shower, wash, soap, water, bathroom,
+             洗澡, 淋浴, 泡澡, 沐浴, 肥皂, 浴室, 冲凉]
+  arc: "step into water or begin washing → lather body with soap → rinse under water → enjoy the sensation → step out or wrap in towel"
+
+dressing:
+  keywords: [dress, put on clothes, get dressed, wear, outfit,
+             穿衣, 穿上, 换衣, 穿戴, 搭配, 穿裙, 穿裤]
+  arc: "pick up first garment → pull on bottom clothing → put on top clothing → adjust and smooth outfit → check appearance with satisfaction"
+
+smoking:
+  keywords: [smoke, cigarette, vape, exhale smoke, light up,
+             抽烟, 吸烟, 香烟, 点烟, 吐烟, 烟, 电子烟]
+  arc: "bring cigarette to lips → take a long drag → tilt head back and exhale slowly → tap ash off with finger → gaze into distance pensively"
+
+# ─── Creative / Artistic ─────────────────────────────────────────
+
+painting:
+  keywords: [paint, draw, sketch, art, canvas, brush,
+             画画, 绘画, 素描, 艺术, 画布, 画笔, 涂鸦, 写生]
+  arc: "study the canvas thoughtfully → begin applying strokes → step back to evaluate → add details with precision → final touch and satisfied expression"
+
+playing_music:
+  keywords: [play music, guitar, piano, sing, instrument, perform,
+             弹琴, 吉他, 钢琴, 唱歌, 乐器, 演奏, 弹吉他, 弹钢琴, 演唱]
+  arc: "position hands on instrument → begin playing opening notes → build into main melody → emotional peak of performance → gentle conclusion"
+
+cooking:
+  keywords: [cook, kitchen, recipe, stir, chop, prepare food,
+             做饭, 烹饪, 厨房, 炒菜, 切菜, 煮, 烧菜, 下厨]
+  arc: "prepare ingredients with knife work → add to pan with sizzle → stir and season → taste and adjust → plate the finished dish"
+
+# ─── Nature / Scenic ─────────────────────────────────────────────
+
+sunset_watching:
+  keywords: [sunset, sunrise, watch sky, gaze horizon, scenic view,
+             看日落, 日出, 看天, 远眺, 风景, 夕阳, 晚霞, 朝霞]
+  arc: "stand still gazing at sky → wind moves hair gently → raise hand to shield eyes → deep breath of appreciation → turn and walk away slowly"
+
+swimming:
+  keywords: [swim, pool, ocean, dive, float, water,
+             游泳, 泳池, 大海, 潜水, 漂浮, 水中, 戏水, 海边]
+  arc: "enter water gradually → begin swimming strokes → dive under surface → resurface with splash → float peacefully"
