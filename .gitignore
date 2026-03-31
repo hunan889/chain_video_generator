@@ -54,6 +54,8 @@ test_*.py
 !tests/*_test.py
 !shared/tests/test_*.py
 !shared/tests/*_test.py
+!api_gateway/tests/test_*.py
+!api_gateway/tests/*_test.py
 
 # Workflows (keep only templates)
 workflows/__MACOSX/
