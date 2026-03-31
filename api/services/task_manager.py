@@ -342,7 +342,11 @@ class TaskManager:
             comfyui_url = data.get("comfyui_url", "")
             client = self._get_client_by_url(model, comfyui_url) if comfyui_url else self._get_client(model)
             if client and prompt_id:
-                await client.interrupt()
+                # Only send global interrupt if this prompt is currently executing;
+                # otherwise just remove it from the queue to avoid killing other tasks.
+                running_pid = await client.get_running_prompt_id()
+                if running_pid == prompt_id:
+                    await client.interrupt()
                 await client.cancel_prompt(prompt_id)
             await self.redis.hset(f"task:{task_id}", mapping={
                 "status": TaskStatus.FAILED.value,
@@ -1627,7 +1631,7 @@ class TaskManager:
             mmaudio_negative_prompt=seg0.get("mmaudio_negative_prompt", ""),
             mmaudio_steps=seg0.get("mmaudio_steps", 12),
             mmaudio_cfg=seg0.get("mmaudio_cfg", 4.5),
-            face_image_filename=face_image_filename,
+            face_image_filename="",  # Stage 4 never does face swap (already done in Stage 2/3)
             face_swap_strength=face_swap_strength,
             parent_video_filename=parent_video_fn,
             initial_ref_filename=seg0.get("initial_ref_filename", ""),

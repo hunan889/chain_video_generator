@@ -29,6 +29,20 @@ class ComfyUIClient:
         except Exception:
             return False
 
+    async def get_system_stats(self) -> Optional[dict]:
+        """Fetch /system_stats from this ComfyUI instance."""
+        try:
+            session = await self._get_session()
+            async with session.get(
+                f"{self.base_url}/system_stats",
+                timeout=aiohttp.ClientTimeout(total=5),
+            ) as resp:
+                if resp.status == 200:
+                    return await resp.json()
+        except Exception:
+            pass
+        return None
+
     async def queue_prompt(self, workflow: dict) -> str:
         session = await self._get_session()
         payload = {"prompt": workflow}
@@ -46,6 +60,20 @@ class ComfyUIClient:
                 return None
             data = await resp.json()
             return data.get(prompt_id)
+    async def get_output_images(self, prompt_id: str) -> list[dict]:
+        """Get image outputs (from SaveImage nodes)."""
+        history = await self.get_history(prompt_id)
+        if not history:
+            return []
+        outputs = history.get("outputs", {})
+        files = []
+        for node_id, node_output in outputs.items():
+            if "images" in node_output:
+                for f in node_output["images"]:
+                    if f.get("type") == "output":
+                        files.append(f)
+        return files
+
     async def get_output_files(self, prompt_id: str) -> list[dict]:
         history = await self.get_history(prompt_id)
         if not history:
@@ -145,6 +173,22 @@ class ComfyUIClient:
         except Exception as e:
             logger.warning("free_memory failed for %s: %s", self.base_url, e)
             return False
+
+    async def get_running_prompt_id(self) -> str | None:
+        """Return the prompt_id currently being executed, or None."""
+        try:
+            session = await self._get_session()
+            async with session.get(f"{self.base_url}/queue") as resp:
+                if resp.status != 200:
+                    return None
+                data = await resp.json()
+                running = data.get("queue_running", [])
+                if running:
+                    # Each entry is [number, prompt_id, ...]
+                    return running[0][1] if len(running[0]) > 1 else None
+        except Exception:
+            return None
+        return None
 
     async def cancel_prompt(self, prompt_id: str):
         session = await self._get_session()

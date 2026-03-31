@@ -1092,9 +1092,13 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 });
 
+// 参数版本号：递增此值会强制清除旧缓存
+const PARAMS_VERSION = 2;
+
 // 保存参数到 localStorage
 function saveFormParams() {
     const params = {
+        _version: PARAMS_VERSION,
         useDefaultParams: document.getElementById('useDefaultParams').checked,
         turboMode: document.getElementById('turboMode').checked,
         prompt: document.getElementById('prompt').value,
@@ -1145,7 +1149,6 @@ function saveFormParams() {
 }
 
 // 从 localStorage 恢复参数
-const PARAMS_VERSION = 2;  // Bump this to force reset old cached params
 function loadFormParams() {
     const stored = localStorage.getItem('advanced_workflow_params');
     if (!stored) return;

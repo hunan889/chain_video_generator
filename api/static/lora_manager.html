@@ -326,9 +326,8 @@ function createLoraCard(lora) {
     ? `<video class="lora-preview" src="${lora.preview_url}" loop muted playsinline preload="none" onmouseover="this.play()" onmouseout="this.pause();this.currentTime=0"></video>`
     : `<img class="lora-preview" src="${lora.preview_url || '/static/placeholder.svg'}" loading="lazy" onerror="this.src='/static/placeholder.svg'" alt="${lora.name}">`;
 
-  // Default trigger_prompt to trigger_words if empty
-  const defaultTriggerPrompt = triggerWords.length > 0 ? triggerWords.join(', ') : '';
-  const currentTriggerPrompt = lora.trigger_prompt || defaultTriggerPrompt;
+  // Show trigger_prompt as-is (don't fallback to trigger_words — user may have intentionally cleared it)
+  const currentTriggerPrompt = lora.trigger_prompt || '';
 
   // Build category options dynamically
   const categoryOptions = Array.from(allCategories).sort().map(cat =>

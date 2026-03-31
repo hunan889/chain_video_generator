@@ -64,8 +64,11 @@ async def get_result(filename: str):
         media_type = f"image/{ext}" if ext != "jpg" else "image/jpeg"
         return FileResponse(path, media_type=media_type, filename=filename)
 
-    # Video file
-    path = await storage.get_video_path(filename)
+    # Video file — check uploads dir first (Clothoff results), then videos dir
+    from api.config import UPLOADS_DIR
+    path = UPLOADS_DIR / filename
+    if not path.exists():
+        path = await storage.get_video_path(filename)
     if not path:
         raise HTTPException(404, "File not found")
     return FileResponse(path, media_type="video/mp4", filename=filename)

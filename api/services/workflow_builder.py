@@ -681,7 +681,7 @@ def _inject_reactor(workflow: dict, face_image_path: str, strength: float) -> di
             "input_image": images_input,  # video frames from decode
             "swap_model": "inswapper_128.onnx",
             "facedetection": "retinaface_resnet50",
-            "face_restore_model": "codeformer",
+            "face_restore_model": "codeformer-v0.1.0.pth",
             "face_restore_visibility": 0.85,
             "codeformer_weight": 0.3,
             "detect_gender_input": "no",
@@ -2430,7 +2430,7 @@ def build_merged_story_workflow(
                 "input_image": current_image_source,
                 "swap_model": "inswapper_128.onnx",
                 "facedetection": "retinaface_resnet50",
-                "face_restore_model": "codeformer",
+                "face_restore_model": "codeformer-v0.1.0.pth",
                 "face_restore_visibility": 1.0,
                 "codeformer_weight": 0.6,
                 "detect_gender_input": "no",

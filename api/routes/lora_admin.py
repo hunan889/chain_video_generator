@@ -13,7 +13,6 @@ from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from pydantic import BaseModel
 from api.middleware.auth import verify_api_key
 from api.services.lora_classifier import get_lora_classifier
-from api.services.content_suggester import get_content_suggester
 import aiohttp
 import pymysql
 from api.config import COMFYUI_PATH, CIVITAI_API_TOKEN
@@ -806,9 +805,10 @@ async def sync_civitai_data(
                 update_parts.append("trigger_words = %s")
                 update_params.append(json.dumps(trained_words))
 
-                # trigger_prompt: 仅当为空或 force 时更新
-                current_prompt = lora.get('trigger_prompt') or ''
-                if example_prompts and (force or not current_prompt.strip()):
+                # trigger_prompt: 仅当为 NULL 或 force 时更新
+                # NULL = 从未设置, "" = 用户主动清空（不应覆盖）
+                current_prompt = lora.get('trigger_prompt')
+                if example_prompts and (force or current_prompt is None):
                     trigger_prompt_text = "\n\n".join(example_prompts)
                     update_parts.append("trigger_prompt = %s")
                     update_params.append(trigger_prompt_text)

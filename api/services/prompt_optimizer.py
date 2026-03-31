@@ -129,6 +129,7 @@ Video models generate MOTION. Describe actions, body movements, physical express
 ## FORBIDDEN — Do NOT include ANY of these:
 - Camera framing (no "close-up", "medium shot", "wide shot", "full body shot")
 - Camera movement (no "pan", "zoom", "tracking", "dolly")
+- Subject leaving the frame (no "walks away", "exits", "moves out of frame", "turns around completely"). The subject MUST remain visible and centered within the frame throughout the entire video. Describe actions that keep the subject in place or move only slightly.
 
 ## TIMING Rules:
 - **CRITICAL**: The LAST keyframe timestamp must be at least 1 second BEFORE the video ends. For a 5-second video, the last keyframe must be at 3-4 seconds, NOT at 5 seconds. The model needs time to execute the final action.
@@ -347,6 +348,7 @@ When the user provides NO specific intent (empty or very vague like "continue"):
 - Do NOT describe: appearance, clothing, environment, lighting — the image shows these.
 - ONLY describe: ACTIONS, MOVEMENTS, and CAMERA MOTION that happen next.
 - Focus on physical verbs: "turns", "walks", "leans", "reaches", "sits", "lies down", etc.
+- **FRAMING RULE**: The subject MUST stay within the frame at all times. Do NOT describe the subject moving out of frame, walking away from camera, or exiting the scene. Keep the subject centered and visible throughout the entire video.
 - 1-2 keyframes, 2-3 sentences each, describing ONLY motion.
 - Use (at N seconds: ...) format.
 - Write in English.
