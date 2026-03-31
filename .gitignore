@@ -47,17 +47,21 @@ Thumbs.db
 # Redis
 dump.rdb
 
-# Test files (exclude tests/ directory from ignore)
+# Test files (exclude tests/ and shared/tests/ directories from ignore)
 test_*.py
 *_test.py
 !tests/test_*.py
 !tests/*_test.py
+!shared/tests/test_*.py
+!shared/tests/*_test.py
 
 # Workflows (keep only templates)
 workflows/__MACOSX/
 
 # Models & assets (too large for git)
+# Note: "models/" ignores any dir named models, but api/models/ is Python code
 models/
+!api/models/
 checkpoints/
 loras/
 asset/
