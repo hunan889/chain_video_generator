@@ -12,6 +12,7 @@ from fastapi import Depends, FastAPI, HTTPException
 
 from api_gateway.config import GatewayConfig, load_config
 from api_gateway.dependencies import get_cos_client, get_gateway
+from api_gateway.services.chain_orchestrator import ChainOrchestrator
 from shared.cos.client import COSClient
 from shared.cos.config import COSConfig
 from shared.redis_keys import WORKER_HEARTBEAT_PREFIX
@@ -44,9 +45,12 @@ async def lifespan(app: FastAPI):
     )
     cos_client = COSClient(cos_config)
 
+    chain_orchestrator = ChainOrchestrator(gateway=gateway, redis=redis_conn)
+
     app.state.redis = redis_conn
     app.state.gateway = gateway
     app.state.cos_client = cos_client
+    app.state.chain_orchestrator = chain_orchestrator
 
     logger.info("API Gateway started (redis=%s)", config.redis_url)
     yield
@@ -71,8 +75,10 @@ def create_app(config: GatewayConfig | None = None) -> FastAPI:
     # Routers
     # ------------------------------------------------------------------
     from api_gateway.routes.generate import router as generate_router
+    from api_gateway.routes.chain import router as chain_router
 
     app.include_router(generate_router)
+    app.include_router(chain_router)
 
     # ------------------------------------------------------------------
     # Routes
