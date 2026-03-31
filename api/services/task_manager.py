@@ -12,13 +12,14 @@ from api.models.schemas import GenerateRequest, GenerateI2VRequest
 from api.services.comfyui_client import ComfyUIClient
 from api.services.workflow_builder import build_workflow, build_story_workflow, build_merged_story_workflow, _inject_story_postproc, _inject_lossless_frame_save
 from api.services import storage
+from shared.task_gateway import TaskGateway
+from shared.redis_keys import task_key, queue_key, chain_key, comfyui_instances_key
 
 logger = logging.getLogger(__name__)
 
 MAX_OOM_RETRIES = 2  # Max retry attempts for CUDA OOM errors
 OOM_COOLDOWN = 5     # Seconds to wait after OOM before retrying
 
-REDIS_INSTANCES_PREFIX = "comfyui_instances"
 
 
 def _is_oom_error(error: Exception) -> bool:
@@ -44,19 +45,27 @@ class TaskManager:
     def __init__(self):
         self.redis: Optional[aioredis.Redis] = None
         self._worker_redis: Optional[aioredis.Redis] = None
+        self._gateway: Optional[TaskGateway] = None
         self.clients: dict[str, list[ComfyUIClient]] = {}
         self._workers: dict[str, dict] = {}  # worker_id -> {model_key, url, client, task, started_at}
         self._chain_workers: dict[str, asyncio.Task] = {}  # chain_id -> asyncio.Task
         self._direct_busy_urls: set[str] = set()  # URLs busy with direct prompts (face swap etc.)
 
+    @property
+    def gateway(self) -> TaskGateway:
+        """Access the shared TaskGateway for pure Redis data operations."""
+        assert self._gateway is not None, "TaskManager not started"
+        return self._gateway
+
     async def start(self):
         self.redis = aioredis.from_url(REDIS_URL, decode_responses=True)
         self._worker_redis = aioredis.from_url(REDIS_URL, decode_responses=True)
+        self._gateway = TaskGateway(redis=self.redis, task_expiry=TASK_EXPIRY)
         # Load worker URLs: Redis (persisted) merged with .env (seed)
         for model_key in COMFYUI_URLS:
             self.clients.setdefault(model_key, [])
         for model_key, env_urls in COMFYUI_URLS.items():
-            redis_key = f"{REDIS_INSTANCES_PREFIX}:{model_key}"
+            redis_key = comfyui_instances_key(model_key)
             redis_urls = await self.redis.smembers(redis_key)
             # Merge: Redis takes priority, .env URLs are seeds added if Redis is empty
             if redis_urls:
@@ -131,7 +140,7 @@ class TaskManager:
             "started_at": time.time(),
         }
         # Persist to Redis
-        redis_key = f"{REDIS_INSTANCES_PREFIX}:{model_key}"
+        redis_key = comfyui_instances_key(model_key)
         await self.redis.sadd(redis_key, url)
         logger.info("Worker %s added (%s)", worker_id, url)
         return worker_id
@@ -153,7 +162,7 @@ class TaskManager:
                 pass
         await client.close()
         # Remove from Redis
-        redis_key = f"{REDIS_INSTANCES_PREFIX}:{model_key}"
+        redis_key = comfyui_instances_key(model_key)
         await self.redis.srem(redis_key, info["url"])
         logger.info("Worker %s removed", worker_id)
         return True
@@ -263,74 +272,25 @@ class TaskManager:
         return self._get_client(model_key)
 
     async def redis_alive(self) -> bool:
-        try:
-            return await self.redis.ping()
-        except Exception:
-            return False
+        return await self.gateway.redis_alive()
 
     async def create_task(self, mode: GenerateMode, model: ModelType, workflow: dict, params: Optional[dict] = None, chain_id: Optional[str] = None) -> str:
-        task_id = uuid.uuid4().hex
-        import time
-        task_data = {
-            "status": TaskStatus.QUEUED.value,
-            "mode": mode.value,
-            "model": model.value,
-            "workflow": json.dumps(workflow),
-            "progress": "0",
-            "video_url": "",
-            "error": "",
-            "created_at": str(int(time.time())),
-        }
-        if params:
-            task_data["params"] = json.dumps(params)
-        if chain_id:
-            task_data["chain_id"] = chain_id
-        await self.redis.hset(f"task:{task_id}", mapping=task_data)
-        await self.redis.expire(f"task:{task_id}", TASK_EXPIRY)
-        await self.redis.rpush(f"queue:{model.value}", task_id)
-        logger.info("Task %s created for %s/%s%s", task_id, mode.value, model.value, f" (chain {chain_id})" if chain_id else "")
-        return task_id
+        return await self.gateway.create_task(mode, model, workflow, params, chain_id)
 
     async def get_task(self, task_id: str) -> Optional[dict]:
-        data = await self.redis.hgetall(f"task:{task_id}")
-        if not data:
-            return None
-        params = None
-        if data.get("params"):
-            try:
-                params = json.loads(data["params"])
-            except Exception:
-                pass
-
-        # Debug: log what we got from Redis
-        logger.info(f"Task {task_id} last_frame_url from Redis: {data.get('last_frame_url')}")
-
-        return {
-            "task_id": task_id,
-            "status": data.get("status", "unknown"),
-            "mode": data.get("mode") or None,
-            "model": data.get("model") or None,
-            "progress": float(data.get("progress", 0)),
-            "video_url": data.get("video_url") or None,
-            "last_frame_url": data.get("last_frame_url") or None,
-            "error": data.get("error") or None,
-            "retry_count": int(data.get("retry_count", 0)),
-            "params": params,
-            "created_at": int(data["created_at"]) if data.get("created_at") else None,
-            "completed_at": int(data["completed_at"]) if data.get("completed_at") else None,
-        }
+        return await self.gateway.get_task(task_id)
 
     async def cancel_task(self, task_id: str) -> bool:
         """Cancel a running or queued task."""
-        data = await self.redis.hgetall(f"task:{task_id}")
+        data = await self.redis.hgetall(task_key(task_id))
         if not data:
             return False
         status = data.get("status")
         if status == TaskStatus.QUEUED.value:
             # Remove from queue
             model = data.get("model", "")
-            await self.redis.lrem(f"queue:{model}", 0, task_id)
-            await self.redis.hset(f"task:{task_id}", mapping={
+            await self.redis.lrem(queue_key(model), 0, task_id)
+            await self.redis.hset(task_key(task_id), mapping={
                 "status": TaskStatus.FAILED.value,
                 "error": "Cancelled by user",
                 "completed_at": str(int(__import__('time').time())),
@@ -348,7 +308,7 @@ class TaskManager:
                 if running_pid == prompt_id:
                     await client.interrupt()
                 await client.cancel_prompt(prompt_id)
-            await self.redis.hset(f"task:{task_id}", mapping={
+            await self.redis.hset(task_key(task_id), mapping={
                 "status": TaskStatus.FAILED.value,
                 "error": "Cancelled by user",
                 "completed_at": str(int(__import__('time').time())),
@@ -357,65 +317,10 @@ class TaskManager:
         return False
 
     async def list_tasks(self) -> list[dict]:
-        """List all tasks from Redis, excluding chain segment tasks."""
-        tasks = []
-        cursor = 0
-        while True:
-            cursor, keys = await self.redis.scan(cursor, match="task:*", count=100)
-            for key in keys:
-                task_id = key.split(":", 1)[1]
-                data = await self.redis.hgetall(key)
-                if data:
-                    # Skip tasks that belong to a chain
-                    if data.get("chain_id"):
-                        continue
-                    params = None
-                    if data.get("params"):
-                        try:
-                            params = json.loads(data["params"])
-                        except Exception:
-                            pass
-                    created_at = int(data["created_at"]) if data.get("created_at") else 0
-                    completed_at = int(data["completed_at"]) if data.get("completed_at") else None
-                    tasks.append({
-                        "task_id": task_id,
-                        "status": data.get("status", "unknown"),
-                        "mode": data.get("mode", ""),
-                        "model": data.get("model", ""),
-                        "progress": float(data.get("progress", 0)),
-                        "video_url": data.get("video_url") or None,
-                        "last_frame_url": data.get("last_frame_url") or None,
-                        "error": data.get("error") or None,
-                        "params": params,
-                        "created_at": created_at or None,
-                        "completed_at": completed_at,
-                    })
-            if cursor == 0:
-                break
-        # Sort: running/queued first, then by created_at descending
-        order = {"running": 0, "queued": 1, "completed": 2, "failed": 3}
-        tasks.sort(key=lambda t: (order.get(t["status"], 9), -(t.get("created_at") or 0)))
-        return tasks
+        return await self.gateway.list_tasks()
 
     async def list_chains(self) -> list[dict]:
-        """List all chains from Redis."""
-        chains = []
-        cursor = 0
-        while True:
-            cursor, keys = await self.redis.scan(cursor, match="chain:*", count=100)
-            for key in keys:
-                parts = key.split(":")
-                if len(parts) != 2:
-                    continue
-                chain_id = parts[1]
-                chain = await self.get_chain(chain_id)
-                if chain:
-                    chains.append(chain)
-            if cursor == 0:
-                break
-        order = {"running": 0, "queued": 1, "completed": 2, "partial": 3, "failed": 4}
-        chains.sort(key=lambda c: (order.get(c["status"], 9), -(c.get("created_at") or 0)))
-        return chains
+        return await self.gateway.list_chains()
 
     async def _recover_orphan_tasks(self):
         """Recover tasks stuck in 'running' state by checking ComfyUI for their prompt_id."""
@@ -502,14 +407,14 @@ class TaskManager:
                 any_running = False
                 fail_error = ""
                 for tid in task_ids:
-                    t_status = await self.redis.hget(f"task:{tid}", "status")
+                    t_status = await self.redis.hget(task_key(tid), "status")
                     if t_status == TaskStatus.RUNNING.value or t_status == TaskStatus.QUEUED.value:
                         any_running = True
                         all_completed = False
                     elif t_status == TaskStatus.FAILED.value:
                         any_failed = True
                         all_completed = False
-                        fail_error = await self.redis.hget(f"task:{tid}", "error") or "Unknown"
+                        fail_error = await self.redis.hget(task_key(tid), "error") or "Unknown"
                     elif t_status != TaskStatus.COMPLETED.value:
                         all_completed = False
 
@@ -520,7 +425,7 @@ class TaskManager:
 
                 if all_completed:
                     # All tasks done but chain wasn't finalized — get last task's video
-                    last_task_data = await self.redis.hgetall(f"task:{task_ids[-1]}")
+                    last_task_data = await self.redis.hgetall(task_key(task_ids[-1]))
                     video_url = last_task_data.get("video_url", "")
                     completed_count = len(task_ids)
                     await self.redis.hset(key, mapping={
@@ -534,7 +439,7 @@ class TaskManager:
                 elif any_failed:
                     completed_count = 0
                     for tid in task_ids:
-                        t_st = await self.redis.hget(f"task:{tid}", "status")
+                        t_st = await self.redis.hget(task_key(tid), "status")
                         if t_st == TaskStatus.COMPLETED.value:
                             completed_count += 1
                     chain_status = "partial" if completed_count > 0 else "failed"
@@ -579,9 +484,9 @@ class TaskManager:
 
                 if chain_id:
                     # Has a chain — sync workflow status with chain
-                    chain_status = await self.redis.hget(f"chain:{chain_id}", "status")
+                    chain_status = await self.redis.hget(chain_key(chain_id), "status")
                     if chain_status == "completed":
-                        chain_video = await self.redis.hget(f"chain:{chain_id}", "final_video_url") or ""
+                        chain_video = await self.redis.hget(chain_key(chain_id), "final_video_url") or ""
                         await self.redis.hset(key, mapping={
                             "status": "completed",
                             "final_video_url": chain_video,
@@ -589,7 +494,7 @@ class TaskManager:
                         })
                         logger.info("Orphan workflow %s: chain completed, recovered", workflow_id)
                     elif chain_status in ("failed", "partial"):
-                        chain_error = await self.redis.hget(f"chain:{chain_id}", "error") or "Chain failed"
+                        chain_error = await self.redis.hget(chain_key(chain_id), "error") or "Chain failed"
                         await self.redis.hset(key, mapping={
                             "status": "failed",
                             "error": f"Service restarted; {chain_error}",
@@ -716,7 +621,7 @@ class TaskManager:
     async def _collect_result(self, task_id: str, prompt_id: str, client: ComfyUIClient):
         """Collect output from an already-completed ComfyUI prompt."""
         try:
-            await self.redis.hset(f"task:{task_id}", "progress", "0.9")
+            await self.redis.hset(task_key(task_id), "progress", "0.9")
             output_files = await client.get_output_files(prompt_id)
             if not output_files:
                 raise RuntimeError("No output files in completed prompt")
@@ -753,11 +658,11 @@ class TaskManager:
             if last_frame_url:
                 task_data["last_frame_url"] = last_frame_url
 
-            await self.redis.hset(f"task:{task_id}", mapping=task_data)
+            await self.redis.hset(task_key(task_id), mapping=task_data)
             logger.info("Recovered task %s completed: %s", task_id, video_url)
         except Exception as e:
             logger.exception("Recovery collect failed for task %s: %s", task_id, e)
-            await self.redis.hset(f"task:{task_id}", mapping={
+            await self.redis.hset(task_key(task_id), mapping={
                 "status": TaskStatus.FAILED.value,
                 "error": f"Recovery failed: {e}",
             })
@@ -769,13 +674,13 @@ class TaskManager:
             await self._collect_result(task_id, prompt_id, client)
         except Exception as e:
             logger.exception("Resume monitoring failed for task %s: %s", task_id, e)
-            await self.redis.hset(f"task:{task_id}", mapping={
+            await self.redis.hset(task_key(task_id), mapping={
                 "status": TaskStatus.FAILED.value,
                 "error": f"Resume failed: {e}",
             })
 
     async def _worker_loop(self, model_key: str, client: ComfyUIClient, worker_name: str):
-        queue_name = f"queue:{model_key}"
+        queue_name = queue_key(model_key)
         # Each worker needs its own Redis connection for blocking blpop
         worker_redis = aioredis.from_url(REDIS_URL, decode_responses=True)
         logger.info("Worker %s started (queue=%s, url=%s)", worker_name, queue_name, client.base_url)
@@ -798,14 +703,14 @@ class TaskManager:
     async def _process_task(self, task_id: str, client: ComfyUIClient, worker_name: str = ""):
         try:
             t_start = time.time()
-            await self.redis.hset(f"task:{task_id}", mapping={
+            await self.redis.hset(task_key(task_id), mapping={
                 "status": TaskStatus.RUNNING.value,
                 "comfyui_url": client.base_url,
             })
-            workflow_json = await self.redis.hget(f"task:{task_id}", "workflow")
+            workflow_json = await self.redis.hget(task_key(task_id), "workflow")
             if not workflow_json:
                 logger.warning("Task %s has no workflow data, skipping", task_id)
-                await self.redis.hset(f"task:{task_id}", mapping={
+                await self.redis.hset(task_key(task_id), mapping={
                     "status": TaskStatus.FAILED.value,
                     "error": "No workflow data found",
                     "completed_at": str(int(time.time())),
@@ -816,7 +721,7 @@ class TaskManager:
             # Submit to ComfyUI
             t_submit = time.time()
             prompt_id = await client.queue_prompt(workflow)
-            await self.redis.hset(f"task:{task_id}", mapping={
+            await self.redis.hset(task_key(task_id), mapping={
                 "progress": "0.05",
                 "prompt_id": prompt_id,
             })
@@ -825,7 +730,7 @@ class TaskManager:
             # Wait for completion with progress updates
             t_wait = time.time()
             history = await self._wait_with_progress(client, prompt_id, task_id, timeout=1800)
-            await self.redis.hset(f"task:{task_id}", "progress", "0.9")
+            await self.redis.hset(task_key(task_id), "progress", "0.9")
             logger.info("Task %s: generation took %.2fs", task_id, time.time() - t_wait)
 
             # Download output files
@@ -869,7 +774,7 @@ class TaskManager:
             if last_frame_url:
                 task_data["last_frame_url"] = last_frame_url
 
-            await self.redis.hset(f"task:{task_id}", mapping=task_data)
+            await self.redis.hset(task_key(task_id), mapping=task_data)
             logger.info("Task %s completed in %.2fs total: %s", task_id, time.time() - t_start, video_url)
 
         except Exception as e:
@@ -877,7 +782,7 @@ class TaskManager:
             is_oom = _is_oom_error(e)
 
             if is_oom:
-                retry_count = int(await self.redis.hget(f"task:{task_id}", "retry_count") or 0)
+                retry_count = int(await self.redis.hget(task_key(task_id), "retry_count") or 0)
                 logger.warning(
                     "Task %s OOM (retry %d/%d): %s",
                     task_id, retry_count, MAX_OOM_RETRIES, error_msg[:200],
@@ -894,21 +799,21 @@ class TaskManager:
                     await asyncio.sleep(OOM_COOLDOWN)
 
                     # Re-queue the task
-                    model = await self.redis.hget(f"task:{task_id}", "model")
-                    await self.redis.hset(f"task:{task_id}", mapping={
+                    model = await self.redis.hget(task_key(task_id), "model")
+                    await self.redis.hset(task_key(task_id), mapping={
                         "status": TaskStatus.QUEUED.value,
                         "retry_count": str(retry_count + 1),
                         "error": f"OOM retry {retry_count + 1}/{MAX_OOM_RETRIES}",
                         "progress": "0",
                     })
-                    await self.redis.rpush(f"queue:{model}", task_id)
+                    await self.redis.rpush(queue_key(model), task_id)
                     logger.info("Task %s re-queued (retry %d)", task_id, retry_count + 1)
                     return
 
             # Non-OOM error, or OOM retries exhausted
             logger.exception("Task %s failed: %s", task_id, e)
             try:
-                await self.redis.hset(f"task:{task_id}", mapping={
+                await self.redis.hset(task_key(task_id), mapping={
                     "status": TaskStatus.FAILED.value,
                     "error": error_msg,
                     "completed_at": str(int(time.time())),
@@ -974,7 +879,7 @@ class TaskManager:
             import websockets
 
             # ── Pre-calculate node weights from workflow ──
-            workflow_json = await self.redis.hget(f"task:{task_id}", "workflow")
+            workflow_json = await self.redis.hget(task_key(task_id), "workflow")
             workflow = json.loads(workflow_json) if workflow_json else {}
 
             node_weights: dict[str, int] = {}
@@ -1046,7 +951,7 @@ class TaskManager:
                             progress = max(progress, high_water_progress)
                             if progress > high_water_progress:
                                 high_water_progress = progress
-                                await self.redis.hset(f"task:{task_id}", "progress", str(progress))
+                                await self.redis.hset(task_key(task_id), "progress", str(progress))
 
                         # ── executing: standard ComfyUI node-by-node signal ──
                         elif msg_type == "executing" and d.get("prompt_id") == prompt_id:
@@ -1065,7 +970,7 @@ class TaskManager:
                             progress = min(progress, P_END)
                             if progress > high_water_progress:
                                 high_water_progress = progress
-                                await self.redis.hset(f"task:{task_id}", "progress", str(progress))
+                                await self.redis.hset(task_key(task_id), "progress", str(progress))
 
                         # ── progress: step-level display info only ──
                         # Progress calculation is driven by progress_state messages.
@@ -1073,7 +978,7 @@ class TaskManager:
                         elif msg_type == "progress" and d.get("prompt_id") == prompt_id:
                             step = d.get("value", 0)
                             max_step = d.get("max", 1)
-                            await self.redis.hset(f"task:{task_id}", mapping={
+                            await self.redis.hset(task_key(task_id), mapping={
                                 "current_step": str(step),
                                 "max_step": str(max_step),
                             })
@@ -1122,55 +1027,10 @@ class TaskManager:
     # ── Chain orchestration ──────────────────────────────────────────
 
     async def create_chain(self, segment_count: int, params: dict) -> str:
-        chain_id = uuid.uuid4().hex
-        await self.redis.hset(f"chain:{chain_id}", mapping={
-            "status": "queued",
-            "total_segments": str(segment_count),
-            "completed_segments": "0",
-            "current_segment": "0",
-            "segment_task_ids": "[]",
-            "final_video_url": "",
-            "error": "",
-            "created_at": str(int(time.time())),
-            "completed_at": "",
-            "params": json.dumps(params),
-        })
-        await self.redis.expire(f"chain:{chain_id}", TASK_EXPIRY)
-        logger.info("Chain %s created with %d segments", chain_id, segment_count)
-        return chain_id
+        return await self.gateway.create_chain(segment_count, params)
 
     async def get_chain(self, chain_id: str) -> Optional[dict]:
-        data = await self.redis.hgetall(f"chain:{chain_id}")
-        if not data:
-            return None
-        task_ids = json.loads(data.get("segment_task_ids", "[]"))
-        current_segment = int(data.get("current_segment", 0))
-        completed = int(data.get("completed_segments", 0))
-
-        # Get current task progress
-        current_task_progress = 0.0
-        current_task_id = None
-        if task_ids and current_segment < len(task_ids):
-            current_task_id = task_ids[current_segment]
-            task_data = await self.get_task(current_task_id)
-            if task_data:
-                current_task_progress = task_data.get("progress", 0.0)
-
-        return {
-            "chain_id": chain_id,
-            "status": data.get("status", "unknown"),
-            "total_segments": int(data.get("total_segments", 0)),
-            "completed_segments": completed,
-            "current_segment": current_segment,
-            "current_task_id": current_task_id,
-            "current_task_progress": current_task_progress,
-            "segment_task_ids": task_ids,
-            "final_video_url": data.get("final_video_url") or None,
-            "error": data.get("error") or None,
-            "params": json.loads(data["params"]) if data.get("params") else None,
-            "created_at": int(data["created_at"]) if data.get("created_at") else None,
-            "completed_at": int(data["completed_at"]) if data.get("completed_at") and data["completed_at"] else None,
-        }
+        return await self.gateway.get_chain(chain_id)
 
     async def run_chain(self, chain_id: str, segments: list[dict]):
         """Start chain worker as background task."""
@@ -1180,7 +1040,7 @@ class TaskManager:
 
     async def cancel_chain(self, chain_id: str) -> bool:
         """Cancel a running chain and its current task."""
-        data = await self.redis.hgetall(f"chain:{chain_id}")
+        data = await self.redis.hgetall(chain_key(chain_id))
         if not data:
             return False
         status = data.get("status")
@@ -1199,12 +1059,12 @@ class TaskManager:
         except Exception:
             task_ids = []
         for tid in task_ids:
-            task_data = await self.redis.hgetall(f"task:{tid}")
+            task_data = await self.redis.hgetall(task_key(tid))
             if task_data and task_data.get("status") in ("running", "queued"):
                 await self.cancel_task(tid)
 
         # Mark chain as failed
-        await self.redis.hset(f"chain:{chain_id}", mapping={
+        await self.redis.hset(chain_key(chain_id), mapping={
             "status": "failed",
             "error": "Cancelled by user",
             "completed_at": str(int(time.time())),
@@ -1231,12 +1091,12 @@ class TaskManager:
         story_mode = segments[0].get("story_mode", False)
 
         # Get segment_prompts from chain params for VLM guidance
-        chain_data = await self.redis.hgetall(f"chain:{chain_id}")
+        chain_data = await self.redis.hgetall(chain_key(chain_id))
         chain_params = json.loads(chain_data.get("params", "{}"))
         segment_prompts = chain_params.get("segment_prompts", [])
 
         try:
-            await self.redis.hset(f"chain:{chain_id}", "status", "running")
+            await self.redis.hset(chain_key(chain_id), "status", "running")
 
             # ── Merged story mode: single ComfyUI prompt with shared models ──
             # All story_mode flows go through merged path (handles I2V, T2V fallback,
@@ -1248,7 +1108,7 @@ class TaskManager:
                 return
 
             for i, seg in enumerate(segments):
-                await self.redis.hset(f"chain:{chain_id}", mapping={
+                await self.redis.hset(chain_key(chain_id), mapping={
                     "current_segment": str(i),
                     "segment_task_ids": json.dumps(task_ids),
                 })
@@ -1370,14 +1230,14 @@ class TaskManager:
 
                 task_id = await self.create_task(mode, model, workflow, params=seg, chain_id=chain_id)
                 task_ids.append(task_id)
-                await self.redis.hset(f"chain:{chain_id}", "segment_task_ids", json.dumps(task_ids))
+                await self.redis.hset(chain_key(chain_id), "segment_task_ids", json.dumps(task_ids))
 
                 # Wait for this segment to complete (raises on failure/timeout)
                 video_path = await self._wait_for_task_completion(task_id, timeout=1800)
                 video_paths.append(video_path)
                 segment_filenames.append(video_path.name)
 
-                await self.redis.hset(f"chain:{chain_id}", "completed_segments", str(i + 1))
+                await self.redis.hset(chain_key(chain_id), "completed_segments", str(i + 1))
                 logger.info("Chain %s: segment %d/%d completed", chain_id, i + 1, total)
 
             # All segments done — concatenate
@@ -1401,7 +1261,7 @@ class TaskManager:
                 for fn in segment_filenames:
                     storage.cleanup_local(fn)
 
-            await self.redis.hset(f"chain:{chain_id}", mapping={
+            await self.redis.hset(chain_key(chain_id), mapping={
                 "status": "completed",
                 "final_video_url": final_url,
                 "completed_at": str(int(time.time())),
@@ -1413,11 +1273,11 @@ class TaskManager:
             # C3: catch CancelledError (BaseException) alongside regular exceptions
             error_msg = "Cancelled" if isinstance(e, asyncio.CancelledError) else str(e)
             try:
-                current_seg = int(await self.redis.hget(f"chain:{chain_id}", "current_segment") or 0)
+                current_seg = int(await self.redis.hget(chain_key(chain_id), "current_segment") or 0)
                 logger.exception("Chain %s failed at segment %d: %s", chain_id, current_seg, error_msg)
-                completed = int(await self.redis.hget(f"chain:{chain_id}", "completed_segments") or 0)
+                completed = int(await self.redis.hget(chain_key(chain_id), "completed_segments") or 0)
                 status = "partial" if completed > 0 else "failed"
-                await self.redis.hset(f"chain:{chain_id}", mapping={
+                await self.redis.hset(chain_key(chain_id), mapping={
                     "status": status,
                     "error": error_msg,
                     "completed_at": str(int(time.time())),
@@ -1503,16 +1363,16 @@ class TaskManager:
                 chain_id=chain_id,
             )
             task_ids = [task_id]
-            await self.redis.hset(f"chain:{chain_id}", mapping={
+            await self.redis.hset(chain_key(chain_id), mapping={
                 "segment_task_ids": json.dumps(task_ids),
                 "current_segment": "0",
             })
 
             video_path = await self._wait_for_task_completion(task_id, timeout=1800)
-            task_data = await self.redis.hgetall(f"task:{task_id}")
+            task_data = await self.redis.hgetall(task_key(task_id))
             video_url = task_data.get("video_url", "")
 
-            await self.redis.hset(f"chain:{chain_id}", mapping={
+            await self.redis.hset(chain_key(chain_id), mapping={
                 "status": "completed",
                 "completed_at": str(int(asyncio.get_event_loop().time())),
                 "final_video_url": video_url,
@@ -1552,13 +1412,13 @@ class TaskManager:
                 chain_id=chain_id,
             )
             task_ids = [task_id]
-            await self.redis.hset(f"chain:{chain_id}", mapping={
+            await self.redis.hset(chain_key(chain_id), mapping={
                 "segment_task_ids": json.dumps(task_ids),
                 "current_segment": "0",
             })
 
             video_path = await self._wait_for_task_completion(task_id, timeout=1800)
-            task_data = await self.redis.hgetall(f"task:{task_id}")
+            task_data = await self.redis.hgetall(task_key(task_id))
             video_url = task_data.get("video_url", "")
 
             # Retrieve lossless last frame from SaveImage node
@@ -1593,7 +1453,7 @@ class TaskManager:
             }
             if t2v_lossless_url:
                 t2v_mapping["lossless_last_frame_url"] = t2v_lossless_url
-            await self.redis.hset(f"chain:{chain_id}", mapping=t2v_mapping)
+            await self.redis.hset(chain_key(chain_id), mapping=t2v_mapping)
             logger.info("Chain %s (T2V fallback) completed: %s", chain_id, video_url)
             return
 
@@ -1644,7 +1504,7 @@ class TaskManager:
             chain_id=chain_id,
         )
         task_ids = [task_id]
-        await self.redis.hset(f"chain:{chain_id}", mapping={
+        await self.redis.hset(chain_key(chain_id), mapping={
             "segment_task_ids": json.dumps(task_ids),
             "current_segment": "0",
         })
@@ -1656,7 +1516,7 @@ class TaskManager:
 
         # With ImageBatchMulti optimization, merged workflow now outputs only 1 video
         # (all segments merged in ComfyUI, no need for external ffmpeg concat)
-        task_data = await self.redis.hgetall(f"task:{task_id}")
+        task_data = await self.redis.hgetall(task_key(task_id))
         prompt_id = task_data.get("prompt_id", "")
         if not prompt_id:
             raise RuntimeError("No prompt_id found for merged story task")
@@ -1703,14 +1563,14 @@ class TaskManager:
                 }
                 if lossless_frame_url:
                     fallback_mapping["lossless_last_frame_url"] = lossless_frame_url
-                await self.redis.hset(f"chain:{chain_id}", mapping=fallback_mapping)
+                await self.redis.hset(chain_key(chain_id), mapping=fallback_mapping)
                 logger.info("Chain %s (merged story, fallback) completed: %s", chain_id, task_video_url)
                 return
             raise RuntimeError("No output files from merged story workflow")
 
         logger.info("Chain %s: merged workflow produced %d output files", chain_id, len(output_files))
 
-        await self.redis.hset(f"chain:{chain_id}", "completed_segments", str(total))
+        await self.redis.hset(chain_key(chain_id), "completed_segments", str(total))
 
         # The optimized workflow outputs a single merged video (from node 510)
         # No need to concatenate multiple videos anymore
@@ -1771,7 +1631,7 @@ class TaskManager:
         }
         if lossless_frame_url:
             completion_mapping["lossless_last_frame_url"] = lossless_frame_url
-        await self.redis.hset(f"chain:{chain_id}", mapping=completion_mapping)
+        await self.redis.hset(chain_key(chain_id), mapping=completion_mapping)
         logger.info("Chain %s (merged story) completed: %s", chain_id, final_url)
 
     async def _wait_for_task_completion(self, task_id: str, timeout: float = 1800) -> Optional['Path']:
@@ -1781,7 +1641,7 @@ class TaskManager:
         """
         deadline = asyncio.get_event_loop().time() + timeout
         while asyncio.get_event_loop().time() < deadline:
-            data = await self.redis.hgetall(f"task:{task_id}")
+            data = await self.redis.hgetall(task_key(task_id))
             if not data:
                 raise RuntimeError(f"Task {task_id} not found in Redis")
             status = data.get("status")
