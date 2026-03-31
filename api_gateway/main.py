@@ -68,6 +68,13 @@ def create_app(config: GatewayConfig | None = None) -> FastAPI:
     app.state.config = config
 
     # ------------------------------------------------------------------
+    # Routers
+    # ------------------------------------------------------------------
+    from api_gateway.routes.generate import router as generate_router
+
+    app.include_router(generate_router)
+
+    # ------------------------------------------------------------------
     # Routes
     # ------------------------------------------------------------------
 
