@@ -130,17 +130,23 @@ async def get_workflow_status(
         if s["status"] == "completed":
             progress += weight
         elif s["status"] == "running":
-            # For video_generation, try to get task progress
+            # For video_generation, read task progress directly from Redis
             if s["name"] == "video_generation":
                 chain_id = data.get("chain_id")
                 if chain_id:
-                    # chain_id is a chain, not a task — read the
-                    # chain's segment_task_ids and get progress from
-                    # the currently running task.
-                    chain_data = await gw.get_chain(chain_id)
-                    if chain_data:
-                        tp = float(chain_data.get("current_task_progress", 0))
-                        progress += weight * tp
+                    # Read chain → find current task → read task progress directly
+                    import json as _json
+                    chain_raw = await redis.hgetall(f"chain:{chain_id}")
+                    if chain_raw:
+                        try:
+                            task_ids = _json.loads(chain_raw.get("segment_task_ids", "[]"))
+                            if task_ids:
+                                task_raw = await redis.hgetall(f"task:{task_ids[0]}")
+                                if task_raw:
+                                    tp = float(task_raw.get("progress", 0))
+                                    progress += weight * tp
+                        except Exception:
+                            pass
             else:
                 progress += weight * 0.5  # assume 50% for non-video stages
 
