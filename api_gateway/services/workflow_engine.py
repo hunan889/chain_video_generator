@@ -400,8 +400,30 @@ class WorkflowEngine:
                     "status": "completed",
                     "completed_at": str(time.time()),
                 })
+                # Build rich stage details
+                gen_config = internal_config.get("stage4_video", {}).get("generation", {})
+                postproc_config = internal_config.get("stage4_video", {}).get("postprocess", {})
+                stage4_details = {
+                    "chain_id": chain_id,
+                    "video_url": final_video_url,
+                    "model": gen_config.get("model", gen_config.get("model_preset", "")),
+                    "resolution": gen_config.get("resolution", ""),
+                    "duration": gen_config.get("duration", ""),
+                    "steps": gen_config.get("steps"),
+                    "cfg": gen_config.get("cfg"),
+                    "scheduler": gen_config.get("scheduler", ""),
+                    "width": getattr(vg_result, "width", 0),
+                    "height": getattr(vg_result, "height", 0),
+                    "prompt": getattr(vg_result, "prompt_used", ""),
+                    "loras": getattr(vg_result, "loras_used", []),
+                    "postprocess": {
+                        "upscale": postproc_config.get("upscale", {}),
+                        "interpolation": postproc_config.get("interpolation", {}),
+                        "mmaudio": postproc_config.get("mmaudio", {}),
+                    },
+                }
                 await self._update_stage(wf_key, "video_generation", "completed",
-                                         details={"chain_id": chain_id, "video_url": final_video_url})
+                                         details=stage4_details)
                 # Persist to MySQL
                 await self.task_store.update_status(workflow_id, "completed")
                 await self.task_store.set_result(workflow_id, result_url=final_video_url,
