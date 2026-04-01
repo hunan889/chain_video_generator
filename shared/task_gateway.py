@@ -71,8 +71,9 @@ class TaskGateway:
             f" (chain {chain_id})" if chain_id else "",
         )
 
-        # Best-effort MySQL persistent write
-        if self.task_store is not None:
+        # Best-effort MySQL persistent write (skip sub-tasks with chain_id —
+        # workflow engine handles MySQL for those via the parent workflow record)
+        if self.task_store is not None and not chain_id:
             try:
                 from shared.enums import category_for_mode
                 await self.task_store.create(
