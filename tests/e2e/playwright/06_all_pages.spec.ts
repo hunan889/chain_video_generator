@@ -5,8 +5,6 @@
  * - 图片生成 (image module)
  * - VACE 编辑 (vace module)
  * - Workflow 历史 (iframe)
- * - 我的收藏 (iframe)
- * - 资源管理 (iframe)
  * - 姿势管理 x3 (pose manager, recommend, synonyms)
  * - TTS 语音 (video sub-tab)
  * - 高级工作流 iframe content
@@ -159,53 +157,12 @@ test.describe('Workflow 历史', () => {
 });
 
 // =============================================================================
-// 我的收藏 iframe
-// =============================================================================
-test.describe('我的收藏 (Favorites)', () => {
-  test('opens and loads favorites page', async ({ page }) => {
-    await page.goto(BASE + '/');
-    await page.waitForTimeout(2000);
-    await clickMainTab(page, '我的收藏');
+// 我的收藏 — removed from navigation
 
-    await page.waitForTimeout(3000);
-    await page.screenshot({ path: 'test-results/favorites-01.png' });
-
-    const section = page.locator('#section-favorites');
-    const isActive = await section.evaluate(el => el.classList.contains('active'));
-    expect(isActive).toBe(true);
-
-    const iframe = page.locator('#iframe-favorites');
-    const src = await iframe.getAttribute('src');
-    console.log(`Favorites iframe src: ${src}`);
-
-    if (src) {
-      const resp = await page.request.get(BASE + '/static/my_favorites.html');
-      console.log(`Favorites page status: ${resp.status()}`);
-    }
-  });
-});
 
 // =============================================================================
-// 资源管理 iframe
-// =============================================================================
-test.describe('资源管理 (Annotate)', () => {
-  test('opens and loads resource management', async ({ page }) => {
-    await page.goto(BASE + '/');
-    await page.waitForTimeout(2000);
-    await clickMainTab(page, '资源管理');
+// 资源管理 — removed from navigation
 
-    await page.waitForTimeout(3000);
-    await page.screenshot({ path: 'test-results/annotate-01.png' });
-
-    const section = page.locator('#section-annotate');
-    const isActive = await section.evaluate(el => el.classList.contains('active'));
-    expect(isActive).toBe(true);
-
-    const iframe = page.locator('#iframe-annotate');
-    const src = await iframe.getAttribute('src');
-    console.log(`Annotate iframe src: ${src}`);
-  });
-});
 
 // =============================================================================
 // 姿势管理 — 3 sub-tabs
@@ -309,7 +266,6 @@ test.describe('Iframe Page Availability', () => {
     { name: 'advanced_workflow_v2', path: '/advanced_workflow_v2.html' },
     { name: 'workflow_history', path: '/static/workflow_history.html' },
     { name: 'my_favorites', path: '/static/my_favorites.html' },
-    { name: 'annotate', path: '/annotate.html' },
     { name: 'pose_manager', path: '/pose_manager.html' },
     { name: 'pose_recommend_test', path: '/pose_recommend_test.html' },
     { name: 'pose_synonyms_admin', path: '/pose_synonyms_admin.html' },
@@ -336,7 +292,7 @@ test.describe('Iframe Page Availability', () => {
 test.describe('Screenshot Gallery', () => {
   const mainTabs = [
     '视频生成', '图片生成', 'VACE 编辑', '高级工作流',
-    'Workflow 历史', '我的收藏', '资源管理', '姿势管理', '设置',
+    'Workflow 历史', '姿势管理', '设置',
   ];
 
   for (const label of mainTabs) {

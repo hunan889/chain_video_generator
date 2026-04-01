@@ -108,51 +108,15 @@ test.describe('Workflow 历史 (iframe)', () => {
   });
 });
 
-// =============================================================================
-// 3. 我的收藏
-// =============================================================================
-test.describe('我的收藏 (iframe)', () => {
-  test('page loads and shows favorites or empty state', async ({ page }) => {
-    test.setTimeout(30000);
-    await page.goto(BASE + '/');
-    await page.waitForTimeout(2000);
-    await clickMainTab(page, '我的收藏');
-
-    const frame = await getIframe(page, 'iframe-favorites');
-
-    const bodyText = await frame.locator('body').textContent();
-    console.log(`Favorites content length: ${bodyText?.length}`);
-
-    await page.screenshot({ path: 'test-results/iframe-favorites-content.png', fullPage: true });
-
-    expect(bodyText!.length).toBeGreaterThan(20);
-  });
-});
+// 我的收藏 and 资源管理 have been removed from the navigation.
+// Tests removed.
 
 // =============================================================================
-// 4. 资源管理
+// 4. Remaining API checks
 // =============================================================================
-test.describe('资源管理 (iframe)', () => {
-  test('page loads and shows admin interface', async ({ page }) => {
-    test.setTimeout(30000);
-    await page.goto(BASE + '/');
-    await page.waitForTimeout(2000);
-    await clickMainTab(page, '资源管理');
-
-    const frame = await getIframe(page, 'iframe-annotate');
-
-    const bodyText = await frame.locator('body').textContent();
-    console.log(`Annotate content length: ${bodyText?.length}`);
-
-    await page.screenshot({ path: 'test-results/iframe-annotate-content.png', fullPage: true });
-
-    expect(bodyText!.length).toBeGreaterThan(20);
-  });
-
-  test('annotate page API dependencies', async ({ page }) => {
-    // These APIs are called by annotate.html
+test.describe('Core API dependencies', () => {
+  test('loras and embeddings APIs respond', async ({ page }) => {
     const endpoints = [
-      '/api/v1/admin/embeddings/stats',
       '/api/v1/loras',
     ];
     for (const ep of endpoints) {

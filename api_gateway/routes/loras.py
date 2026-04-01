@@ -31,30 +31,57 @@ class LoraRecommendRequest(BaseModel):
 
 
 @router.get("/loras")
-async def list_loras(gw: TaskGateway = Depends(get_gateway)):
-    """Aggregate and deduplicate LoRAs published by all GPU workers."""
-    redis = gw.redis
-    seen: dict[str, dict] = {}
+async def list_loras(
+    config: GatewayConfig = Depends(get_config),
+):
+    """List all LoRAs from MySQL lora_metadata table."""
+    import asyncio
+    import pymysql
+    import pymysql.cursors
 
-    cursor = 0
-    while True:
-        cursor, keys = await redis.scan(cursor, match=f"{WORKER_LORAS_PREFIX}:*", count=100)
-        for key in keys:
-            raw = await redis.get(key)
-            if not raw:
-                continue
-            try:
-                loras = json.loads(raw)
-            except Exception:
-                continue
-            for lora in loras:
-                name = lora.get("name", "")
-                if name and name not in seen:
-                    seen[name] = lora
-        if cursor == 0:
-            break
+    def _query():
+        conn = pymysql.connect(
+            host=config.mysql_host, port=config.mysql_port,
+            user=config.mysql_user, password=config.mysql_password,
+            database=config.mysql_db, charset="utf8mb4",
+            cursorclass=pymysql.cursors.DictCursor,
+        )
+        try:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT id, name, file, preview_url, civitai_id, "
+                    "trigger_words, trigger_prompt, mode, noise_stage "
+                    "FROM lora_metadata WHERE enabled = 1 ORDER BY name"
+                )
+                return cur.fetchall()
+        finally:
+            conn.close()
 
-    return {"loras": sorted(seen.values(), key=lambda l: l["name"])}
+    try:
+        rows = await asyncio.to_thread(_query)
+        loras = []
+        for r in rows:
+            tw = r.get("trigger_words") or "[]"
+            if isinstance(tw, str):
+                try:
+                    tw = json.loads(tw)
+                except (json.JSONDecodeError, TypeError):
+                    tw = []
+            loras.append({
+                "id": r["id"],
+                "name": r.get("name") or r.get("file", ""),
+                "filename": r.get("file", ""),
+                "preview_url": r.get("preview_url"),
+                "civitai_id": r.get("civitai_id"),
+                "trigger_words": tw,
+                "trigger_prompt": r.get("trigger_prompt"),
+                "mode": r.get("mode", "both"),
+                "noise_stage": r.get("noise_stage", "high"),
+            })
+        return {"loras": loras}
+    except Exception as e:
+        logger.exception("Failed to list LoRAs from MySQL")
+        return {"loras": []}
 
 
 @router.post("/loras/recommend")

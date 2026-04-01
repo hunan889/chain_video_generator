@@ -223,3 +223,22 @@ async def get_default_config(
     if mode not in ("t2v", "first_frame", "face_reference", "full_body_reference"):
         raise HTTPException(400, f"Invalid mode: {mode}")
     return build_default_internal_config(mode, turbo, resolution)
+
+
+@router.get("/workflow/list")
+async def list_workflows(request: Request):
+    """List available workflow JSON template files."""
+    import os
+    workflows_dir = request.app.state.config.workflows_dir
+    if not workflows_dir or not os.path.isdir(workflows_dir):
+        return {"workflows": []}
+    results = []
+    for f in sorted(os.listdir(workflows_dir)):
+        if f.endswith(".json"):
+            path = os.path.join(workflows_dir, f)
+            results.append({
+                "name": f.replace(".json", ""),
+                "filename": f,
+                "size": os.path.getsize(path),
+            })
+    return {"workflows": results}
