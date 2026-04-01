@@ -61,16 +61,18 @@ class HeartbeatReporter:
     async def _heartbeat_loop(self) -> None:
         """Send heartbeats at the configured interval."""
         hb_key = worker_heartbeat_key(self._config.worker_id)
-        try:
-            while True:
+        while True:
+            try:
                 await self._send_heartbeat(hb_key)
                 # Publish LoRA list on first beat and every 10 beats
                 if self._beat_count % 10 == 0:
                     await self._publish_loras()
                 self._beat_count += 1
-                await asyncio.sleep(self._config.heartbeat_interval)
-        except asyncio.CancelledError:
-            return
+            except asyncio.CancelledError:
+                return
+            except Exception:
+                logger.exception("Heartbeat loop error for %s (will retry)", self._config.worker_id)
+            await asyncio.sleep(self._config.heartbeat_interval)
 
     async def _send_heartbeat(self, hb_key: str) -> None:
         """Write one heartbeat to Redis, including GPU stats from ComfyUI."""
