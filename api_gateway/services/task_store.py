@@ -221,6 +221,10 @@ class TaskStore:
             where_parts: list[str] = []
             args: list[Any] = []
 
+            # Hide sub-tasks that belong to a workflow (they have chain_id set)
+            # Only show top-level tasks and workflows
+            where_parts.append("(chain_id IS NULL OR chain_id = '' OR task_type = 'workflow')")
+
             if category:
                 where_parts.append("category = %s")
                 args.append(category)
