@@ -203,6 +203,7 @@ class ComfyUIClient:
             import websockets
             async with websockets.connect(f"{ws_url}/ws?clientId=api-{prompt_id}") as ws:
                 deadline = asyncio.get_event_loop().time() + timeout
+                last_poll = 0.0
                 while asyncio.get_event_loop().time() < deadline:
                     try:
                         msg = await asyncio.wait_for(ws.recv(), timeout=10)
@@ -212,7 +213,16 @@ class ComfyUIClient:
                             if ed.get("prompt_id") == prompt_id and ed.get("node") is None:
                                 return await self.get_history(prompt_id)
                     except asyncio.TimeoutError:
-                        continue
+                        pass
+                    # Periodically check history in case job completed before WS connected
+                    now = asyncio.get_event_loop().time()
+                    if now - last_poll >= 10:
+                        history = await self.get_history(prompt_id)
+                        if history and history.get("status", {}).get("completed", False):
+                            return history
+                        if history and history.get("outputs"):
+                            return history
+                        last_poll = now
         except Exception as e:
             logger.warning(f"WebSocket failed, falling back to polling: {e}")
         # Polling fallback

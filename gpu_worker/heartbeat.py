@@ -3,10 +3,12 @@
 import asyncio
 import json
 import logging
+import os
 import time
+from pathlib import Path
 from typing import TYPE_CHECKING
 
-from shared.redis_keys import worker_heartbeat_key
+from shared.redis_keys import worker_heartbeat_key, worker_loras_key
 
 if TYPE_CHECKING:
     from redis.asyncio import Redis
@@ -30,6 +32,7 @@ class HeartbeatReporter:
         self._config = config
         self._status: str = "idle"
         self._task: asyncio.Task | None = None
+        self._beat_count: int = 0
 
     def set_status(self, status: str) -> None:
         """Update the reported status (idle / busy)."""
@@ -61,20 +64,65 @@ class HeartbeatReporter:
         try:
             while True:
                 await self._send_heartbeat(hb_key)
+                # Publish LoRA list on first beat and every 10 beats
+                if self._beat_count % 10 == 0:
+                    await self._publish_loras()
+                self._beat_count += 1
                 await asyncio.sleep(self._config.heartbeat_interval)
         except asyncio.CancelledError:
             return
 
     async def _send_heartbeat(self, hb_key: str) -> None:
-        """Write one heartbeat to Redis."""
+        """Write one heartbeat to Redis, including GPU stats from ComfyUI."""
         try:
-            await self._redis.hset(
-                hb_key,
-                mapping={
-                    "last_seen": str(int(time.time())),
-                    "model_keys": json.dumps(self._config.model_keys),
-                    "status": self._status,
-                },
-            )
+            mapping = {
+                "last_seen": str(int(time.time())),
+                "model_keys": json.dumps(self._config.model_keys),
+                "status": self._status,
+            }
+
+            # Fetch GPU stats from ComfyUI /system_stats
+            try:
+                import aiohttp
+                first_url = next(iter(self._config.comfyui_urls.values()), "")
+                if first_url:
+                    async with aiohttp.ClientSession() as session:
+                        async with session.get(f"{first_url}/system_stats", timeout=aiohttp.ClientTimeout(total=3)) as resp:
+                            if resp.status == 200:
+                                stats = await resp.json()
+                                devices = stats.get("devices", [])
+                                if devices:
+                                    dev = devices[0]
+                                    mapping["device_name"] = dev.get("name", "")
+                                    mapping["device_type"] = dev.get("type", "")
+                                    mapping["vram_total_mb"] = str(dev.get("vram_total", 0) // 1024 // 1024)
+                                    mapping["vram_free_mb"] = str(dev.get("vram_free", 0) // 1024 // 1024)
+                                    mapping["vram_used_mb"] = str((dev.get("vram_total", 0) - dev.get("vram_free", 0)) // 1024 // 1024)
+                                    mapping["torch_vram_total_mb"] = str(dev.get("torch_vram_total", 0) // 1024 // 1024)
+                                    mapping["torch_vram_used_mb"] = str((dev.get("torch_vram_total", 0) - dev.get("torch_vram_free", 0)) // 1024 // 1024)
+                                mapping["comfyui_url"] = first_url
+            except Exception:
+                pass  # GPU stats are best-effort
+
+            await self._redis.hset(hb_key, mapping=mapping)
         except Exception:
             logger.exception("Failed to send heartbeat for %s", self._config.worker_id)
+
+    async def _publish_loras(self) -> None:
+        """Scan LORAS_DIR and publish the list to Redis."""
+        loras_dir = self._config.loras_dir
+        if not loras_dir:
+            return
+        loras_path = Path(loras_dir)
+        if not loras_path.is_dir():
+            return
+        try:
+            loras = []
+            for f in sorted(loras_path.glob("*.safetensors")):
+                size_mb = round(f.stat().st_size / (1024 * 1024), 1)
+                loras.append({"name": f.stem, "filename": f.name, "size_mb": size_mb})
+            loras_key = worker_loras_key(self._config.worker_id)
+            await self._redis.set(loras_key, json.dumps(loras))
+            logger.debug("Published %d LoRAs for worker %s", len(loras), self._config.worker_id)
+        except Exception:
+            logger.exception("Failed to publish LoRAs for %s", self._config.worker_id)

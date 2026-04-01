@@ -39,6 +39,12 @@ class WorkerConfig:
     # Heartbeat
     heartbeat_interval: float = 10  # seconds
 
+    # LoRA directory (for publishing LoRA list and downloading new LoRAs)
+    loras_dir: str = ""
+
+    # CivitAI API token for LoRA downloads
+    civitai_api_token: str = ""
+
     @property
     def model_keys(self) -> list[str]:
         """Return the list of model keys this worker handles."""
@@ -61,9 +67,11 @@ def load_config() -> WorkerConfig:
         TASK_EXPIRY          -- task TTL in seconds (default 86400)
         HEARTBEAT_INTERVAL   -- heartbeat period in seconds (default 10)
     """
-    # Load .env from project root (two levels up from this file)
-    project_root = Path(__file__).resolve().parent.parent
-    load_dotenv(project_root / ".env")
+    # Load service-local .env first, then fall back to project root .env
+    service_dir = Path(__file__).resolve().parent
+    project_root = service_dir.parent
+    load_dotenv(service_dir / ".env")       # gpu_worker/.env (service-specific)
+    load_dotenv(project_root / ".env")      # project root .env (shared fallback)
 
     # Parse COMFYUI_URLS as JSON dict
     comfyui_urls_raw = os.getenv("COMFYUI_URLS", "{}")
@@ -84,4 +92,6 @@ def load_config() -> WorkerConfig:
         comfyui_urls=comfyui_urls,
         task_expiry=int(os.getenv("TASK_EXPIRY", "86400")),
         heartbeat_interval=int(os.getenv("HEARTBEAT_INTERVAL", "10")),
+        loras_dir=os.getenv("LORAS_DIR", ""),
+        civitai_api_token=os.getenv("CIVITAI_API_TOKEN", ""),
     )

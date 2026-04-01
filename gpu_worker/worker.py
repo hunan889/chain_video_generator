@@ -107,19 +107,9 @@ class GPUWorker:
         logger.info("Worker %s stopped", self._config.worker_id)
 
     async def _process_task(self, task_id: str) -> None:
-        """Process a single task:
+        """Dispatch to the appropriate handler based on task mode."""
+        from shared.enums import GenerateMode
 
-        1. Read task data from Redis (workflow JSON + input_files)
-        2. Mark as running
-        3. Download input files from COS -> upload to ComfyUI (if any)
-        4. Submit workflow to ComfyUI
-        5. Wait for completion (WebSocket + polling fallback)
-        6. Download result video from ComfyUI
-        7. Upload video to COS
-        8. Optional: extract last frame -> upload to COS
-        9. Mark as completed with video_url
-        """
-        # Step 1: Read task data
         task = await self._gateway.get_task(task_id)
         if task is None:
             logger.warning("Task %s not found in Redis, skipping", task_id)
@@ -133,8 +123,37 @@ class GPUWorker:
             )
             return
 
-        # Read raw task data for fields not exposed by get_task
         raw_data = await self._redis.hgetall(task_key(task_id))
+        mode = raw_data.get("mode", GenerateMode.T2V.value)
+
+        postprocess_modes = {
+            GenerateMode.INTERPOLATE.value,
+            GenerateMode.UPSCALE.value,
+            GenerateMode.AUDIO.value,
+            GenerateMode.FACESWAP.value,
+        }
+        if mode == GenerateMode.CONCAT.value:
+            await self._process_concat_task(task_id, raw_data)
+        elif mode == GenerateMode.LORA_DOWNLOAD.value:
+            await self._process_lora_download_task(task_id, raw_data)
+        elif mode in postprocess_modes:
+            await self._process_postprocess_task(task_id, raw_data)
+        else:
+            await self._process_comfyui_task(task_id, raw_data)
+
+    async def _process_comfyui_task(self, task_id: str, raw_data: dict) -> None:
+        """Process a ComfyUI workflow task:
+
+        1. Read workflow + input_files from raw_data
+        2. Mark as running
+        3. Download input files from COS -> upload to ComfyUI (if any)
+        4. Submit workflow to ComfyUI
+        5. Wait for completion (WebSocket + polling fallback)
+        6. Download result video from ComfyUI
+        7. Upload video to COS
+        8. Optional: extract last frame -> upload to COS
+        9. Mark as completed with video_url
+        """
         workflow = json.loads(raw_data["workflow"])
         model_key = raw_data.get("model", "a14b")
         client = self._get_client(model_key)
@@ -212,6 +231,100 @@ class GPUWorker:
             # OOM retry logic
             if _is_oom_error(exc):
                 await self._handle_oom(task_id, model_key, client)
+            raise
+
+    async def _process_concat_task(self, task_id: str, raw_data: dict) -> None:
+        """Concatenate multiple video segments using ffmpeg.
+
+        Expects raw_data["workflow"] to be a JSON object with:
+          {"video_urls": ["https://...", "https://..."], "output_filename": "chain_xyz.mp4"}
+
+        Downloads each segment from COS (or public URL), runs ffmpeg concat,
+        uploads result to COS, marks task completed.
+        """
+        await self._gateway.mark_task_running(task_id, comfyui_url="local-ffmpeg")
+        logger.info("Task %s (concat) started", task_id)
+
+        try:
+            params = json.loads(raw_data.get("workflow", "{}"))
+            video_urls: list[str] = params.get("video_urls", [])
+            output_filename: str = params.get("output_filename", f"{task_id}_concat.mp4")
+
+            if not video_urls:
+                raise RuntimeError("concat task has no video_urls")
+
+            await self._gateway.update_task_progress(task_id, 0.05)
+
+            # Download each segment to a temp file
+            tmp_dir = tempfile.mkdtemp(prefix="concat_")
+            segment_paths: list[str] = []
+            try:
+                for i, url in enumerate(video_urls):
+                    cos_key = self._cos_client.parse_cos_url(url)
+                    if cos_key:
+                        data = self._download_from_cos(cos_key)
+                    else:
+                        # Fallback: download via HTTP
+                        import aiohttp as _aiohttp
+                        async with _aiohttp.ClientSession() as sess:
+                            async with sess.get(url) as resp:
+                                if resp.status != 200:
+                                    raise RuntimeError(
+                                        f"Failed to download segment {i}: HTTP {resp.status}"
+                                    )
+                                data = await resp.read()
+                    seg_path = os.path.join(tmp_dir, f"seg_{i:04d}.mp4")
+                    with open(seg_path, "wb") as f:
+                        f.write(data)
+                    segment_paths.append(seg_path)
+                    progress = 0.05 + 0.60 * (i + 1) / len(video_urls)
+                    await self._gateway.update_task_progress(task_id, progress)
+
+                # Build ffmpeg concat list file
+                list_path = os.path.join(tmp_dir, "concat_list.txt")
+                with open(list_path, "w") as f:
+                    for p in segment_paths:
+                        f.write(f"file '{p}'\n")
+
+                output_path = os.path.join(tmp_dir, output_filename)
+                cmd = [
+                    "ffmpeg", "-y",
+                    "-f", "concat",
+                    "-safe", "0",
+                    "-i", list_path,
+                    "-c", "copy",
+                    output_path,
+                ]
+                result = subprocess.run(
+                    cmd, capture_output=True, text=True, timeout=300
+                )
+                if result.returncode != 0:
+                    raise RuntimeError(
+                        f"ffmpeg concat failed: {result.stderr[-500:]}"
+                    )
+
+                await self._gateway.update_task_progress(task_id, 0.90)
+
+                # Upload result to COS
+                with open(output_path, "rb") as f:
+                    video_data = f.read()
+
+                video_url = await self._upload_to_cos(
+                    video_data, "videos", output_filename
+                )
+                await self._gateway.update_task_progress(task_id, 0.95)
+
+            finally:
+                # Clean up temp files
+                import shutil
+                shutil.rmtree(tmp_dir, ignore_errors=True)
+
+            await self._gateway.mark_task_completed(task_id, video_url=video_url)
+            logger.info("Task %s (concat) completed: %s", task_id, video_url)
+
+        except Exception as exc:
+            logger.exception("Concat task %s failed: %s", task_id, exc)
+            await self._gateway.mark_task_failed(task_id, error=str(exc))
             raise
 
     async def _handle_input_files(
@@ -385,6 +498,192 @@ class GPUWorker:
                 retry_count,
                 MAX_OOM_RETRIES,
             )
+
+    async def _process_postprocess_task(self, task_id: str, raw_data: dict) -> None:
+        """Handle INTERPOLATE / UPSCALE / AUDIO / FACESWAP tasks.
+
+        Workflow dict (set by API gateway) must contain ``source_video`` (COS URL).
+        The worker downloads the video, uploads to ComfyUI, builds the workflow,
+        submits to ComfyUI, downloads result, uploads to COS, marks completed.
+        """
+        import aiohttp as _aiohttp
+        from shared.enums import GenerateMode
+
+        mode = raw_data.get("mode", "")
+        model_key = raw_data.get("model", "a14b")
+        client = self._get_client(model_key)
+
+        await self._gateway.mark_task_running(task_id, comfyui_url=client.base_url)
+        logger.info("Task %s (%s) started", task_id, mode)
+
+        try:
+            params = json.loads(raw_data.get("workflow", "{}"))
+            source_video_url: str = params.get("source_video", "")
+            if not source_video_url:
+                raise RuntimeError("postprocess task missing source_video in workflow")
+
+            await self._gateway.update_task_progress(task_id, 0.05)
+
+            # Download source video
+            cos_key = self._cos_client.parse_cos_url(source_video_url)
+            if cos_key:
+                video_data = self._download_from_cos(cos_key)
+            else:
+                async with _aiohttp.ClientSession() as sess:
+                    async with sess.get(source_video_url) as resp:
+                        if resp.status != 200:
+                            raise RuntimeError(
+                                f"Failed to download source video: HTTP {resp.status}"
+                            )
+                        video_data = await resp.read()
+
+            await self._gateway.update_task_progress(task_id, 0.15)
+
+            # Write to temp file and upload to ComfyUI
+            with tempfile.NamedTemporaryFile(suffix=".mp4", delete=False) as vtmp:
+                vtmp.write(video_data)
+                video_tmp_path = vtmp.name
+            try:
+                video_filename = await client.upload_video(video_tmp_path)
+            finally:
+                if os.path.exists(video_tmp_path):
+                    os.unlink(video_tmp_path)
+
+            await self._gateway.update_task_progress(task_id, 0.25)
+
+            # Build mode-specific workflow
+            from shared.workflow_builder import (
+                build_interpolate_workflow,
+                build_upscale_workflow,
+                build_audio_workflow,
+                build_face_swap_workflow,
+            )
+
+            if mode == GenerateMode.INTERPOLATE.value:
+                workflow = build_interpolate_workflow(
+                    video_path=video_filename,
+                    multiplier=int(params.get("multiplier", 2)),
+                    fps=float(params.get("fps", 16.0)),
+                )
+            elif mode == GenerateMode.UPSCALE.value:
+                workflow = build_upscale_workflow(
+                    video_path=video_filename,
+                    upscale_model=params.get("model", "4x_foolhardy_Remacri"),
+                    resize_to=params.get("resize_to", "2x"),
+                )
+            elif mode == GenerateMode.AUDIO.value:
+                workflow = build_audio_workflow(
+                    video_path=video_filename,
+                    prompt=params.get("prompt", ""),
+                    negative_prompt=params.get("negative_prompt", ""),
+                    steps=int(params.get("steps", 25)),
+                    cfg=float(params.get("cfg", 4.5)),
+                    fps=float(params.get("fps", 16.0)),
+                )
+            elif mode == GenerateMode.FACESWAP.value:
+                face_url = params.get("face_image", "")
+                if not face_url:
+                    raise RuntimeError("faceswap task missing face_image in workflow")
+                face_cos_key = self._cos_client.parse_cos_url(face_url)
+                if face_cos_key:
+                    face_data = self._download_from_cos(face_cos_key)
+                else:
+                    async with _aiohttp.ClientSession() as sess:
+                        async with sess.get(face_url) as resp:
+                            face_data = await resp.read()
+                with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as ftmp:
+                    ftmp.write(face_data)
+                    face_tmp_path = ftmp.name
+                try:
+                    face_filename = await client.upload_image(face_tmp_path)
+                finally:
+                    if os.path.exists(face_tmp_path):
+                        os.unlink(face_tmp_path)
+                workflow = build_face_swap_workflow(
+                    frame_filename=video_filename,
+                    face_filename=face_filename,
+                    strength=float(params.get("strength", 1.0)),
+                )
+            else:
+                raise RuntimeError(f"Unhandled postprocess mode: {mode}")
+
+            await self._gateway.update_task_progress(task_id, 0.35)
+
+            # Submit to ComfyUI and wait
+            prompt_id = await client.queue_prompt(workflow)
+            output_data = await client.wait_for_output(prompt_id, task_id=task_id)
+
+            await self._gateway.update_task_progress(task_id, 0.85)
+
+            # Upload result to COS
+            output_filename = f"{task_id}_{mode}.mp4"
+            video_url = await self._upload_to_cos(output_data, "videos", output_filename)
+
+            await self._gateway.mark_task_completed(task_id, video_url=video_url)
+            logger.info("Task %s (%s) completed: %s", task_id, mode, video_url)
+
+        except Exception as exc:
+            if _is_oom_error(exc):
+                await self._handle_oom(task_id, model_key, self._get_client(model_key))
+            logger.exception("Postprocess task %s (%s) failed: %s", task_id, mode, exc)
+            await self._gateway.mark_task_failed(task_id, error=str(exc))
+            raise
+
+    async def _process_lora_download_task(self, task_id: str, raw_data: dict) -> None:
+        """Download a LoRA from CivitAI and republish the lora list."""
+        await self._gateway.mark_task_running(task_id, comfyui_url="local-download")
+        logger.info("Task %s (lora_download) started", task_id)
+
+        try:
+            params = json.loads(raw_data.get("workflow", "{}"))
+            version_id = params.get("civitai_version_id")
+            filename = params.get("filename", "")
+
+            if not version_id or not filename:
+                raise RuntimeError("lora_download task missing civitai_version_id or filename")
+
+            loras_dir = self._config.loras_dir
+            if not loras_dir:
+                raise RuntimeError("LORAS_DIR not configured on this worker")
+
+            token = self._config.civitai_api_token
+            url = f"https://civitai.com/api/download/models/{version_id}"
+            if token:
+                url += f"?token={token}"
+
+            dest_path = os.path.join(loras_dir, filename)
+            await self._gateway.update_task_progress(task_id, 0.05)
+
+            result = subprocess.run(
+                ["curl", "-L", "-o", dest_path, url],
+                capture_output=True,
+                text=True,
+                timeout=600,
+            )
+            if result.returncode != 0:
+                raise RuntimeError(f"curl download failed: {result.stderr[-500:]}")
+
+            # Verify file size > 1 MB
+            size = os.path.getsize(dest_path)
+            if size < 1024 * 1024:
+                os.unlink(dest_path)
+                raise RuntimeError(
+                    f"Downloaded file too small ({size} bytes) — likely not a valid LoRA"
+                )
+
+            await self._gateway.update_task_progress(task_id, 0.90)
+
+            # Republish LoRA list
+            if self._heartbeat is not None:
+                await self._heartbeat._publish_loras()
+
+            await self._gateway.mark_task_completed(task_id, video_url="")
+            logger.info("Task %s (lora_download) completed: %s", task_id, filename)
+
+        except Exception as exc:
+            logger.exception("LoRA download task %s failed: %s", task_id, exc)
+            await self._gateway.mark_task_failed(task_id, error=str(exc))
+            raise
 
     async def close(self) -> None:
         """Close all ComfyUI client sessions."""

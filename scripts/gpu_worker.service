@@ -1,0 +1,32 @@
+[Unit]
+Description=Chain Video Generator — GPU Worker
+After=network.target redis.service
+Wants=redis.service
+
+[Service]
+Type=exec
+User=gime
+WorkingDirectory=/home/gime/soft/wan22-service
+
+# Load service-local env file (gpu_worker/.env overrides project root .env)
+EnvironmentFile=-/home/gime/soft/wan22-service/gpu_worker/.env
+EnvironmentFile=-/home/gime/soft/wan22-service/.env
+
+# Use the project's conda/venv Python
+ExecStart=/home/gime/miniconda3/envs/wan22/bin/python -m gpu_worker.main
+
+Restart=on-failure
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=gpu-worker
+
+# Keep the worker alive; GPU tasks can be long-running
+TimeoutStopSec=60
+KillMode=mixed
+
+# Allow GPU memory access
+LimitNOFILE=65536
+
+[Install]
+WantedBy=multi-user.target

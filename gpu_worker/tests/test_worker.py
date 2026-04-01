@@ -640,6 +640,87 @@ class TestProcessTaskExtractLastFrame:
         assert task["last_frame_url"] == "https://cdn.example.com/frames/last_frame.png"
 
 
+class TestConcatTask:
+    """Tests for ffmpeg concat task type."""
+
+    @pytest.mark.asyncio
+    async def test_concat_task_dispatched(self, worker, redis, gateway):
+        """A task with mode=concat should call _process_concat_task."""
+        from shared.enums import GenerateMode
+        from shared.redis_keys import task_key
+
+        task_id = await gateway.create_task(
+            mode=GenerateMode.CONCAT,
+            model=ModelType.A14B,
+            workflow={"video_urls": [], "output_filename": "out.mp4"},
+        )
+
+        called = []
+
+        async def fake_concat(tid, raw_data):
+            called.append(tid)
+            await gateway.mark_task_completed(tid, video_url="https://cdn.example.com/out.mp4")
+
+        worker._process_concat_task = fake_concat
+        await worker._process_task(task_id)
+        assert called == [task_id]
+
+    @pytest.mark.asyncio
+    async def test_concat_task_merges_segments(self, worker, redis, gateway):
+        """Concat task should download segments, run ffmpeg, upload result."""
+        import subprocess as _sp
+        from unittest.mock import patch, MagicMock
+        from shared.enums import GenerateMode
+
+        # Two fake segment URLs (non-COS so they go through the HTTP fallback path,
+        # but we'll patch aiohttp too)
+        video_urls = [
+            "https://example.com/seg0.mp4",
+            "https://example.com/seg1.mp4",
+        ]
+        task_id = await gateway.create_task(
+            mode=GenerateMode.CONCAT,
+            model=ModelType.A14B,
+            workflow={"video_urls": video_urls, "output_filename": "chain.mp4"},
+        )
+
+        fake_video_bytes = b"FAKEVIDEO"
+
+        # Mock COS parse returning None (so HTTP path is used)
+        mock_cos = MagicMock()
+        mock_cos.parse_cos_url = MagicMock(return_value=None)
+        mock_cos.upload_file = MagicMock(return_value="https://cdn.example.com/videos/chain.mp4")
+        worker._cos_client = mock_cos
+
+        # Mock aiohttp download
+        mock_resp = AsyncMock()
+        mock_resp.status = 200
+        mock_resp.read = AsyncMock(return_value=fake_video_bytes)
+        mock_resp.__aenter__ = AsyncMock(return_value=mock_resp)
+        mock_resp.__aexit__ = AsyncMock(return_value=False)
+
+        mock_get = MagicMock(return_value=mock_resp)
+        mock_session = MagicMock()
+        mock_session.get = mock_get
+        mock_session.__aenter__ = AsyncMock(return_value=mock_session)
+        mock_session.__aexit__ = AsyncMock(return_value=False)
+
+        # Mock ffmpeg subprocess (just write an empty file as output)
+        def fake_run(cmd, **kwargs):
+            output_path = cmd[-1]
+            with open(output_path, "wb") as f:
+                f.write(b"CONCATVIDEO")
+            return _sp.CompletedProcess(cmd, returncode=0, stdout="", stderr="")
+
+        with patch("aiohttp.ClientSession", return_value=mock_session), \
+             patch("subprocess.run", side_effect=fake_run):
+            await worker._process_concat_task(task_id, await redis.hgetall(f"task:{task_id}"))
+
+        task = await gateway.get_task(task_id)
+        assert task["status"] == "completed"
+        assert "chain.mp4" in (task.get("video_url") or "")
+
+
 class TestProcessTaskProgressUpdates:
     """Verify that progress is updated during processing."""
 

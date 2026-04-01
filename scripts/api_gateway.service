@@ -1,0 +1,33 @@
+[Unit]
+Description=Chain Video Generator — API Gateway
+After=network.target redis.service
+Wants=redis.service
+
+[Service]
+Type=exec
+User=gime
+WorkingDirectory=/home/gime/soft/wan22-service
+
+# Load service-local env file (api_gateway/.env overrides project root .env)
+EnvironmentFile=-/home/gime/soft/wan22-service/api_gateway/.env
+EnvironmentFile=-/home/gime/soft/wan22-service/.env
+
+# Use the project's conda/venv Python
+ExecStart=/home/gime/miniconda3/envs/wan22/bin/python -m uvicorn \
+    api_gateway.main:app \
+    --host 0.0.0.0 \
+    --port 9000 \
+    --workers 2 \
+    --log-level info
+
+Restart=on-failure
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=api-gateway
+
+# Allow the gateway enough open files for async connections
+LimitNOFILE=65536
+
+[Install]
+WantedBy=multi-user.target
