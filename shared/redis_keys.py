@@ -11,6 +11,7 @@ CHAIN_PREFIX = "chain"
 WORKFLOW_PREFIX = "workflow"
 COMFYUI_INSTANCES_PREFIX = "comfyui_instances"
 WORKER_HEARTBEAT_PREFIX = "worker:heartbeat"
+WORKER_LORAS_PREFIX = "worker:loras"
 
 # --- Fixed keys ---
 SYSTEM_SETTINGS_KEY = "system:settings"
@@ -44,3 +45,8 @@ def comfyui_instances_key(model: str) -> str:
 def worker_heartbeat_key(worker_id: str) -> str:
     """Redis HASH key for a worker's heartbeat."""
     return f"{WORKER_HEARTBEAT_PREFIX}:{worker_id}"
+
+
+def worker_loras_key(worker_id: str) -> str:
+    """Redis key (string/JSON) storing the LoRA list published by a worker."""
+    return f"{WORKER_LORAS_PREFIX}:{worker_id}"

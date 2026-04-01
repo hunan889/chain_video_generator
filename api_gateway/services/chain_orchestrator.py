@@ -38,9 +38,21 @@ class ChainOrchestrator:
         self,
         gateway: TaskGateway,
         redis,  # async Redis connection
+        vision_api_key: str = "",
+        vision_base_url: str = "",
+        vision_model: str = "",
+        llm_api_key: str = "",
+        llm_base_url: str = "",
+        llm_model: str = "",
     ) -> None:
         self.gateway = gateway
         self.redis = redis
+        self._vision_api_key = vision_api_key
+        self._vision_base_url = vision_base_url
+        self._vision_model = vision_model
+        self._llm_api_key = llm_api_key
+        self._llm_base_url = llm_base_url
+        self._llm_model = llm_model
         self._active_chains: dict[str, asyncio.Task] = {}
 
     # -- Public API --------------------------------------------------------
@@ -179,11 +191,31 @@ class ChainOrchestrator:
                 # For non-final segments with auto_continue: use VLM/LLM
                 if i < len(segments) - 1 and auto_continue:
                     last_frame_url = result.get("last_frame_url")
-                    if last_frame_url:
-                        # TODO: Call VLM to describe frame
-                        # TODO: Call LLM to generate continuation prompt
-                        # For now, use the pre-set prompt from segments
-                        pass
+                    if last_frame_url and self._vision_api_key:
+                        from api_gateway.services.continuation import (
+                            describe_frame,
+                            generate_continuation_prompt,
+                        )
+                        description = await describe_frame(
+                            image_url=last_frame_url,
+                            api_key=self._vision_api_key,
+                            base_url=self._vision_base_url,
+                            model=self._vision_model,
+                        )
+                        if description and self._llm_api_key:
+                            next_prompt = await generate_continuation_prompt(
+                                frame_description=description,
+                                previous_prompt=segment.get("prompt", ""),
+                                api_key=self._llm_api_key,
+                                base_url=self._llm_base_url,
+                                model=self._llm_model,
+                            )
+                            if next_prompt:
+                                segments[i + 1]["prompt"] = next_prompt
+                                logger.info(
+                                    "Chain %s segment %d: auto-continue prompt set: %s",
+                                    chain_id, i + 1, next_prompt
+                                )
 
             # All segments completed successfully
             final_video_url = video_urls[-1] if video_urls else ""

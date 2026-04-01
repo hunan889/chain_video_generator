@@ -21,11 +21,13 @@ class TaskGateway:
     """Redis-backed task and chain data operations.
 
     Constructed with an async Redis connection and task expiry config.
+    Optionally holds a ``task_store`` (MySQL-backed) for persistent writes.
     """
 
     def __init__(self, redis, task_expiry: int = 86400) -> None:
         self.redis = redis
         self.task_expiry = task_expiry
+        self.task_store = None  # set by main.py lifespan when available
 
     async def redis_alive(self) -> bool:
         try:
@@ -68,6 +70,23 @@ class TaskGateway:
             task_id, mode.value, model.value,
             f" (chain {chain_id})" if chain_id else "",
         )
+
+        # Best-effort MySQL persistent write
+        if self.task_store is not None:
+            try:
+                from shared.enums import category_for_mode
+                await self.task_store.create(
+                    task_id=task_id,
+                    task_type=mode.value,
+                    category=category_for_mode(mode).value,
+                    prompt=params.get("prompt") if params else None,
+                    model=model.value,
+                    params=params,
+                    chain_id=chain_id,
+                )
+            except Exception:
+                logger.warning("MySQL write failed for task %s", task_id, exc_info=True)
+
         return task_id
 
     async def get_task(self, task_id: str) -> Optional[dict]:
@@ -162,6 +181,12 @@ class TaskGateway:
             mapping["prompt_id"] = prompt_id
         await self.redis.hset(task_key(task_id), mapping=mapping)
 
+        if self.task_store is not None:
+            try:
+                await self.task_store.update_status(task_id, TaskStatus.RUNNING.value)
+            except Exception:
+                logger.warning("MySQL status update failed for task %s", task_id, exc_info=True)
+
     async def mark_task_completed(
         self, task_id: str,
         video_url: str = "",
@@ -178,6 +203,19 @@ class TaskGateway:
             mapping["last_frame_url"] = last_frame_url
         await self.redis.hset(task_key(task_id), mapping=mapping)
 
+        if self.task_store is not None:
+            try:
+                await self.task_store.update_status(
+                    task_id, TaskStatus.COMPLETED.value, progress=1.0,
+                )
+                await self.task_store.set_result(
+                    task_id,
+                    result_url=video_url or None,
+                    thumbnail_url=last_frame_url or None,
+                )
+            except Exception:
+                logger.warning("MySQL status update failed for task %s", task_id, exc_info=True)
+
     async def mark_task_failed(self, task_id: str, error: str = "") -> None:
         await self.redis.hset(task_key(task_id), mapping={
             "status": TaskStatus.FAILED.value,
@@ -185,8 +223,24 @@ class TaskGateway:
             "completed_at": str(int(time.time())),
         })
 
+        if self.task_store is not None:
+            try:
+                await self.task_store.update_status(
+                    task_id, TaskStatus.FAILED.value, error=error or None,
+                )
+            except Exception:
+                logger.warning("MySQL status update failed for task %s", task_id, exc_info=True)
+
     async def update_task_progress(self, task_id: str, progress: float) -> None:
         await self.redis.hset(task_key(task_id), mapping={"progress": str(progress)})
+
+        if self.task_store is not None:
+            try:
+                await self.task_store.update_status(
+                    task_id, TaskStatus.RUNNING.value, progress=progress,
+                )
+            except Exception:
+                logger.warning("MySQL progress update failed for task %s", task_id, exc_info=True)
 
     # ------------------------------------------------------------------
     # Chain CRUD

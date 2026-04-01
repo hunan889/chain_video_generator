@@ -5,7 +5,7 @@
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from typing import Optional, List
-import sqlite3
+import os
 import pymysql
 import logging
 from pathlib import Path
@@ -15,16 +15,15 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 PROJECT_ROOT = Path(__file__).parent.parent.parent
-DB_PATH = PROJECT_ROOT / "data" / "wan22.db"
 
-# MySQL配置
+# MySQL配置（统一使用MySQL，不再用SQLite）
 MYSQL_CONFIG = {
-    'host': 'use-cdb-b9nvte6o.sql.tencentcdb.com',
-    'port': 20603,
-    'user': 'user_soga',
-    'password': '1IvO@*#68',
-    'database': 'tudou_soga',
-    'charset': 'utf8mb4'
+    'host': os.getenv('MYSQL_HOST', 'use-cdb-b9nvte6o.sql.tencentcdb.com'),
+    'port': int(os.getenv('MYSQL_PORT', '20603')),
+    'user': os.getenv('MYSQL_USER', 'user_soga'),
+    'password': os.getenv('MYSQL_PASSWORD', '1IvO@*#68'),
+    'database': os.getenv('MYSQL_DB', 'tudou_soga'),
+    'charset': 'utf8mb4',
 }
 
 
@@ -58,10 +57,8 @@ class PoseLoraRequest(BaseModel):
 
 
 def _get_connection():
-    """获取数据库连接"""
-    conn = sqlite3.connect(str(DB_PATH))
-    conn.row_factory = sqlite3.Row
-    return conn
+    """获取MySQL数据库连接"""
+    return pymysql.connect(**MYSQL_CONFIG, cursorclass=pymysql.cursors.DictCursor)
 
 
 @router.post("/admin/poses/reference-images")
@@ -108,14 +105,14 @@ async def add_pose_reference_image(request: PoseReferenceImageRequest):
             cursor.execute("""
             UPDATE pose_reference_images
             SET is_default = 0
-            WHERE pose_id = ?
+            WHERE pose_id = %s
             """, (request.pose_id,))
 
         # 插入首帧图记录
         cursor.execute("""
         INSERT INTO pose_reference_images
         (pose_id, image_url, angle, style, prompt, is_default, quality_score)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
+        VALUES (%s, %s, %s, %s, %s, %s, %s)
         """, (
             request.pose_id,
             resource['url'],
@@ -171,13 +168,13 @@ async def add_pose_lora(request: PoseLoraRequest):
             cursor.execute("""
             UPDATE pose_loras
             SET is_default = 0
-            WHERE pose_id = ? AND lora_type = ? AND (noise_stage = ? OR noise_stage IS NULL)
+            WHERE pose_id = %s AND lora_type = %s AND (noise_stage = %s OR noise_stage IS NULL)
             """, (request.pose_id, request.lora_type, request.noise_stage))
 
         # 检查是否已存在
         cursor.execute("""
         SELECT id FROM pose_loras
-        WHERE pose_id = ? AND lora_id = ? AND lora_type = ?
+        WHERE pose_id = %s AND lora_id = %s AND lora_type = %s
         """, (request.pose_id, request.lora_id, request.lora_type))
 
         existing = cursor.fetchone()
@@ -186,11 +183,11 @@ async def add_pose_lora(request: PoseLoraRequest):
             # 更新现有记录
             cursor.execute("""
             UPDATE pose_loras
-            SET noise_stage = ?,
-                trigger_words = ?,
-                recommended_weight = ?,
-                is_default = ?
-            WHERE id = ?
+            SET noise_stage = %s,
+                trigger_words = %s,
+                recommended_weight = %s,
+                is_default = %s
+            WHERE id = %s
             """, (
                 request.noise_stage,
                 request.trigger_words,
@@ -204,7 +201,7 @@ async def add_pose_lora(request: PoseLoraRequest):
             cursor.execute("""
             INSERT INTO pose_loras
             (pose_id, lora_id, lora_type, noise_stage, trigger_words, recommended_weight, is_default)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
+            VALUES (%s, %s, %s, %s, %s, %s, %s)
             """, (
                 request.pose_id,
                 request.lora_id,
@@ -248,18 +245,18 @@ async def update_pose_reference_image(image_id: int, request: PoseReferenceImage
         updates = []
         params = []
         if request.skip_reactor is not None:
-            updates.append("skip_reactor = ?")
+            updates.append("skip_reactor = %s")
             params.append(1 if request.skip_reactor else 0)
         if request.angle is not None:
-            updates.append("angle = ?")
+            updates.append("angle = %s")
             params.append(request.angle)
         if request.style is not None:
-            updates.append("style = ?")
+            updates.append("style = %s")
             params.append(request.style)
         if not updates:
             raise HTTPException(status_code=400, detail="No fields to update")
         params.append(image_id)
-        cursor.execute(f"UPDATE pose_reference_images SET {', '.join(updates)} WHERE id = ?", params)
+        cursor.execute(f"UPDATE pose_reference_images SET {', '.join(updates)} WHERE id = %s", params)
         conn.commit()
         if cursor.rowcount == 0:
             raise HTTPException(status_code=404, detail="Reference image not found")
@@ -309,14 +306,14 @@ async def remove_pose_reference_image(image_id: int):
     cursor = conn.cursor()
 
     try:
-        cursor.execute("SELECT image_url FROM pose_reference_images WHERE id = ?", (image_id,))
+        cursor.execute("SELECT image_url FROM pose_reference_images WHERE id = %s", (image_id,))
         row = cursor.fetchone()
         if not row:
             raise HTTPException(status_code=404, detail="Reference image not found")
 
         _delete_pose_file(row['image_url'])
 
-        cursor.execute("DELETE FROM pose_reference_images WHERE id = ?", (image_id,))
+        cursor.execute("DELETE FROM pose_reference_images WHERE id = %s", (image_id,))
         conn.commit()
 
         return {"success": True, "message": "Reference image removed"}
@@ -339,7 +336,7 @@ async def batch_delete_reference_images(request: BatchDeleteRequest):
     cursor = conn.cursor()
 
     try:
-        placeholders = ','.join('?' for _ in request.image_ids)
+        placeholders = ','.join('%s' for _ in request.image_ids)
         cursor.execute(
             f"SELECT id, image_url FROM pose_reference_images WHERE id IN ({placeholders})",
             request.image_ids
@@ -390,12 +387,12 @@ async def batch_reassign_reference_images(request: BatchReassignRequest):
 
     try:
         # Verify target pose exists
-        cursor.execute("SELECT id, pose_key FROM poses WHERE id = ?", (request.target_pose_id,))
+        cursor.execute("SELECT id, pose_key FROM poses WHERE id = %s", (request.target_pose_id,))
         target = cursor.fetchone()
         if not target:
             raise HTTPException(status_code=404, detail="Target pose not found")
 
-        placeholders = ','.join('?' for _ in request.image_ids)
+        placeholders = ','.join('%s' for _ in request.image_ids)
         cursor.execute(
             f"SELECT id, pose_id, image_url, angle, style, prompt, model, is_default, quality_score "
             f"FROM pose_reference_images WHERE id IN ({placeholders})",
@@ -418,14 +415,14 @@ async def batch_reassign_reference_images(request: BatchReassignRequest):
 
             if request.mode == "move":
                 cursor.execute(
-                    "UPDATE pose_reference_images SET pose_id = ?, is_default = 0 WHERE id = ?",
+                    "UPDATE pose_reference_images SET pose_id = %s, is_default = 0 WHERE id = %s",
                     (request.target_pose_id, row['id'])
                 )
                 moved += 1
             else:  # copy
                 # Check if same URL already exists on target
                 cursor.execute(
-                    "SELECT id FROM pose_reference_images WHERE pose_id = ? AND image_url = ?",
+                    "SELECT id FROM pose_reference_images WHERE pose_id = %s AND image_url = %s",
                     (request.target_pose_id, row['image_url'])
                 )
                 if cursor.fetchone():
@@ -435,7 +432,7 @@ async def batch_reassign_reference_images(request: BatchReassignRequest):
                 cursor.execute(
                     "INSERT INTO pose_reference_images "
                     "(pose_id, image_url, angle, style, prompt, model, is_default, quality_score) "
-                    "VALUES (?, ?, ?, ?, ?, ?, 0, ?)",
+                    "VALUES (%s, %s, %s, %s, %s, %s, 0, %s)",
                     (request.target_pose_id, row['image_url'], row['angle'],
                      row['style'], row['prompt'], row['model'], row['quality_score'])
                 )
@@ -475,12 +472,12 @@ async def update_pose_lora(association_id: int, request: PoseLoraUpdateRequest):
         updates = []
         params = []
         if request.recommended_weight is not None:
-            updates.append("recommended_weight = ?")
+            updates.append("recommended_weight = %s")
             params.append(request.recommended_weight)
         if not updates:
             raise HTTPException(status_code=400, detail="No fields to update")
         params.append(association_id)
-        cursor.execute(f"UPDATE pose_loras SET {', '.join(updates)} WHERE id = ?", params)
+        cursor.execute(f"UPDATE pose_loras SET {', '.join(updates)} WHERE id = %s", params)
         conn.commit()
         if cursor.rowcount == 0:
             raise HTTPException(status_code=404, detail="LORA association not found")
@@ -501,7 +498,7 @@ async def remove_pose_lora(association_id: int):
     cursor = conn.cursor()
 
     try:
-        cursor.execute("DELETE FROM pose_loras WHERE id = ?", (association_id,))
+        cursor.execute("DELETE FROM pose_loras WHERE id = %s", (association_id,))
         conn.commit()
 
         if cursor.rowcount == 0:
@@ -537,10 +534,10 @@ async def get_resource_pose_associations(resource_id: int):
         SELECT pri.id, pri.pose_id, p.pose_key, p.name_cn, pri.angle, pri.style, pri.is_default
         FROM pose_reference_images pri
         JOIN poses p ON pri.pose_id = p.id
-        WHERE pri.image_url = ?
+        WHERE pri.image_url = %s
         """, (resource['url'],))
 
-        associations = [dict(row) for row in cursor.fetchall()]
+        associations = [row for row in cursor.fetchall()]
 
         return {"associations": associations}
 
@@ -559,10 +556,10 @@ async def get_lora_pose_associations(lora_id: int):
         SELECT pl.id, pl.pose_id, p.pose_key, p.name_cn, pl.lora_type, pl.noise_stage, pl.is_default
         FROM pose_loras pl
         JOIN poses p ON pl.pose_id = p.id
-        WHERE pl.lora_id = ?
+        WHERE pl.lora_id = %s
         """, (lora_id,))
 
-        associations = [dict(row) for row in cursor.fetchall()]
+        associations = [row for row in cursor.fetchall()]
 
         return {"associations": associations}
 
@@ -599,7 +596,7 @@ async def create_pose(request: CreatePoseRequest):
     try:
         cursor.execute("""
         INSERT INTO poses (pose_key, name_en, name_cn, description, difficulty, category, enabled)
-        VALUES (?, ?, ?, ?, ?, ?, 1)
+        VALUES (%s, %s, %s, %s, %s, %s, 1)
         """, (
             request.pose_key,
             request.name_en,
@@ -637,22 +634,22 @@ async def update_pose(pose_id: int, request: UpdatePoseRequest):
         params = []
 
         if request.name_en is not None:
-            updates.append("name_en = ?")
+            updates.append("name_en = %s")
             params.append(request.name_en)
         if request.name_cn is not None:
-            updates.append("name_cn = ?")
+            updates.append("name_cn = %s")
             params.append(request.name_cn)
         if request.description is not None:
-            updates.append("description = ?")
+            updates.append("description = %s")
             params.append(request.description)
         if request.difficulty is not None:
-            updates.append("difficulty = ?")
+            updates.append("difficulty = %s")
             params.append(request.difficulty)
         if request.category is not None:
-            updates.append("category = ?")
+            updates.append("category = %s")
             params.append(request.category)
         if request.enabled is not None:
-            updates.append("enabled = ?")
+            updates.append("enabled = %s")
             params.append(1 if request.enabled else 0)
 
         if not updates:
@@ -662,7 +659,7 @@ async def update_pose(pose_id: int, request: UpdatePoseRequest):
         cursor.execute(f"""
         UPDATE poses
         SET {', '.join(updates)}
-        WHERE id = ?
+        WHERE id = %s
         """, params)
 
         conn.commit()
@@ -688,7 +685,7 @@ async def delete_pose(pose_id: int):
     cursor = conn.cursor()
 
     try:
-        cursor.execute("UPDATE poses SET enabled = 0 WHERE id = ?", (pose_id,))
+        cursor.execute("UPDATE poses SET enabled = 0 WHERE id = %s", (pose_id,))
         conn.commit()
 
         if cursor.rowcount == 0:
@@ -714,7 +711,7 @@ async def auto_associate_resources(pose_id: int, request: AutoAssociateRequest):
 
     try:
         # 获取姿势信息
-        cursor.execute("SELECT pose_key, name_en, name_cn FROM poses WHERE id = ?", (pose_id,))
+        cursor.execute("SELECT pose_key, name_en, name_cn FROM poses WHERE id = %s", (pose_id,))
         pose = cursor.fetchone()
         if not pose:
             raise HTTPException(status_code=404, detail="Pose not found")
@@ -739,7 +736,7 @@ async def auto_associate_resources(pose_id: int, request: AutoAssociateRequest):
             # 检查是否已关联
             cursor.execute("""
             SELECT id FROM pose_reference_images
-            WHERE pose_id = ? AND image_url = ?
+            WHERE pose_id = %s AND image_url = %s
             """, (pose_id, resource['url']))
 
             if not cursor.fetchone():
@@ -747,7 +744,7 @@ async def auto_associate_resources(pose_id: int, request: AutoAssociateRequest):
                 cursor.execute("""
                 INSERT INTO pose_reference_images
                 (pose_id, image_url, prompt)
-                VALUES (?, ?, ?)
+                VALUES (%s, %s, %s)
                 """, (pose_id, resource['url'], resource['prompt']))
                 associated_resources += 1
 
@@ -769,7 +766,7 @@ async def auto_associate_resources(pose_id: int, request: AutoAssociateRequest):
             # 检查是否已关联
             cursor.execute("""
             SELECT id FROM pose_loras
-            WHERE pose_id = ? AND lora_id = ? AND lora_type = ?
+            WHERE pose_id = %s AND lora_id = %s AND lora_type = %s
             """, (pose_id, lora['id'], lora_type))
 
             if not cursor.fetchone():
@@ -788,7 +785,7 @@ async def auto_associate_resources(pose_id: int, request: AutoAssociateRequest):
                 cursor.execute("""
                 INSERT INTO pose_loras
                 (pose_id, lora_id, lora_type, trigger_words, noise_stage, recommended_weight)
-                VALUES (?, ?, ?, ?, ?, 1.0)
+                VALUES (%s, %s, %s, %s, %s, 1.0)
                 """, (pose_id, lora['id'], lora_type, trigger_words_str, lora['noise_stage']))
                 associated_loras += 1
 

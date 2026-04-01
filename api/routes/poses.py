@@ -7,13 +7,22 @@ from typing import List, Optional, Dict
 from api.services.pose_matcher import get_pose_matcher, PoseConfig
 from api.services.pose_recommender import get_pose_recommender
 from api.middleware.auth import verify_api_key
-import sqlite3
+import os
+import pymysql
 from pathlib import Path
 
 router = APIRouter()
 
 PROJECT_ROOT = Path(__file__).parent.parent.parent
-POSE_DB_PATH = PROJECT_ROOT / "data" / "wan22.db"
+
+MYSQL_CONFIG = {
+    'host': os.getenv('MYSQL_HOST', 'use-cdb-b9nvte6o.sql.tencentcdb.com'),
+    'port': int(os.getenv('MYSQL_PORT', '20603')),
+    'user': os.getenv('MYSQL_USER', 'user_soga'),
+    'password': os.getenv('MYSQL_PASSWORD', '1IvO@*#68'),
+    'database': os.getenv('MYSQL_DB', 'tudou_soga'),
+    'charset': 'utf8mb4',
+}
 
 
 class PoseConfigResponse(BaseModel):
@@ -118,8 +127,7 @@ async def get_batch_pose_config(pose_ids: List[int]):
 async def get_pose_thumbnail(pose_key: str, _: str = Depends(verify_api_key)):
     """获取姿势的缩略图URL（仅返回本地图片）"""
     try:
-        conn = sqlite3.connect(str(POSE_DB_PATH))
-        conn.row_factory = sqlite3.Row
+        conn = pymysql.connect(**MYSQL_CONFIG, cursorclass=pymysql.cursors.DictCursor)
         cursor = conn.cursor()
 
         # 只查询本地图片（/pose-files/ 开头）
@@ -127,7 +135,7 @@ async def get_pose_thumbnail(pose_key: str, _: str = Depends(verify_api_key)):
             SELECT pri.image_url
             FROM pose_reference_images pri
             JOIN poses p ON pri.pose_id = p.id
-            WHERE p.pose_key = ? AND pri.image_url LIKE '/pose-files/%'
+            WHERE p.pose_key = %s AND pri.image_url LIKE '/pose-files/%%'
             ORDER BY pri.is_default DESC
             LIMIT 1
         """, (pose_key,))
@@ -423,16 +431,15 @@ async def update_lora_sort_order(
     前5个LORA会被标记为enabled，其余为disabled
     """
     try:
-        import sqlite3
-        conn = sqlite3.connect(str(POSE_DB_PATH))
+        conn = pymysql.connect(**MYSQL_CONFIG, cursorclass=pymysql.cursors.DictCursor)
         cursor = conn.cursor()
 
         # 更新每个LORA的sort_order
         for idx, lora_id in enumerate(request.lora_ids):
             cursor.execute("""
                 UPDATE pose_loras
-                SET sort_order = ?
-                WHERE id = ? AND pose_id = ?
+                SET sort_order = %s
+                WHERE id = %s AND pose_id = %s
             """, (idx, lora_id, pose_id))
 
         conn.commit()

@@ -2,7 +2,7 @@
 姿势配置服务
 """
 import json
-import sqlite3
+import os
 import pymysql
 import logging
 from pathlib import Path
@@ -12,16 +12,15 @@ from dataclasses import dataclass
 logger = logging.getLogger(__name__)
 
 PROJECT_ROOT = Path(__file__).parent.parent.parent
-DB_PATH = PROJECT_ROOT / "data" / "wan22.db"
 
-# MySQL数据库配置（用于LORA数据）
+# MySQL数据库配置（所有数据统一存MySQL）
 MYSQL_CONFIG = {
-    'host': 'use-cdb-b9nvte6o.sql.tencentcdb.com',
-    'port': 20603,
-    'user': 'user_soga',
-    'password': '1IvO@*#68',
-    'database': 'tudou_soga',
-    'charset': 'utf8mb4'
+    'host': os.getenv('MYSQL_HOST', 'use-cdb-b9nvte6o.sql.tencentcdb.com'),
+    'port': int(os.getenv('MYSQL_PORT', '20603')),
+    'user': os.getenv('MYSQL_USER', 'user_soga'),
+    'password': os.getenv('MYSQL_PASSWORD', '1IvO@*#68'),
+    'database': os.getenv('MYSQL_DB', 'tudou_soga'),
+    'charset': 'utf8mb4',
 }
 
 
@@ -39,13 +38,12 @@ class PoseMatcher:
     """姿势配置管理器"""
 
     def __init__(self, db_path: str = None):
-        self.db_path = db_path or str(DB_PATH)
+        # db_path kept for API compat but no longer used (all data in MySQL)
+        pass
 
     def _get_connection(self):
-        """获取SQLite数据库连接"""
-        conn = sqlite3.connect(self.db_path)
-        conn.row_factory = sqlite3.Row
-        return conn
+        """获取MySQL数据库连接（替代原SQLite）"""
+        return pymysql.connect(**MYSQL_CONFIG, cursorclass=pymysql.cursors.DictCursor)
 
     def _get_mysql_connection(self):
         """获取MySQL数据库连接（用于LORA数据）"""
@@ -79,25 +77,25 @@ class PoseMatcher:
         cursor = conn.cursor()
 
         # 1. 获取姿势基本信息
-        cursor.execute("SELECT * FROM poses WHERE id = ?", (pose_id,))
+        cursor.execute("SELECT * FROM poses WHERE id = %s", (pose_id,))
         pose_row = cursor.fetchone()
         if not pose_row:
             conn.close()
             return None
 
-        pose = dict(pose_row)
+        pose = pose_row
 
         # 2. 获取首帧图
-        query = "SELECT * FROM pose_reference_images WHERE pose_id = ?"
+        query = "SELECT * FROM pose_reference_images WHERE pose_id = %s"
         params = [pose_id]
 
         if angle or style:
             conditions = []
             if angle:
-                conditions.append("(angle = ? OR is_default = 1)")
+                conditions.append("(angle = %s OR is_default = 1)")
                 params.append(angle)
             if style:
-                conditions.append("(style = ? OR style IS NULL)")
+                conditions.append("(style = %s OR style IS NULL)")
                 params.append(style)
 
             query += " AND " + " AND ".join(conditions)
@@ -105,19 +103,19 @@ class PoseMatcher:
         query += " ORDER BY is_default DESC, quality_score DESC"
 
         cursor.execute(query, params)
-        reference_images = [dict(row) for row in cursor.fetchall()]
+        reference_images = list(cursor.fetchall())
 
-        # 3. 获取图片LORA（从SQLite获取基本信息，按sort_order排序）
+        # 3. 获取图片LORA（按sort_order排序）
         cursor.execute("""
         SELECT pl.*
         FROM pose_loras pl
-        WHERE pl.pose_id = ? AND pl.lora_type = 'image'
+        WHERE pl.pose_id = %s AND pl.lora_type = 'image'
         ORDER BY
             COALESCE(pl.sort_order, pl.id),
             pl.is_default DESC,
             pl.recommended_weight DESC
         """, (pose_id,))
-        image_loras_raw = [dict(row) for row in cursor.fetchall()]
+        image_loras_raw = list(cursor.fetchall())
 
         # 标记前5个为enabled，其余为disabled
         image_loras = []
@@ -126,18 +124,18 @@ class PoseMatcher:
             lora['sort_index'] = idx
             image_loras.append(lora)
 
-        # 4. 获取视频LORA（从SQLite获取基本信息，按sort_order排序）
+        # 4. 获取视频LORA（按sort_order排序）
         cursor.execute("""
         SELECT pl.*
         FROM pose_loras pl
-        WHERE pl.pose_id = ? AND pl.lora_type = 'video'
+        WHERE pl.pose_id = %s AND pl.lora_type = 'video'
         ORDER BY
-            CASE WHEN pl.noise_stage = ? THEN 0 ELSE 1 END,
+            CASE WHEN pl.noise_stage = %s THEN 0 ELSE 1 END,
             COALESCE(pl.sort_order, pl.id),
             pl.is_default DESC,
             pl.noise_stage
         """, (pose_id, noise_stage))
-        video_loras_raw = [dict(row) for row in cursor.fetchall()]
+        video_loras_raw = list(cursor.fetchall())
 
         # 标记前5个为enabled，其余为disabled
         video_loras = []
@@ -198,24 +196,24 @@ class PoseMatcher:
                 logger.error(f"Failed to fetch LORA data from MySQL: {e}")
 
         # 6. 获取提示词模板
-        conn = self._get_connection()
-        cursor = conn.cursor()
+        conn2 = self._get_connection()
+        cursor2 = conn2.cursor()
         query = """
         SELECT * FROM pose_prompt_templates
-        WHERE pose_id = ?
+        WHERE pose_id = %s
         """
         params = [pose_id]
 
         if angle:
-            query += " AND (angle = ? OR angle IS NULL)"
+            query += " AND (angle = %s OR angle IS NULL)"
             params.append(angle)
 
         query += " ORDER BY priority DESC, angle IS NOT NULL DESC"
 
-        cursor.execute(query, params)
-        prompt_templates = [dict(row) for row in cursor.fetchall()]
+        cursor2.execute(query, params)
+        prompt_templates = list(cursor2.fetchall())
 
-        conn.close()
+        conn2.close()
 
         return PoseConfig(
             pose=pose,
@@ -252,13 +250,13 @@ class PoseMatcher:
             query += " AND p.enabled = 1"
 
         if category:
-            query += " AND p.category = ?"
+            query += " AND p.category = %s"
             params.append(category)
 
         query += " ORDER BY p.difficulty, p.pose_key"
 
         cursor.execute(query, params)
-        poses = [dict(row) for row in cursor.fetchall()]
+        poses = list(cursor.fetchall())
         conn.close()
 
         return poses

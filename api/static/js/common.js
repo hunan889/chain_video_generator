@@ -306,7 +306,8 @@ async function loadLoras() {
     }
     const r = await fetch(BASE + '/api/v1/loras', {headers: {'X-API-Key': getKey()}});
     if (!r.ok) return;
-    allLoras = await r.json();
+    const lorasResp = await r.json();
+    allLoras = lorasResp.loras || lorasResp;
     localStorage.setItem('wan22_loras_cache', JSON.stringify(allLoras));
     if (document.getElementById('t2v-loras')) renderLoras('t2v-loras');
     if (document.getElementById('i2v-loras')) renderLoras('i2v-loras');

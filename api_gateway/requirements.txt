@@ -1,0 +1,17 @@
+# API Gateway service dependencies
+fastapi>=0.115.0
+uvicorn[standard]
+redis[asyncio]>=5.0
+aiohttp>=3.9
+pydantic>=2.0
+python-multipart
+python-dotenv
+PyYAML>=6.0
+cos-python-sdk-v5
+pymysql
+openai>=1.0
+fakeredis[aioredis]>=2.20   # test only
+httpx>=0.27                  # test only (AsyncClient)
+pytest>=8.0                  # test only
+pytest-asyncio>=0.23         # test only
+pytest-cov                   # test only

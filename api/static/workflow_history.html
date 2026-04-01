@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Workflow 历史记录</title>
+<title>生成历史</title>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:#1a1a2e;color:#e0e0e0}
@@ -112,7 +112,7 @@ h1{color:#7c83ff;margin-bottom:20px;font-size:1.4em}
 </head>
 <body>
 <div class="container">
-<h1>Workflow 历史记录</h1>
+<h1>生成历史</h1>
 
 <div class="toolbar">
   <input type="text" id="searchInput" placeholder="搜索 prompt 或 ID...">
@@ -120,7 +120,14 @@ h1{color:#7c83ff;margin-bottom:20px;font-size:1.4em}
   <a href="/static/advanced_workflow_v2.html"><button class="btn btn-sm" style="background:#333">+ 新建</button></a>
 </div>
 
-<div class="filter-bar">
+<div class="filter-bar" id="categoryBar">
+  <button class="filter-btn active" onclick="setCategory('',this)">全部</button>
+  <button class="filter-btn" onclick="setCategory('local',this)">本地生成</button>
+  <button class="filter-btn" onclick="setCategory('thirdparty',this)">三方接口</button>
+  <button class="filter-btn" onclick="setCategory('postprocess',this)">后处理</button>
+</div>
+
+<div class="filter-bar" id="statusBar">
   <button class="filter-btn active" data-status="" onclick="setFilter('',this)">全部</button>
   <button class="filter-btn" data-status="completed" onclick="setFilter('completed',this)">已完成</button>
   <button class="filter-btn" data-status="running" onclick="setFilter('running',this)">进行中</button>
@@ -151,6 +158,7 @@ h1{color:#7c83ff;margin-bottom:20px;font-size:1.4em}
 <script>
 const API_KEY = localStorage.getItem('wan22_api_key') || localStorage.getItem('api_key') || 'wan22-default-key-change-me';
 let currentFilter = '';
+let currentCategory = '';
 let currentPage = 1;
 let currentSearch = '';
 let totalFromServer = 0;
@@ -257,6 +265,7 @@ async function loadHistory(silent = false) {
       page_size: PAGE_SIZE,
     });
     if (currentFilter) params.set('status', currentFilter);
+    if (currentCategory) params.set('category', currentCategory);
     if (currentSearch) params.set('q', currentSearch);
 
     const res = await fetch('/api/v1/workflow/history?' + params.toString(), {headers});
@@ -286,7 +295,15 @@ async function loadHistory(silent = false) {
 function setFilter(status, btn) {
   currentFilter = status;
   currentPage = 1;
-  document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+  document.querySelectorAll('#statusBar .filter-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  loadHistory();
+}
+
+function setCategory(cat, btn) {
+  currentCategory = cat;
+  currentPage = 1;
+  document.querySelectorAll('#categoryBar .filter-btn').forEach(b => b.classList.remove('active'));
   btn.classList.add('active');
   loadHistory();
 }
@@ -381,7 +398,19 @@ function cardHtml(w) {
   const statusClass = 'status-' + (w.status || 'queued');
   const statusLabel = {completed:'已完成', running:'生成中', failed:'失败', queued:'排队中'}[w.status] || w.status;
   const timeStr = relativeTime(w.created_at);
-  const modeLabel = {full_body_reference:'全身换脸', face_reference:'换脸', first_frame:'首帧', t2v:'文生视频'}[w.mode] || w.mode || '-';
+  const modeLabel = {
+    t2v:'文生视频', i2v:'图生视频', extend:'续写', chain:'长视频',
+    wan26_t2v:'万象T2V', wan26_i2v:'万象I2V',
+    seedance_t2v:'Seedance T2V', seedance_i2v:'Seedance I2V',
+    clothoff:'Clothoff',
+    interpolate:'插帧', upscale:'超分', audio:'音频', faceswap:'换脸',
+    full_body_reference:'全身换脸', face_reference:'换脸', first_frame:'首帧',
+    vace_ref2v:'VACE参考', vace_v2v:'VACE编辑',
+  }[w.mode] || w.mode || '-';
+  const categoryLabels = {local:'本地', thirdparty:'三方', postprocess:'后处理'};
+  const categoryBadge = w.category && categoryLabels[w.category]
+    ? `<span class="card-mode" style="background:#2a1a4a;color:#b39ddb;margin-left:4px">${categoryLabels[w.category]}</span>`
+    : '';
 
   let runningHtml = '';
   if (w.status === 'running') {
@@ -406,7 +435,7 @@ function cardHtml(w) {
       <div class="card-prompt" title="${(w.user_prompt||'').replace(/"/g,'&quot;')}">${w.user_prompt || '(无 prompt)'}</div>
       <div class="card-meta">
         <span title="${w.created_at ? new Date(w.created_at * 1000).toLocaleString('zh-CN') : ''}">${timeStr}</span>
-        <span class="card-mode">${modeLabel}</span>
+        <span class="card-mode">${modeLabel}</span>${categoryBadge}
       </div>
       ${w.error ? `<div class="card-error">${w.error}</div>` : ''}
       <div class="card-actions">
@@ -437,7 +466,7 @@ async function showDetail(wfId) {
     const completedStr = d.completed_at ? new Date(d.completed_at * 1000).toLocaleString('zh-CN') : '-';
     const elapsedStr = d.elapsed_time ? (d.elapsed_time < 60 ? d.elapsed_time.toFixed(1) + 's' : (d.elapsed_time / 60).toFixed(1) + 'min') : '-';
 
-    let html = `<div class="modal-title">Workflow 详情</div>`;
+    let html = `<div class="modal-title">任务详情</div>`;
 
     // Video player
     if (d.final_video_url) {
@@ -454,23 +483,58 @@ async function showDetail(wfId) {
     }
 
     // Basic info
+    const allModeLabels = {
+      full_body_reference:'全身换脸', face_reference:'换脸', first_frame:'首帧',
+      t2v:'文生视频', i2v:'图生视频', extend:'续写', chain:'长视频',
+      wan26_t2v:'万象T2V', wan26_i2v:'万象I2V',
+      seedance_t2v:'Seedance T2V', seedance_i2v:'Seedance I2V',
+      clothoff:'Clothoff', interpolate:'插帧', upscale:'超分', audio:'音频', faceswap:'换脸',
+    };
     const rows = [
       ['ID', `<span style="font-family:monospace">${d.workflow_id}</span>`],
       ['状态', `<span class="card-status status-${d.status}" style="font-size:12px">${statusLabels[d.status] || d.status}</span>`],
-      ['模式', modeLabels[d.mode] || d.mode || '-'],
+      ['模式', allModeLabels[d.mode] || modeLabels[d.mode] || d.mode || '-'],
+      ['模型', d.model || '-'],
       ['创建时间', timeStr],
       ['完成时间', completedStr],
       ['耗时', elapsedStr],
     ];
-    if (d.error) rows.push(['错误', `<span style="color:#ef5350">${d.error}</span>`]);
+    if (d.user_prompt) rows.push(['Prompt', `<div style="white-space:pre-wrap;max-height:120px;overflow-y:auto;font-size:12px;color:#ccc">${escHtml(d.user_prompt)}</div>`]);
+    if (d.error) rows.push(['错误', `<span style="color:#ef5350">${escHtml(d.error)}</span>`]);
+    // Task params for non-workflow tasks
+    if (d.params && !d.stages) {
+      const p = d.params;
+      const paramParts = [];
+      if (p.width && p.height) paramParts.push(`${p.width}×${p.height}`);
+      if (p.steps) paramParts.push(`${p.steps} steps`);
+      if (p.cfg) paramParts.push(`cfg=${p.cfg}`);
+      if (p.fps) paramParts.push(`${p.fps} fps`);
+      if (p.num_frames) paramParts.push(`${p.num_frames} frames`);
+      if (p.seed && p.seed !== -1) paramParts.push(`seed=${p.seed}`);
+      if (paramParts.length) rows.push(['参数', paramParts.join(' · ')]);
+    }
     html += rows.map(([l,v]) => `<div class="detail-row"><span class="detail-label">${l}</span><span class="detail-value">${v}</span></div>`).join('');
 
-    // Stage progress with inline details
+    // Stage progress with inline details (for workflow tasks only)
     const sd = d.stage_details || {};
     const ar = d.analysis_result || {};
     const statusMap = {completed:'完成', running:'进行中', failed:'失败', pending:'等待'};
 
-    html += `<div class="detail-section"><div class="detail-section-title">阶段详情</div><div class="detail-section-body">`;
+    const hasStages = d.stages && d.stages.length > 0;
+    html += `<div class="detail-section"><div class="detail-section-title">${hasStages ? '阶段详情' : '任务信息'}</div><div class="detail-section-body">`;
+    if (!hasStages) {
+      // For non-workflow tasks, show a simple progress display
+      if (d.status === 'running') {
+        const pct = ((d.progress || 0) * 100).toFixed(1);
+        html += `<div style="padding:8px 0"><div style="display:flex;align-items:center;gap:8px"><span style="color:#aaa;font-size:12px">进度</span><div style="flex:1;height:6px;background:#333;border-radius:3px;overflow:hidden"><div style="height:100%;width:${pct}%;background:linear-gradient(90deg,#7c83ff,#4ade80);border-radius:3px;transition:width .5s"></div></div><span style="color:#7c83ff;font-size:12px">${pct}%</span></div></div>`;
+      } else if (d.status === 'completed') {
+        html += `<div style="padding:8px 0;color:#4ade80;font-size:12px">✓ 任务已完成</div>`;
+      } else if (d.status === 'failed') {
+        html += `<div style="padding:8px 0;color:#ef5350;font-size:12px">✗ 任务失败</div>`;
+      } else {
+        html += `<div style="padding:8px 0;color:#888;font-size:12px">等待中...</div>`;
+      }
+    }
 
     for (const s of d.stages || []) {
       const stageData = sd[s.name] || {};

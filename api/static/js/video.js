@@ -579,9 +579,10 @@ async function pollDownload(dlId, filename) {
 
 async function refreshLoraFiles() {
   try {
-    const r = await fetch(BASE + '/api/v1/loras/files', {headers:{'X-API-Key':getKey()}});
+    const r = await fetch(BASE + '/api/v1/loras', {headers:{'X-API-Key':getKey()}});
     if (!r.ok) return;
-    const files = await r.json();
+    const data = await r.json();
+    const files = data.loras || [];
     const list = document.getElementById('lora-file-list');
     if (!files.length) { list.innerHTML = '<span style="color:#666;font-size:13px">暂无文件</span>'; return; }
     list.innerHTML = files.map(f => `<div class="file-item"><span>${f.name}</span><span style="color:#888">${f.size_mb} MB</span></div>`).join('');
@@ -596,8 +597,8 @@ async function loadCivitaiLoraFiles() {
   try {
     const r = await fetch(BASE + '/api/v1/loras', {headers:{'X-API-Key':getKey()}});
     if (r.ok) {
-      const loras = await r.json();
-      _downloadedCivitaiIds = new Set(loras.map(l => l.civitai_id).filter(Boolean));
+      const lorasData = await r.json();
+      _downloadedCivitaiIds = new Set((lorasData.loras || []).map(l => l.civitai_id).filter(Boolean));
     }
   } catch(e) {}
 }

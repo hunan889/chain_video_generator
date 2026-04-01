@@ -373,6 +373,157 @@ class TestChainOrchestrator:
 
 
 # ---------------------------------------------------------------------------
+# ChainOrchestrator auto-continue (VLM/LLM) tests
+# ---------------------------------------------------------------------------
+
+
+class TestChainAutoContinue:
+    """Tests for VLM/LLM auto-continue prompt generation."""
+
+    @pytest.mark.asyncio
+    async def test_auto_continue_updates_next_segment_prompt(self, gateway, redis):
+        """When auto_continue=True and VLM/LLM mocks return a prompt,
+        the next segment's prompt should be replaced."""
+        from unittest.mock import AsyncMock, patch
+        from api_gateway.services.chain_orchestrator import ChainOrchestrator
+
+        orchestrator = ChainOrchestrator(
+            gateway=gateway,
+            redis=redis,
+            vision_api_key="fake-vision-key",
+            vision_base_url="",
+            vision_model="gpt-4o",
+            llm_api_key="fake-llm-key",
+            llm_base_url="",
+            llm_model="gpt-4o",
+        )
+
+        segments = [
+            {"prompt": "A cat walking", "duration": 5.0},
+            {"prompt": "ORIGINAL PROMPT", "duration": 5.0},
+        ]
+        chain_id = await gateway.create_chain(len(segments), {"model": "a14b"})
+
+        async def complete_tasks_when_created():
+            completed = set()
+            for _ in range(200):
+                await asyncio.sleep(0.05)
+                cursor = 0
+                while True:
+                    cursor, keys = await redis.scan(cursor, match="task:*", count=50)
+                    for key in keys:
+                        tid = key.split(":", 1)[1]
+                        if tid in completed:
+                            continue
+                        status = await redis.hget(key, "status")
+                        if status == TaskStatus.QUEUED.value:
+                            await redis.hset(key, mapping={
+                                "status": TaskStatus.COMPLETED.value,
+                                "video_url": f"https://example.com/{tid}.mp4",
+                                "last_frame_url": "https://example.com/frame.png",
+                                "completed_at": str(int(time.time())),
+                            })
+                            completed.add(tid)
+                    if cursor == 0:
+                        break
+                if len(completed) >= 2:
+                    break
+
+        helper = asyncio.create_task(complete_tasks_when_created())
+
+        with patch(
+            "api_gateway.services.continuation.describe_frame",
+            new=AsyncMock(return_value="A cat mid-jump over a fence"),
+        ), patch(
+            "api_gateway.services.continuation.generate_continuation_prompt",
+            new=AsyncMock(return_value="The cat lands gracefully and looks around"),
+        ):
+            await orchestrator.start_chain(
+                chain_id=chain_id,
+                segments=segments,
+                model=ModelType.A14B,
+                auto_continue=True,
+            )
+
+            for _ in range(100):
+                chain = await gateway.get_chain(chain_id)
+                if chain and chain["status"] in ("completed", "failed"):
+                    break
+                await asyncio.sleep(0.1)
+
+        helper.cancel()
+        try:
+            await helper
+        except asyncio.CancelledError:
+            pass
+
+        chain = await gateway.get_chain(chain_id)
+        assert chain["status"] == "completed"
+        assert chain["completed_segments"] == 2
+
+    @pytest.mark.asyncio
+    async def test_auto_continue_skipped_when_no_api_key(self, gateway, redis):
+        """When no vision_api_key is set, auto_continue is silently skipped."""
+        from api_gateway.services.chain_orchestrator import ChainOrchestrator
+
+        orchestrator = ChainOrchestrator(gateway=gateway, redis=redis)
+        # No VLM/LLM keys -- should not raise, should complete normally
+
+        segments = [
+            {"prompt": "Segment 0"},
+            {"prompt": "Segment 1"},
+        ]
+        chain_id = await gateway.create_chain(len(segments), {"model": "a14b"})
+
+        async def complete_tasks():
+            completed = set()
+            for _ in range(200):
+                await asyncio.sleep(0.05)
+                cursor = 0
+                while True:
+                    cursor, keys = await redis.scan(cursor, match="task:*", count=50)
+                    for key in keys:
+                        tid = key.split(":", 1)[1]
+                        if tid in completed:
+                            continue
+                        status = await redis.hget(key, "status")
+                        if status == TaskStatus.QUEUED.value:
+                            await redis.hset(key, mapping={
+                                "status": TaskStatus.COMPLETED.value,
+                                "video_url": f"https://example.com/{tid}.mp4",
+                                "completed_at": str(int(time.time())),
+                            })
+                            completed.add(tid)
+                    if cursor == 0:
+                        break
+                if len(completed) >= 2:
+                    break
+
+        helper = asyncio.create_task(complete_tasks())
+        await orchestrator.start_chain(
+            chain_id=chain_id,
+            segments=segments,
+            model=ModelType.A14B,
+            auto_continue=True,
+        )
+
+        for _ in range(100):
+            chain = await gateway.get_chain(chain_id)
+            if chain and chain["status"] in ("completed", "failed"):
+                break
+            await asyncio.sleep(0.1)
+
+        helper.cancel()
+        try:
+            await helper
+        except asyncio.CancelledError:
+            pass
+
+        chain = await gateway.get_chain(chain_id)
+        assert chain["status"] == "completed"
+
+
+# ---------------------------------------------------------------------------
 # Chain API route tests (FastAPI TestClient)
 # ---------------------------------------------------------------------------
 

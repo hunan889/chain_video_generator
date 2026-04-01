@@ -8,12 +8,14 @@ from shared.redis_keys import (
     WORKFLOW_PREFIX,
     COMFYUI_INSTANCES_PREFIX,
     WORKER_HEARTBEAT_PREFIX,
+    WORKER_LORAS_PREFIX,
     task_key,
     queue_key,
     chain_key,
     workflow_key,
     comfyui_instances_key,
     worker_heartbeat_key,
+    worker_loras_key,
 )
 
 
@@ -37,6 +39,9 @@ class TestKeyFunctions:
     def test_worker_heartbeat_key(self):
         assert worker_heartbeat_key("worker_1") == "worker:heartbeat:worker_1"
 
+    def test_worker_loras_key(self):
+        assert worker_loras_key("gpu-worker-1") == "worker:loras:gpu-worker-1"
+
     def test_system_settings_key_is_constant(self):
         assert SYSTEM_SETTINGS_KEY == "system:settings"
 
@@ -50,6 +55,7 @@ class TestPrefixUniqueness:
             WORKFLOW_PREFIX,
             COMFYUI_INSTANCES_PREFIX,
             WORKER_HEARTBEAT_PREFIX,
+            WORKER_LORAS_PREFIX,
         ]
         assert len(prefixes) == len(set(prefixes)), "Prefix collision detected"
 
