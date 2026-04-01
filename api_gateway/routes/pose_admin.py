@@ -6,7 +6,7 @@ All data operations go directly to MySQL (tudou_soga database).
 import logging
 from typing import Any, Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 
 from api_gateway.config import GatewayConfig
@@ -373,6 +373,45 @@ def delete_lora(
     except Exception:
         logger.exception("Failed to delete lora %s", lora_id)
         raise HTTPException(status_code=500, detail="Failed to delete lora")
+
+
+@router.patch("/admin/poses/loras/{lora_id}")
+async def update_lora(
+    lora_id: int,
+    request: Request,
+    config: GatewayConfig = Depends(get_config),
+):
+    """Update a pose lora association (weight, noise_stage, etc.)."""
+    body = await request.json()
+
+    try:
+        updates = []
+        params = []
+        for field in ("recommended_weight", "noise_stage", "lora_type", "is_default", "sort_order"):
+            if field in body:
+                updates.append(f"{field} = %s")
+                params.append(body[field])
+
+        if not updates:
+            raise HTTPException(status_code=400, detail="No fields to update")
+
+        params.append(lora_id)
+        with get_mysql_connection(config) as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    f"UPDATE pose_loras SET {', '.join(updates)} WHERE id = %s",
+                    params,
+                )
+                if cur.rowcount == 0:
+                    raise HTTPException(status_code=404, detail=f"Pose lora {lora_id} not found")
+                conn.commit()
+
+        return {"updated": True, "lora_id": lora_id}
+    except HTTPException:
+        raise
+    except Exception:
+        logger.exception("Failed to update lora %s", lora_id)
+        raise HTTPException(status_code=500, detail="Failed to update lora")
 
 
 @router.post("/admin/poses/{pose_id}/auto-associate")
