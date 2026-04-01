@@ -165,6 +165,10 @@ def get_pose_config(
 
     if result is None:
         raise HTTPException(status_code=404, detail=f"Pose {pose_id} not found")
+    # Split loras into image_loras and video_loras
+    all_loras = result.pop("loras", [])
+    result["image_loras"] = [l for l in all_loras if l.get("lora_type") == "image"]
+    result["video_loras"] = [l for l in all_loras if l.get("lora_type") != "image"]
     return result
 
 
@@ -244,15 +248,19 @@ async def batch_config(
     else:
         pose_ids = []
     if not pose_ids:
-        return {"configs": []}
+        return {}
 
-    configs: list[dict] = []
+    results = {}
     for pose_id in pose_ids:
         try:
             result = _fetch_pose_config(config, pose_id)
             if result is not None:
-                configs.append(result)
+                # Split loras into image_loras and video_loras (frontend expects this)
+                all_loras = result.pop("loras", [])
+                result["image_loras"] = [l for l in all_loras if l.get("lora_type") == "image"]
+                result["video_loras"] = [l for l in all_loras if l.get("lora_type") != "image"]
+                results[str(pose_id)] = result
         except Exception:
             logger.warning("Failed to fetch config for pose_id=%s, skipping", pose_id)
 
-    return {"configs": configs}
+    return results
