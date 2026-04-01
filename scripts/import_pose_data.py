@@ -142,7 +142,9 @@ def main():
             for lora in all_loras:
                 lora_name = (lora.get("name") or lora.get("file") or "").lower()
                 if pose_key.replace("_", "") in lora_name.replace("_", "").replace("-", ""):
-                    lora_type = "video" if lora.get("mode") in ("I2V", "both") else "image"
+                    # All lora_metadata entries are video loras (T2V/I2V/both)
+                    # Image loras come from image_lora_metadata table (separate)
+                    lora_type = "video"
                     try:
                         cursor.execute(
                             "INSERT INTO pose_loras (pose_id, lora_id, lora_name, lora_type, noise_stage, recommended_weight) "
