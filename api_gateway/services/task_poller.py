@@ -65,6 +65,7 @@ class TaskPoller:
                 await self._recover_orphan_tasks()
                 await self._recover_orphan_chains()
                 await self._recover_orphan_workflows()
+                await self._recover_mysql_orphans()
                 await self._sync_thirdparty_tasks()
             except asyncio.CancelledError:
                 return
@@ -253,6 +254,69 @@ class TaskPoller:
 
     # ------------------------------------------------------------------
     # 4. Third-party task sync — poll Wan2.6/Seedance for pending tasks
+    # ------------------------------------------------------------------
+    # ------------------------------------------------------------------
+    # 4a. MySQL orphans — queued/running in MySQL but gone from Redis
+    # ------------------------------------------------------------------
+    async def _recover_mysql_orphans(self) -> None:
+        """Find tasks stuck in queued/running in MySQL and clean them up.
+
+        Handles:
+        - Redis data expired (TTL) → mark failed
+        - Redis queued but not in any queue (orphaned) → mark failed
+        - Redis queued too long (>10 min) → mark failed
+        """
+        now = time.time()
+        for check_status in ("queued", "running"):
+            try:
+                result = await self.task_store.list_history(
+                    status=check_status, page=1, page_size=50,
+                )
+                tasks = result.get("tasks", [])
+                for task in tasks:
+                    task_id = task.get("task_id", "")
+                    category = task.get("category", "")
+                    if category == "thirdparty":
+                        continue  # handled by _sync_thirdparty_tasks
+
+                    # Check if task exists in Redis
+                    tk = task_key(task_id)
+                    redis_exists = await self.redis.exists(tk)
+                    wf_exists = await self.redis.exists(f"workflow:{task_id}")
+
+                    if not redis_exists and not wf_exists:
+                        await self.task_store.update_status(
+                            task_id, "failed",
+                            error="Task expired from Redis (TTL) while still queued/running",
+                        )
+                        logger.info("MySQL orphan %s: Redis data gone, marked failed", task_id)
+                        continue
+
+                    # For queued tasks: check if stuck too long (>10 min)
+                    if redis_exists and check_status == "queued":
+                        created = await self.redis.hget(tk, "created_at")
+                        age = now - float(created or 0)
+                        if age > 600:  # 10 minutes
+                            # Check if it's actually in a queue
+                            model = await self.redis.hget(tk, "model") or "a14b"
+                            qk = queue_key(model)
+                            # Scan queue for this task_id
+                            q_items = await self.redis.lrange(qk, 0, -1)
+                            if task_id not in q_items:
+                                await self.redis.hset(tk, mapping={
+                                    "status": "failed",
+                                    "error": f"Task orphaned (queued for {int(age)}s but not in any queue)",
+                                })
+                                await self.task_store.update_status(
+                                    task_id, "failed",
+                                    error=f"Task orphaned (queued for {int(age)}s but not in any queue)",
+                                )
+                                logger.info("MySQL orphan %s: queued but not in queue, marked failed", task_id)
+            except Exception:
+                logger.debug("MySQL orphan check error for status=%s", check_status, exc_info=True)
+
+    # ------------------------------------------------------------------
+    # 5. Third-party task sync — poll Wan2.6/Seedance for pending tasks
     # ------------------------------------------------------------------
     async def _sync_thirdparty_tasks(self) -> None:
         """Query MySQL for queued/running thirdparty tasks and poll their APIs."""
