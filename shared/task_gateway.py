@@ -232,6 +232,14 @@ class TaskGateway:
                 logger.warning("MySQL status update failed for task %s", task_id, exc_info=True)
 
     async def update_task_progress(self, task_id: str, progress: float) -> None:
+        # Monotonic: only update if new progress > current progress
+        current = await self.redis.hget(task_key(task_id), "progress")
+        if current is not None:
+            try:
+                if float(current) >= progress:
+                    return
+            except (ValueError, TypeError):
+                pass
         await self.redis.hset(task_key(task_id), mapping={"progress": str(progress)})
 
         if self.task_store is not None:
