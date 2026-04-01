@@ -82,16 +82,25 @@ async def lifespan(app: FastAPI):
         cos_client=cos_client, task_store=task_store,
     )
 
+    # Global Task Poller — orphan recovery + thirdparty sync
+    from api_gateway.services.task_poller import TaskPoller
+    task_poller = TaskPoller(
+        gateway=gateway, redis=redis_conn, config=config, task_store=task_store,
+    )
+    await task_poller.start()
+
     app.state.redis = redis_conn
     app.state.gateway = gateway
     app.state.cos_client = cos_client
     app.state.chain_orchestrator = chain_orchestrator
     app.state.task_store = task_store
     app.state.workflow_engine = workflow_engine
+    app.state.task_poller = task_poller
 
     logger.info("API Gateway started (redis=%s)", config.redis_url)
     yield
 
+    await task_poller.stop()
     await redis_conn.aclose()
     logger.info("API Gateway shut down")
 

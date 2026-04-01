@@ -1,0 +1,35 @@
+[Unit]
+Description=GPU Worker %i (ComfyUI video generation)
+After=network.target redis.service
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/home/gime/soft/wan22-service
+Environment=PYTHONPATH=/home/gime/soft/wan22-service
+Environment=REDIS_URL=redis://:Docare123456@inner.dev.redis.gime.fun:6379/8
+Environment=COS_SECRET_ID=IKIDXw72g14nLZUXGgmY0A0XkcDYbMpzqPkl
+Environment=COS_SECRET_KEY=mUsxi9G8fslJWPxB6k7A9q5SVFgnc8JA
+Environment=COS_BUCKET=overseas-gime-1370751292
+Environment=COS_REGION=na-ashburn
+Environment=COS_PREFIX=cvid
+Environment=WORKER_ID=gpu-worker-%i
+
+# Instance-specific ComfyUI URL (set via override or drop-in)
+# Default: 8188. Override per instance with systemctl edit gpu-worker@1
+Environment=COMFYUI_PORT=8188
+
+ExecStart=/home/gime/soft/miniconda3/bin/python gpu_worker/main.py
+
+# Auto-restart on failure
+Restart=always
+RestartSec=10
+StartLimitIntervalSec=300
+StartLimitBurst=5
+
+# Logging
+StandardOutput=append:/tmp/gpu_worker_%i.log
+StandardError=append:/tmp/gpu_worker_%i.log
+
+[Install]
+WantedBy=multi-user.target
