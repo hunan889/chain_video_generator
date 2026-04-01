@@ -6,7 +6,7 @@ All data is read directly from MySQL (tudou_soga database).
 import logging
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 
 from api_gateway.config import GatewayConfig
@@ -56,7 +56,7 @@ def _fetch_pose_config(config: GatewayConfig, pose_id: int) -> dict | None:
                     """
                     SELECT pl.*, lm.preview_url, lm.civitai_id
                     FROM pose_loras pl
-                    LEFT JOIN lora_metadata lm ON pl.lora_name = lm.name
+                    LEFT JOIN lora_metadata lm ON pl.lora_name = lm.name COLLATE utf8mb4_unicode_ci
                     WHERE pl.pose_id = %s
                     ORDER BY pl.sort_order ASC, pl.is_default DESC
                     """,
@@ -228,16 +228,26 @@ def match_poses(
 
 
 @router.post("/poses/batch-config")
-def batch_config(
-    req: BatchConfigRequest,
+async def batch_config(
+    request: Request,
     config: GatewayConfig = Depends(get_config),
 ):
-    """Get configs for multiple poses."""
-    if not req.pose_ids:
+    """Get configs for multiple poses.
+
+    Accepts either ``{"pose_ids": [1,2,3]}`` or plain ``[1,2,3]``.
+    """
+    body = await request.json()
+    if isinstance(body, list):
+        pose_ids = body
+    elif isinstance(body, dict):
+        pose_ids = body.get("pose_ids", [])
+    else:
+        pose_ids = []
+    if not pose_ids:
         return {"configs": []}
 
     configs: list[dict] = []
-    for pose_id in req.pose_ids:
+    for pose_id in pose_ids:
         try:
             result = _fetch_pose_config(config, pose_id)
             if result is not None:
