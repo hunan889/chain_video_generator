@@ -10,7 +10,7 @@ from shared.redis_keys import SYSTEM_SETTINGS_KEY, WORKER_HEARTBEAT_PREFIX, queu
 
 router = APIRouter(prefix="/api/v1", tags=["admin"])
 
-WORKER_ALIVE_THRESHOLD = 60  # seconds
+WORKER_ALIVE_THRESHOLD = 120  # seconds — workers heartbeat every 10-15s; allow slack for multiple workers
 
 DEFAULT_SETTINGS: dict[str, Any] = {
     "prompt_optimize_min_chars": 20,

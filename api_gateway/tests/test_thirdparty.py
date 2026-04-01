@@ -55,6 +55,10 @@ def client(fake_redis):
         redis=fake_redis,
         gateway=app.state.gateway,
     )
+    # TaskStore mock — submit endpoints record tasks via task_store.create()
+    mock_task_store = AsyncMock()
+    mock_task_store.create = AsyncMock()
+    app.state.task_store = mock_task_store
     app.include_router(tp_router)
     return TestClient(app, raise_server_exceptions=True)
 

@@ -134,9 +134,12 @@ async def get_workflow_status(
             if s["name"] == "video_generation":
                 chain_id = data.get("chain_id")
                 if chain_id:
-                    task_data = await gw.get_task(chain_id)
-                    if task_data:
-                        tp = float(task_data.get("progress", 0))
+                    # chain_id is a chain, not a task — read the
+                    # chain's segment_task_ids and get progress from
+                    # the currently running task.
+                    chain_data = await gw.get_chain(chain_id)
+                    if chain_data:
+                        tp = float(chain_data.get("current_task_progress", 0))
                         progress += weight * tp
             else:
                 progress += weight * 0.5  # assume 50% for non-video stages

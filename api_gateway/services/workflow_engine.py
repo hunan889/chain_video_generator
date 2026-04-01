@@ -347,15 +347,20 @@ class WorkflowEngine:
                     bp = BytePlusClient(self.config.byteplus_api_key, self.config.byteplus_endpoint,
                                        self.config.byteplus_seedream_model)
                     rc = ReactorClient(gateway=self.gateway, redis=self.redis, cos_prefix=self.config.cos_prefix)
-                    edited_frame_url, _ = await edit_first_frame(
+                    sd_result = await edit_first_frame(
                         workflow_id=workflow_id, first_frame_url=first_frame_url,
                         reference_image_url=req.get("reference_image"),
                         mode=mode, seedream_config=seedream_config,
                         face_swap_config=internal_config.get("stage2_first_frame", {}).get("face_swap", {}),
                         user_prompt=req.get("user_prompt", ""),
-                        reactor_deferred=False, config=self.config,
+                        reactor_deferred=False,
+                        is_continuation=is_continuation,
+                        resolution=req.get("resolution", "480p"),
+                        aspect_ratio=req.get("aspect_ratio"),
+                        config=self.config,
                         byteplus_client=bp, reactor_client=rc, cos_client=self.cos_client,
                     )
+                    edited_frame_url = sd_result.url if hasattr(sd_result, 'url') else sd_result
                     if edited_frame_url:
                         await self.redis.hset(wf_key, "edited_frame_url", edited_frame_url)
                     await self._update_stage(wf_key, "seedream_edit", "completed",

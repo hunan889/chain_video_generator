@@ -80,3 +80,6 @@ data/wan22.db
 results/
 benchmarks/
 *.backup
+node_modules/
+test-results/
+playwright-report/

@@ -5,6 +5,7 @@ and normalises responses for the frontend.
 """
 
 import logging
+import uuid
 from typing import Optional
 
 import aiohttp
@@ -13,6 +14,7 @@ from pydantic import BaseModel
 
 from api_gateway.dependencies import get_config
 from api_gateway.config import GatewayConfig
+from api_gateway.services.task_store import TaskStore
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/v1", tags=["thirdparty"])
@@ -73,6 +75,7 @@ class Wan26I2VRequest(BaseModel):
 @router.post("/thirdparty/wan26/text-to-video", response_model=ThirdPartySubmitResponse)
 async def wan26_text_to_video(
     req: Wan26T2VRequest,
+    request: Request,
     config: GatewayConfig = Depends(get_config),
 ):
     """Wan2.6 text-to-video via Alibaba DashScope."""
@@ -94,12 +97,25 @@ async def wan26_text_to_video(
         payload["parameters"]["shot_type"] = req.shot_type
     if req.seed is not None:
         payload["parameters"]["seed"] = req.seed
-    return await _wan26_submit(payload, config)
+    result = await _wan26_submit(payload, config)
+    if result.success:
+        task_store: TaskStore = request.app.state.task_store
+        await task_store.create(
+            task_id=result.task_id or uuid.uuid4().hex,
+            task_type="wan26_t2v",
+            category="thirdparty",
+            provider="wan26",
+            prompt=req.prompt,
+            model=req.model,
+            external_task_id=result.task_id,
+        )
+    return result
 
 
 @router.post("/thirdparty/wan26/image-to-video", response_model=ThirdPartySubmitResponse)
 async def wan26_image_to_video(
     req: Wan26I2VRequest,
+    request: Request,
     config: GatewayConfig = Depends(get_config),
 ):
     """Wan2.6 image-to-video via Alibaba DashScope."""
@@ -123,7 +139,19 @@ async def wan26_image_to_video(
         payload["parameters"]["shot_type"] = req.shot_type
     if req.seed is not None:
         payload["parameters"]["seed"] = req.seed
-    return await _wan26_submit(payload, config)
+    result = await _wan26_submit(payload, config)
+    if result.success:
+        task_store: TaskStore = request.app.state.task_store
+        await task_store.create(
+            task_id=result.task_id or uuid.uuid4().hex,
+            task_type="wan26_i2v",
+            category="thirdparty",
+            provider="wan26",
+            prompt=req.prompt,
+            model=req.model,
+            external_task_id=result.task_id,
+        )
+    return result
 
 
 async def _wan26_submit(payload: dict, config: GatewayConfig) -> ThirdPartySubmitResponse:
@@ -225,6 +253,7 @@ class SeedanceI2VRequest(BaseModel):
 @router.post("/thirdparty/seedance/text-to-video", response_model=ThirdPartySubmitResponse)
 async def seedance_text_to_video(
     req: SeedanceT2VRequest,
+    request: Request,
     config: GatewayConfig = Depends(get_config),
 ):
     """Seedance text-to-video via BytePlus."""
@@ -233,12 +262,25 @@ async def seedance_text_to_video(
         "content": [{"type": "text", "text": req.prompt}],
         "parameters": {"duration": req.duration, "resolution": req.resolution},
     }
-    return await _seedance_submit(payload, config)
+    result = await _seedance_submit(payload, config)
+    if result.success:
+        task_store: TaskStore = request.app.state.task_store
+        await task_store.create(
+            task_id=result.task_id or uuid.uuid4().hex,
+            task_type="seedance_t2v",
+            category="thirdparty",
+            provider="seedance",
+            prompt=req.prompt,
+            model=req.model,
+            external_task_id=result.task_id,
+        )
+    return result
 
 
 @router.post("/thirdparty/seedance/image-to-video", response_model=ThirdPartySubmitResponse)
 async def seedance_image_to_video(
     req: SeedanceI2VRequest,
+    request: Request,
     config: GatewayConfig = Depends(get_config),
 ):
     """Seedance image-to-video via BytePlus."""
@@ -250,7 +292,19 @@ async def seedance_image_to_video(
         "content": content,
         "parameters": {"duration": req.duration, "resolution": req.resolution},
     }
-    return await _seedance_submit(payload, config)
+    result = await _seedance_submit(payload, config)
+    if result.success:
+        task_store: TaskStore = request.app.state.task_store
+        await task_store.create(
+            task_id=result.task_id or uuid.uuid4().hex,
+            task_type="seedance_i2v",
+            category="thirdparty",
+            provider="seedance",
+            prompt=req.prompt,
+            model=req.model,
+            external_task_id=result.task_id,
+        )
+    return result
 
 
 async def _seedance_submit(payload: dict, config: GatewayConfig) -> ThirdPartySubmitResponse:
@@ -258,9 +312,11 @@ async def _seedance_submit(payload: dict, config: GatewayConfig) -> ThirdPartySu
         "Authorization": f"Bearer {config.byteplus_api_key}",
         "Content-Type": "application/json",
     }
+    # Seedance uses a sub-path under the base BytePlus API URL
+    url = f"{config.byteplus_api_url}/contents/generations/tasks"
     try:
         async with aiohttp.ClientSession(timeout=TIMEOUT) as session:
-            async with session.post(config.byteplus_api_url, json=payload, headers=headers) as resp:
+            async with session.post(url, json=payload, headers=headers) as resp:
                 body = await resp.json()
                 logger.info("[Seedance] status=%s body=%s", resp.status, str(body)[:200])
                 if resp.status == 200:
@@ -288,7 +344,7 @@ async def seedance_query_task(
     config: GatewayConfig = Depends(get_config),
 ):
     """Query a Seedance task status."""
-    url = f"{config.byteplus_api_url}/{task_id}"
+    url = f"{config.byteplus_api_url}/contents/generations/tasks/{task_id}"
     headers = {"Authorization": f"Bearer {config.byteplus_api_key}"}
     try:
         async with aiohttp.ClientSession(timeout=TIMEOUT) as session:

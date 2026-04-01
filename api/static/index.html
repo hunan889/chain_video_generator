@@ -16,8 +16,6 @@
 <div class="main-tab" data-main="vace">VACE 编辑</div>
 <div class="main-tab" data-main="workflow">高级工作流</div>
 <div class="main-tab" data-main="wf-history">生成历史</div>
-<div class="main-tab" data-main="favorites">我的收藏</div>
-<div class="main-tab" data-main="annotate">资源管理</div>
 <div class="main-tab" data-main="poses">姿势管理</div>
 <div class="main-tab" data-main="settings" style="margin-left:auto;color:#888">设置</div>
 </div>
@@ -34,13 +32,6 @@
 <iframe id="iframe-wf-history" class="tab-iframe"></iframe>
 </div>
 
-<div class="main-section" id="section-favorites">
-<iframe id="iframe-favorites" class="tab-iframe" style="background:#0a0a23"></iframe>
-</div>
-
-<div class="main-section" id="section-annotate">
-<iframe id="iframe-annotate" class="tab-iframe"></iframe>
-</div>
 
 <div class="main-section" id="section-poses">
 <div class="tabs">
@@ -144,8 +135,6 @@ const _v = Date.now();
 const IFRAME_SRCS = {
   'workflow': '/advanced_workflow_v2.html?v=' + _v,
   'wf-history': '/static/workflow_history.html?v=' + _v,
-  'favorites': '/static/my_favorites.html?v=' + _v,
-  'annotate': '/annotate.html?v=' + _v,
   'pose-manager': '/pose_manager.html?v=' + _v,
   'pose-recommend': '/pose_recommend_test.html?v=' + _v,
   'pose-synonyms': '/pose_synonyms_admin.html?v=' + _v

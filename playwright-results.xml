@@ -1,0 +1,6 @@
+<testsuites id="" name="" tests="1" failures="0" skipped="0" errors="0" time="10.639906">
+<testsuite name="02_page_load_and_navigation.spec.ts" timestamp="2026-04-01T01:32:46.564Z" hostname="chromium" tests="1" failures="0" skipped="0" time="6.973" errors="0">
+<testcase name="Page Load &amp; Tab Navigation › video sub-tabs are visible: T2V, I2V, Chain, Query" classname="02_page_load_and_navigation.spec.ts" time="6.973">
+</testcase>
+</testsuite>
+</testsuites>

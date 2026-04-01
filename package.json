@@ -1,0 +1,27 @@
+{
+  "name": "chain_video_generator",
+  "version": "1.0.0",
+  "description": "基于 ComfyUI 和 Wan2.2 模型的视频生成服务，支持 T2V（文本生成视频）、I2V（图片生成视频）、Story 模式（多段连续视频）等功能。",
+  "main": "index.js",
+  "directories": {
+    "doc": "docs",
+    "test": "tests"
+  },
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/hunan889/chain_video_generator.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/hunan889/chain_video_generator/issues"
+  },
+  "homepage": "https://github.com/hunan889/chain_video_generator#readme",
+  "devDependencies": {
+    "@playwright/test": "^1.58.2"
+  }
+}

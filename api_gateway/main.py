@@ -120,13 +120,12 @@ def create_app(config: GatewayConfig | None = None) -> FastAPI:
     from api_gateway.routes.thirdparty import router as thirdparty_router
     from api_gateway.routes.prompt import router as prompt_router
     from api_gateway.routes.civitai import router as civitai_router
-    from api_gateway.routes.workflow_stub import router as workflow_router
+    from api_gateway.routes.workflow_advanced import router as workflow_advanced_router
     from api_gateway.routes.presets import router as presets_router
     from api_gateway.routes.poses import router as poses_router
     from api_gateway.routes.pose_admin import router as pose_admin_router
     from api_gateway.routes.pose_synonyms import router as pose_synonyms_router
     from api_gateway.routes.generation_history import router as generation_history_router
-    from api_gateway.routes.workflow_advanced import router as workflow_advanced_router
     from api_gateway.routes.proxy import router as proxy_router
 
     app.include_router(generate_router)
@@ -138,11 +137,10 @@ def create_app(config: GatewayConfig | None = None) -> FastAPI:
     app.include_router(thirdparty_router)
     app.include_router(prompt_router)
     app.include_router(civitai_router)
-    app.include_router(workflow_router)
+    app.include_router(workflow_advanced_router)
     app.include_router(presets_router)
     app.include_router(poses_router)
     app.include_router(pose_admin_router)
-    app.include_router(workflow_advanced_router)
     app.include_router(pose_synonyms_router)
     app.include_router(generation_history_router)
 
