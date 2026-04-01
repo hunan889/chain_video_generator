@@ -197,7 +197,13 @@ class ComfyUIClient:
         async with session.post(f"{self.base_url}/queue", json=payload) as resp:
             return resp.status == 200
 
-    async def wait_for_completion(self, prompt_id: str, timeout: float = 600) -> dict:
+    async def wait_for_completion(self, prompt_id: str, timeout: float = 600,
+                                  on_progress=None) -> dict:
+        """Wait for ComfyUI prompt completion via WebSocket.
+
+        Args:
+            on_progress: Optional async callback(value, max) for step-level progress.
+        """
         ws_url = self.base_url.replace("http://", "ws://").replace("https://", "wss://")
         try:
             import websockets
@@ -212,6 +218,12 @@ class ComfyUIClient:
                             ed = data.get("data", {})
                             if ed.get("prompt_id") == prompt_id and ed.get("node") is None:
                                 return await self.get_history(prompt_id)
+                        elif data.get("type") == "progress" and on_progress:
+                            pd = data.get("data", {})
+                            try:
+                                await on_progress(pd.get("value", 0), pd.get("max", 1))
+                            except Exception:
+                                pass
                     except asyncio.TimeoutError:
                         pass
                     # Periodically check history in case job completed before WS connected
