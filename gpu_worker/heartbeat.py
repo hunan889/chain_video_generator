@@ -103,6 +103,16 @@ class HeartbeatReporter:
                                     mapping["torch_vram_total_mb"] = str(dev.get("torch_vram_total", 0) // 1024 // 1024)
                                     mapping["torch_vram_used_mb"] = str((dev.get("torch_vram_total", 0) - dev.get("torch_vram_free", 0)) // 1024 // 1024)
                                 mapping["comfyui_url"] = first_url
+                        # Also check if ComfyUI has any running prompt (even external ones)
+                        async with session.get(f"{first_url}/queue", timeout=aiohttp.ClientTimeout(total=3)) as qresp:
+                            if qresp.status == 200:
+                                qdata = await qresp.json()
+                                running = qdata.get("queue_running", [])
+                                pending = qdata.get("queue_pending", [])
+                                if running:
+                                    mapping["status"] = "busy"
+                                    mapping["comfyui_running"] = str(len(running))
+                                    mapping["comfyui_pending"] = str(len(pending))
             except Exception:
                 pass  # GPU stats are best-effort
 

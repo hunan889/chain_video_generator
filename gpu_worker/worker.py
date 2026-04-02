@@ -170,7 +170,22 @@ class GPUWorker:
                 task_id, workflow, raw_data, client
             )
 
-            # Step 4: Submit workflow to ComfyUI
+            # Step 4: Wait for ComfyUI to be free before submitting
+            wait_count = 0
+            while True:
+                running = await client.get_running_prompt_id()
+                if running is None:
+                    break
+                if wait_count == 0:
+                    logger.info("Task %s: ComfyUI busy (prompt %s running), waiting...",
+                                task_id, running[:12])
+                wait_count += 1
+                if wait_count > 360:  # 30 min max wait
+                    raise RuntimeError(f"ComfyUI busy for >30min, aborting task {task_id}")
+                await asyncio.sleep(5)
+            if wait_count > 0:
+                logger.info("Task %s: ComfyUI free after %ds wait", task_id, wait_count * 5)
+
             prompt_id = await client.queue_prompt(workflow)
             await self._redis.hset(
                 task_key(task_id),
