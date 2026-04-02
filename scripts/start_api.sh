@@ -30,11 +30,12 @@ if [ -f "$PID_FILE" ]; then
     rm -f "$PID_FILE"
 fi
 
-echo "Starting gunicorn with uvicorn worker on $HOST:$PORT..."
+WORKERS="${API_WORKERS:-4}"
+echo "Starting gunicorn with $WORKERS uvicorn worker(s) on $HOST:$PORT..."
 cd "$PROJECT_DIR"
 nohup $PYTHON -m gunicorn api.main:app \
     -k uvicorn.workers.UvicornWorker \
-    -w 1 \
+    -w "$WORKERS" \
     --bind "$HOST:$PORT" \
     --pid "$PID_FILE" \
     --graceful-timeout 180 \

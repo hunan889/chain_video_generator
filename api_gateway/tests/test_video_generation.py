@@ -54,6 +54,8 @@ def mock_config():
     cfg.vision_base_url = ""
     cfg.vision_model = ""
     cfg.workflows_dir = ""
+    cfg.cos_prefix = "test"
+    cfg.loras_yaml_path = ""
     return cfg
 
 
@@ -240,7 +242,9 @@ class TestGenerateVideo:
 
         helper = asyncio.create_task(simulate_completion())
 
-        with patch("shared.workflow_builder.build_workflow", side_effect=Exception("no templates")):
+        with patch("shared.workflow_builder.build_workflow", side_effect=Exception("no templates")), \
+             patch("api_gateway.services.stages.video_generation._MAX_POLL_SECONDS", 30), \
+             patch("api_gateway.services.stages.video_generation._POLL_INTERVAL", 0.2):
             result = await generate_video(
                 workflow_id=wf_id,
                 mode="t2v",
@@ -323,7 +327,7 @@ class TestGenerateVideo:
         await redis.hset(f"workflow:{wf_id}", "status", "running")
 
         async def simulate_failure():
-            for _ in range(100):
+            for _ in range(200):
                 await asyncio.sleep(0.1)
                 cursor = 0
                 while True:
@@ -331,6 +335,14 @@ class TestGenerateVideo:
                     for key in keys:
                         status = await redis.hget(key, "status")
                         if status == "running":
+                            # Fail the task (poll loop checks task status, not chain)
+                            task_ids = json.loads(await redis.hget(key, "segment_task_ids") or "[]")
+                            for tid in task_ids:
+                                await redis.hset(task_key(tid), mapping={
+                                    "status": TaskStatus.FAILED.value,
+                                    "error": "CUDA out of memory",
+                                    "completed_at": str(int(time.time())),
+                                })
                             await redis.hset(key, mapping={
                                 "status": "failed",
                                 "error": "CUDA out of memory",
@@ -342,7 +354,9 @@ class TestGenerateVideo:
 
         helper = asyncio.create_task(simulate_failure())
 
-        with patch("shared.workflow_builder.build_workflow", side_effect=Exception("no templates")):
+        with patch("shared.workflow_builder.build_workflow", side_effect=Exception("no templates")), \
+             patch("api_gateway.services.stages.video_generation._MAX_POLL_SECONDS", 30), \
+             patch("api_gateway.services.stages.video_generation._POLL_INTERVAL", 0.2):
             result = await generate_video(
                 workflow_id=wf_id,
                 mode="t2v",
@@ -429,7 +443,9 @@ class TestGenerateVideo:
 
         helper = asyncio.create_task(simulate_completion())
 
-        with patch("shared.workflow_builder.build_workflow", side_effect=Exception("no templates")):
+        with patch("shared.workflow_builder.build_workflow", side_effect=Exception("no templates")), \
+             patch("api_gateway.services.stages.video_generation._MAX_POLL_SECONDS", 30), \
+             patch("api_gateway.services.stages.video_generation._POLL_INTERVAL", 0.2):
             result = await generate_video(
                 workflow_id=wf_id,
                 mode="t2v",

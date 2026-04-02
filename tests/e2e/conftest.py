@@ -47,6 +47,14 @@ _BASE_CONFIG = GatewayConfig(
     byteplus_api_key="",
     byteplus_api_url="",
     civitai_api_token="",
+    mysql_host="localhost",
+    mysql_port=3306,
+    mysql_user="test",
+    mysql_password="test",
+    mysql_db="test",
+    forge_url="http://localhost:7860",
+    byteplus_endpoint="https://example.com/api",
+    byteplus_seedream_model="test-model",
     monolith_url="http://localhost:8000",
 )
 

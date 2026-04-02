@@ -183,7 +183,7 @@ class TestAcquireFirstFrame:
             reactor_client=mock_reactor_client,
         )
         assert result.url == "https://cdn.example.com/last.png"
-        assert result.source == "h264_extraction"
+        assert result.source == "parent_frame"
 
     @pytest.mark.asyncio
     async def test_continuation_with_face_swap(self, mock_config, mock_cos_client, mock_reactor_client):

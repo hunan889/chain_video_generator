@@ -65,45 +65,43 @@ class TestLoraList:
         assert resp.status_code == 200
         assert resp.json()["loras"] == []
 
-    def test_single_worker_loras_returned(self, client, fake_redis):
-        import asyncio
-        loras = [
-            {"name": "my_lora", "filename": "my_lora.safetensors", "size_mb": 120.5},
-            {"name": "another_lora", "filename": "another_lora.safetensors", "size_mb": 85.0},
+    def test_mysql_loras_returned(self, client):
+        """LoRA list endpoint returns data from MySQL (mocked)."""
+        from unittest.mock import patch, MagicMock
+
+        fake_rows = [
+            {"id": 1, "name": "my_lora", "file": "my_lora.safetensors",
+             "preview_url": None, "civitai_id": None,
+             "trigger_words": '["kw1"]', "trigger_prompt": None,
+             "mode": "both", "noise_stage": "high"},
+            {"id": 2, "name": "another_lora", "file": "another_lora.safetensors",
+             "preview_url": None, "civitai_id": None,
+             "trigger_words": "[]", "trigger_prompt": None,
+             "mode": "T2V", "noise_stage": "single"},
         ]
-        async def _seed():
-            from shared.redis_keys import worker_loras_key
-            await fake_redis.set(worker_loras_key("gpu-worker-1"), json.dumps(loras))
-        asyncio.get_event_loop().run_until_complete(_seed())
 
-        resp = client.get("/api/v1/loras")
-        assert resp.status_code == 200
-        result = resp.json()["loras"]
-        assert len(result) == 2
-        names = {l["name"] for l in result}
-        assert names == {"my_lora", "another_lora"}
+        mock_conn = MagicMock()
+        mock_cursor = MagicMock()
+        mock_cursor.fetchall.return_value = fake_rows
+        mock_conn.cursor.return_value.__enter__ = lambda s: mock_cursor
+        mock_conn.cursor.return_value.__exit__ = MagicMock(return_value=False)
 
-    def test_two_workers_deduplicated_by_name(self, client, fake_redis):
-        import asyncio
-        loras_w1 = [{"name": "shared_lora", "filename": "shared_lora.safetensors", "size_mb": 100.0},
-                    {"name": "only_w1", "filename": "only_w1.safetensors", "size_mb": 50.0}]
-        loras_w2 = [{"name": "shared_lora", "filename": "shared_lora.safetensors", "size_mb": 100.0},
-                    {"name": "only_w2", "filename": "only_w2.safetensors", "size_mb": 60.0}]
-        async def _seed():
-            from shared.redis_keys import worker_loras_key
-            await fake_redis.set(worker_loras_key("worker-1"), json.dumps(loras_w1))
-            await fake_redis.set(worker_loras_key("worker-2"), json.dumps(loras_w2))
-        asyncio.get_event_loop().run_until_complete(_seed())
+        with patch("pymysql.connect", return_value=mock_conn):
+            resp = client.get("/api/v1/loras")
+            assert resp.status_code == 200
+            result = resp.json()["loras"]
+            assert len(result) == 2
+            names = {l["name"] for l in result}
+            assert names == {"my_lora", "another_lora"}
 
-        resp = client.get("/api/v1/loras")
-        assert resp.status_code == 200
-        result = resp.json()["loras"]
-        names = [l["name"] for l in result]
-        assert len(names) == len(set(names)), "Duplicate LoRA names found"
-        assert "shared_lora" in names
-        assert "only_w1" in names
-        assert "only_w2" in names
-        assert len(names) == 3
+    def test_mysql_failure_returns_empty(self, client):
+        """When MySQL is unreachable, endpoint returns empty list (best-effort)."""
+        from unittest.mock import patch
+
+        with patch("pymysql.connect", side_effect=Exception("Connection refused")):
+            resp = client.get("/api/v1/loras")
+            assert resp.status_code == 200
+            assert resp.json()["loras"] == []
 
 
 class TestLoraDownload:

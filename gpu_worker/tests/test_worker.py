@@ -254,8 +254,9 @@ class TestHeartbeatReports:
         """Heartbeat should write worker info to Redis."""
         await heartbeat.start()
 
-        # Give the heartbeat loop a chance to run
-        await asyncio.sleep(0.2)
+        # Give the heartbeat loop a chance to run (aiohttp timeout to unreachable
+        # ComfyUI takes up to 3s, so we need to wait beyond that)
+        await asyncio.sleep(5)
 
         hb_key = worker_heartbeat_key("test-worker-1")
         data = await redis.hgetall(hb_key)
@@ -314,6 +315,7 @@ def _make_mock_comfyui_client(
     """Build an AsyncMock ComfyUIClient with sensible defaults."""
     client = AsyncMock()
     client.base_url = "http://127.0.0.1:8188"
+    client.get_running_prompt_id = AsyncMock(return_value=None)  # ComfyUI is free
     client.queue_prompt = AsyncMock(return_value=prompt_id)
     client.wait_for_completion = AsyncMock(return_value={
         "outputs": {"10": {"gifs": output_files or [

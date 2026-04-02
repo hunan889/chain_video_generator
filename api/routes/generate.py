@@ -2,6 +2,7 @@ import logging
 import random
 import json
 from fastapi import APIRouter, Depends, HTTPException, File, UploadFile, Form, Body, Request
+from pydantic import ValidationError
 from api.models.schemas import GenerateRequest, GenerateResponse, LoraInput
 from api.models.enums import GenerateMode, TaskStatus
 from api.middleware.auth import verify_api_key
@@ -56,14 +57,20 @@ async def generate_t2v(
     if "application/json" in content_type:
         # JSON body
         body = await request.json()
-        req = GenerateRequest(**body)
+        try:
+            req = GenerateRequest(**body)
+        except ValidationError as e:
+            raise HTTPException(422, detail=e.errors())
     elif "multipart/form-data" in content_type:
         # FormData
         form = await request.form()
         params = form.get("params")
         if not params:
             raise HTTPException(400, "Missing params in FormData")
-        req = GenerateRequest.model_validate_json(params)
+        try:
+            req = GenerateRequest.model_validate_json(params)
+        except ValidationError as e:
+            raise HTTPException(422, detail=e.errors())
         face_image = form.get("face_image")
     else:
         raise HTTPException(400, "Unsupported Content-Type. Use application/json or multipart/form-data")

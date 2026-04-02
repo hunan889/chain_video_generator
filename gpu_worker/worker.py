@@ -1,5 +1,6 @@
 """GPU Worker -- polls Redis for tasks and executes ComfyUI workflows."""
 
+import asyncio
 import json
 import logging
 import os
