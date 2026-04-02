@@ -509,7 +509,11 @@ async def _execute_workflow(workflow_id: str, req, task_manager, resume: bool = 
                         trace_wf_id = trace_parent_id
                     else:
                         # This is the root workflow — grab its first_frame_url
-                        origin_first_frame_url = trace_wf.get("first_frame_url")
+                        # For T2V roots (no input image), fallback to lossless last frame
+                        origin_first_frame_url = (
+                            trace_wf.get("first_frame_url")
+                            or trace_wf.get("lossless_last_frame_url")
+                        )
                         break
             # continuation_index = how many generations deep (1 = first continue, 2 = second, etc.)
             continuation_index = len(visited)  # visited contains all ancestor workflow IDs
@@ -1295,7 +1299,11 @@ async def _execute_workflow(workflow_id: str, req, task_manager, resume: bool = 
             completion_mapping["continuation_index"] = str(continuation_index)
         elif not is_continuation:
             # For root workflows, the origin is their own first frame
-            own_first_frame = await task_manager.redis.hget(f"workflow:{workflow_id}", "first_frame_url")
+            # For T2V roots (no input image), fallback to lossless last frame
+            own_first_frame = (
+                await task_manager.redis.hget(f"workflow:{workflow_id}", "first_frame_url")
+                or await task_manager.redis.hget(f"workflow:{workflow_id}", "lossless_last_frame_url")
+            )
             if own_first_frame:
                 completion_mapping["origin_first_frame_url"] = own_first_frame
         await task_manager.redis.hset(f"workflow:{workflow_id}", mapping=completion_mapping)

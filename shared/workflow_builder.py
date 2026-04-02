@@ -2213,7 +2213,7 @@ def build_merged_story_workflow(
         final_image_ref = [last_ids["vae_decode"], 0]
 
     # ColorMatch — stronger correction for continuations to prevent color drift
-    cm_strength = 0.6 if parent_video_filename else 0.4
+    cm_strength = 0.95 if parent_video_filename else 0.4
     workflow["1546"] = {
         "class_type": "ColorMatch",
         "inputs": {
