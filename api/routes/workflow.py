@@ -1239,6 +1239,18 @@ async def generate_advanced_workflow(req: WorkflowGenerateRequest, _=Depends(ver
             req.internal_config = merged
             logger.info(f"[WORKFLOW_PARAMS] {workflow_id} - Merged user internal_config with defaults: turbo={req.turbo}")
 
+        # Apply top-level auto_prompt/auto_lora/auto_analyze to internal_config
+        # so frontend request params override turbo defaults
+        if req.internal_config:
+            stage1 = req.internal_config.setdefault("stage1_prompt_analysis", {})
+            if req.auto_prompt != stage1.get("auto_prompt"):
+                stage1["auto_prompt"] = req.auto_prompt
+                logger.info(f"[WORKFLOW_PARAMS] {workflow_id} - Applied req.auto_prompt={req.auto_prompt} (override turbo default)")
+            if req.auto_lora != stage1.get("auto_lora"):
+                stage1["auto_lora"] = req.auto_lora
+            if req.auto_analyze != stage1.get("auto_analyze"):
+                stage1["auto_analyze"] = req.auto_analyze
+
         # Auto-enable prompt optimization for short prompts
         # Applies to both turbo mode and non-turbo mode with non_turbo=false
         min_chars = prompt_optimize_settings.get("min_chars", 20)
