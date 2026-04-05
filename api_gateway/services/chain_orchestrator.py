@@ -184,9 +184,12 @@ class ChainOrchestrator:
                 video_url = result.get("video_url") or ""
                 video_urls.append(video_url)
 
-                await self.redis.hset(chain_key(chain_id), mapping={
-                    "completed_segments": str(i + 1),
-                })
+                # Store last frame in chain so workflow can propagate it for continuations
+                chain_update = {"completed_segments": str(i + 1)}
+                if result.get("last_frame_url"):
+                    chain_update["lossless_last_frame_url"] = result["last_frame_url"]
+                    chain_update["last_frame_url"] = result["last_frame_url"]
+                await self.redis.hset(chain_key(chain_id), mapping=chain_update)
 
                 # For non-final segments with auto_continue: use VLM/LLM
                 if i < len(segments) - 1 and auto_continue:

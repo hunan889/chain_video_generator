@@ -912,15 +912,21 @@ async def generate_video(
             error=error_msg,
         )
 
-    # Propagate lossless last frame from chain to workflow
+    # Propagate last frame from chain to workflow for continuation support
     try:
         chain_data = await redis.hgetall(chain_key(chain_id))
         lossless_frame = chain_data.get("lossless_last_frame_url", "")
+        last_frame = chain_data.get("last_frame_url", "")
+        wf_update = {}
         if lossless_frame:
-            await redis.hset(f"workflow:{workflow_id}", "lossless_last_frame_url", lossless_frame)
-            logger.info("[%s] Propagated lossless frame to workflow: %s", workflow_id, lossless_frame)
+            wf_update["lossless_last_frame_url"] = lossless_frame
+        if last_frame:
+            wf_update["last_frame_url"] = last_frame
+        if wf_update:
+            await redis.hset(f"workflow:{workflow_id}", mapping=wf_update)
+            logger.info("[%s] Propagated last frame to workflow: %s", workflow_id, lossless_frame or last_frame)
     except Exception as exc:
-        logger.warning("[%s] Failed to propagate lossless frame: %s", workflow_id, exc)
+        logger.warning("[%s] Failed to propagate last frame: %s", workflow_id, exc)
 
     loras_info = [
         {"name": l.name, "strength": l.strength, "trigger_words": l.trigger_words, "trigger_prompt": l.trigger_prompt}
