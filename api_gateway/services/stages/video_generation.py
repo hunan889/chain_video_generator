@@ -25,7 +25,7 @@ logger = logging.getLogger(__name__)
 
 # Maximum polling time for video generation (20 minutes)
 _MAX_POLL_SECONDS = 1200
-_POLL_INTERVAL = 3.0
+_POLL_INTERVAL = 1.0
 
 
 # ---------------------------------------------------------------------------
@@ -685,6 +685,24 @@ async def generate_video(
             "cfg": video_cfg,
             "shift": video_shift,
         }
+
+    # ------------------------------------------------------------------
+    # 11b. Inject MMAudio nodes if enabled
+    # ------------------------------------------------------------------
+    if enable_mmaudio and not workflow.get("_meta", {}).get("fallback"):
+        try:
+            from shared.workflow_builder import _inject_mmaudio
+            workflow = _inject_mmaudio(
+                workflow,
+                fps=fps,
+                num_frames=num_frames,
+                prompt=mmaudio_prompt,
+                negative_prompt=mmaudio_negative_prompt,
+                steps=mmaudio_steps,
+                cfg=mmaudio_cfg,
+            )
+        except Exception as exc:
+            logger.warning("MMAudio injection failed: %s", exc)
 
     # ------------------------------------------------------------------
     # 12. Build task params

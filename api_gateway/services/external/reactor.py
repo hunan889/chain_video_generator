@@ -17,7 +17,9 @@ from shared.redis_keys import task_key, queue_key
 
 logger = logging.getLogger(__name__)
 
-# Image faceswap workflow template (uses mtb nodes available in ComfyUI)
+# Image faceswap workflow template — uses ReActorFaceSwap (GPU-accelerated).
+# Previously used mtb Face Swap nodes which ran on CPU (~90s).
+# ReActor uses CUDA and completes in ~10s.
 _FACESWAP_WORKFLOW = {
     "1": {
         "class_type": "LoadImage",
@@ -28,31 +30,31 @@ _FACESWAP_WORKFLOW = {
         "inputs": {"image": "__FACE_IMAGE__"},
     },
     "3": {
-        "class_type": "Load Face Swap Model (mtb)",
-        "inputs": {"faceswap_model": "inswapper_128.onnx"},
-    },
-    "4": {
-        "class_type": "Load Face Analysis Model (mtb)",
-        "inputs": {"faceanalysis_model": "buffalo_l"},
-    },
-    "5": {
-        "class_type": "Face Swap (mtb)",
+        "class_type": "ReActorFaceSwap",
         "inputs": {
-            "image": ["1", 0],
-            "reference": ["2", 0],
-            "swapper_model": ["3", 0],
-            "faceanalysis_model": ["4", 0],
-            "faces_index": "0",
+            "enabled": True,
+            "input_image": ["1", 0],
+            "source_image": ["2", 0],
+            "swap_model": "inswapper_128.onnx",
+            "facedetection": "retinaface_resnet50",
+            "face_restore_model": "codeformer-v0.1.0.pth",
+            "face_restore_visibility": 0.85,
+            "codeformer_weight": 0.3,
+            "detect_gender_input": "no",
+            "detect_gender_source": "no",
+            "input_faces_index": "0",
+            "source_faces_index": "0",
+            "console_log_level": 1,
         },
     },
-    "6": {
+    "4": {
         "class_type": "SaveImage",
-        "inputs": {"images": ["5", 0], "filename_prefix": "faceswap"},
+        "inputs": {"images": ["3", 0], "filename_prefix": "faceswap"},
     },
 }
 
 _MAX_WAIT = 120  # seconds
-_POLL_INTERVAL = 3  # seconds
+_POLL_INTERVAL = 1  # seconds
 
 
 class ReactorClient:
@@ -92,6 +94,13 @@ class ReactorClient:
 
         task_id = uuid.uuid4().hex
 
+        # Build workflow from template. Vary console_log_level per task to
+        # prevent ComfyUI from caching ReActor node outputs (cached executions
+        # return empty outputs dict, causing "No output files" errors).
+        workflow = json.loads(json.dumps(_FACESWAP_WORKFLOW))
+        workflow["3"]["inputs"]["console_log_level"] = hash(task_id) % 2
+        workflow["4"]["inputs"]["filename_prefix"] = f"faceswap_{task_id[:8]}"
+
         def _strip_to_cos_key(url: str) -> str:
             key = url
             if "://" in key:
@@ -119,8 +128,8 @@ class ReactorClient:
         task_data = {
             "status": "queued",
             "mode": GenerateMode.FACESWAP.value,
-            "model": ModelType.A14B.value,
-            "workflow": json.dumps(_FACESWAP_WORKFLOW),
+            "model": "faceswap",
+            "workflow": json.dumps(workflow),
             "params": json.dumps({"type": "image_faceswap", "strength": strength}),
             "progress": "0",
             "video_url": "",
@@ -131,7 +140,7 @@ class ReactorClient:
         tk = task_key(task_id)
         await self.redis.hset(tk, mapping=task_data)
         await self.redis.expire(tk, 3600)
-        await self.redis.rpush(queue_key(ModelType.A14B.value), task_id)
+        await self.redis.rpush(queue_key("faceswap"), task_id)
 
         logger.info("Submitted face swap task %s (target=%s face=%s)",
                      task_id, target_cos_url[:50], face_cos_url[:50])

@@ -203,6 +203,7 @@ class WorkflowEngine:
             task_id=workflow_id, task_type="workflow", category="local",
             provider="comfyui", prompt=user_prompt, model=None,
             params={"mode": mode, "turbo": turbo, "internal_config": internal_config},
+            parent_task_id=parent_wf_id if parent_wf_id else None,
         )
 
         # Launch background execution
@@ -286,6 +287,14 @@ class WorkflowEngine:
                 origin_first_frame_url = parent_workflow.get("origin_first_frame_url") or \
                                          parent_workflow.get("first_frame_url")
 
+                # Inherit reference_image from parent for continuation face swap.
+                # The frontend continuation request carries face_swap.enabled via
+                # internal_config (controlled by the Settings "Swap Face" toggle)
+                # but does NOT include reference_image — we must inherit it.
+                if not req.get("reference_image") and parent_workflow.get("reference_image"):
+                    req["reference_image"] = parent_workflow["reference_image"]
+                    logger.info("[%s] Inherited reference_image from parent", workflow_id)
+
             # ---- Stage 1: Prompt Analysis ----
             await self._update_stage(wf_key, "prompt_analysis", "running")
             from api_gateway.services.stages.prompt_analysis import analyze_prompt
@@ -361,6 +370,23 @@ class WorkflowEngine:
                         byteplus_client=bp, reactor_client=rc, cos_client=self.cos_client,
                     )
                     edited_frame_url = sd_result.url if hasattr(sd_result, 'url') else sd_result
+                    # Re-upload BytePlus temp URL to COS for permanent storage
+                    if edited_frame_url and "ark-acg" in edited_frame_url and self.cos_client:
+                        try:
+                            import httpx as _httpx, tempfile, os
+                            async with _httpx.AsyncClient(timeout=30.0) as _hc:
+                                _resp = await _hc.get(edited_frame_url)
+                                _resp.raise_for_status()
+                            _ext = ".png" if "png" in edited_frame_url.lower() else ".jpeg"
+                            _fname = f"first_frame_{workflow_id}{_ext}"
+                            _tmp = tempfile.NamedTemporaryFile(suffix=_ext, delete=False)
+                            _tmp.write(_resp.content)
+                            _tmp.close()
+                            edited_frame_url = self.cos_client.upload_file(_tmp.name, "frames", _fname)
+                            os.unlink(_tmp.name)
+                            logger.info("[%s] Re-uploaded edited frame to COS: %s", workflow_id, edited_frame_url)
+                        except Exception as _e:
+                            logger.warning("[%s] Failed to re-upload edited frame to COS: %s", workflow_id, _e)
                     if edited_frame_url:
                         await self.redis.hset(wf_key, "edited_frame_url", edited_frame_url)
                     await self._update_stage(wf_key, "seedream_edit", "completed",

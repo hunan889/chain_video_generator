@@ -788,6 +788,97 @@ def _inject_upscale(workflow: dict) -> dict:
     return workflow
 
 
+def _inject_mmaudio(
+    workflow: dict,
+    fps: int = 16,
+    num_frames: int = 81,
+    prompt: str = "",
+    negative_prompt: str = "",
+    steps: int = 12,
+    cfg: float = 4.5,
+) -> dict:
+    """Inject MMAudio nodes into an existing workflow to add generated audio.
+
+    Finds VHS_VideoCombine, adds MMAudio model/features/sampler nodes,
+    and wires the audio output into the combine node.
+    """
+    # Find VHS_VideoCombine and its image source
+    combine_id = None
+    for nid, node in workflow.items():
+        if node.get("class_type") == "VHS_VideoCombine":
+            combine_id = nid
+            break
+    if not combine_id:
+        logger.warning("No VHS_VideoCombine found, skipping MMAudio injection")
+        return workflow
+
+    images_input = workflow[combine_id]["inputs"].get("images")
+    if not isinstance(images_input, list) or len(images_input) != 2:
+        logger.warning("VHS_VideoCombine images input unexpected, skipping MMAudio")
+        return workflow
+
+    # Find max numeric ID
+    max_id = 0
+    for k in workflow.keys():
+        if ':' in k:
+            for part in k.split(':'):
+                if part.isdigit():
+                    max_id = max(max_id, int(part))
+        elif k.isdigit():
+            max_id = max(max_id, int(k))
+
+    model_id = str(max_id + 1)
+    features_id = str(max_id + 2)
+    sampler_id = str(max_id + 3)
+
+    audio_duration = num_frames / fps
+
+    workflow[model_id] = {
+        "class_type": "MMAudioModelLoader",
+        "inputs": {
+            "mmaudio_model": "mmaudio_large_44k_nsfw_gold_8.5k_final_fp16.safetensors",
+            "base_precision": "fp16",
+        },
+        "_meta": {"title": "MMAudio Model"},
+    }
+    workflow[features_id] = {
+        "class_type": "MMAudioFeatureUtilsLoader",
+        "inputs": {
+            "vae_model": "mmaudio_vae_44k_fp16.safetensors",
+            "synchformer_model": "mmaudio_synchformer_fp16.safetensors",
+            "clip_model": "apple_DFN5B-CLIP-ViT-H-14-384_fp16.safetensors",
+            "mode": "44k",
+            "precision": "fp16",
+        },
+        "_meta": {"title": "MMAudio Features"},
+    }
+    workflow[sampler_id] = {
+        "class_type": "MMAudioSampler",
+        "inputs": {
+            "mmaudio_model": [model_id, 0],
+            "feature_utils": [features_id, 0],
+            "duration": audio_duration,
+            "steps": steps,
+            "cfg": cfg,
+            "seed": random.randint(0, 1125899906842624),
+            "prompt": prompt,
+            "negative_prompt": negative_prompt,
+            "mask_away_clip": False,
+            "force_offload": True,
+            "images": images_input,
+            "source_fps": float(fps),
+        },
+        "_meta": {"title": "MMAudio Sampler"},
+    }
+
+    # Wire audio into VHS_VideoCombine
+    workflow[combine_id]["inputs"]["audio"] = [sampler_id, 0]
+    workflow[combine_id]["inputs"]["trim_to_audio"] = True
+
+    logger.info("Injected MMAudio nodes (model=%s, features=%s, sampler=%s)", model_id, features_id, sampler_id)
+    return workflow
+
+
 def build_workflow(
     mode: GenerateMode,
     model: ModelType,

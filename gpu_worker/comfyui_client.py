@@ -230,20 +230,34 @@ class ComfyUIClient:
                     now = asyncio.get_event_loop().time()
                     if now - last_poll >= 10:
                         history = await self.get_history(prompt_id)
-                        if history and history.get("status", {}).get("completed", False):
-                            return history
-                        if history and history.get("outputs"):
-                            return history
+                        if history:
+                            status = history.get("status", {})
+                            if status.get("completed", False):
+                                return history
+                            if status.get("status_str") == "error":
+                                err = status.get("messages", [])
+                                err_msg = next((m[1].get("exception_message", "") for m in err if m[0] == "execution_error"), "ComfyUI execution error")
+                                raise RuntimeError(err_msg)
+                            if history.get("outputs"):
+                                return history
                         last_poll = now
+        except RuntimeError:
+            raise
         except Exception as e:
             logger.warning(f"WebSocket failed, falling back to polling: {e}")
         # Polling fallback
         deadline = asyncio.get_event_loop().time() + timeout
         while asyncio.get_event_loop().time() < deadline:
             history = await self.get_history(prompt_id)
-            if history and history.get("status", {}).get("completed", False):
-                return history
-            if history and history.get("outputs"):
-                return history
+            if history:
+                status = history.get("status", {})
+                if status.get("completed", False):
+                    return history
+                if status.get("status_str") == "error":
+                    err = status.get("messages", [])
+                    err_msg = next((m[1].get("exception_message", "") for m in err if m[0] == "execution_error"), "ComfyUI execution error")
+                    raise RuntimeError(err_msg)
+                if history.get("outputs"):
+                    return history
             await asyncio.sleep(2)
         raise TimeoutError(f"Prompt {prompt_id} timed out after {timeout}s")

@@ -138,7 +138,12 @@ class GPUWorker:
         elif mode == GenerateMode.LORA_DOWNLOAD.value:
             await self._process_lora_download_task(task_id, raw_data)
         elif mode in postprocess_modes:
-            await self._process_postprocess_task(task_id, raw_data)
+            # FACESWAP with a workflow field is an image face swap via ComfyUI,
+            # not video postprocess (which expects source_video in params)
+            if raw_data.get("workflow") and mode == GenerateMode.FACESWAP.value:
+                await self._process_comfyui_task(task_id, raw_data)
+            else:
+                await self._process_postprocess_task(task_id, raw_data)
         else:
             await self._process_comfyui_task(task_id, raw_data)
 
@@ -212,6 +217,9 @@ class GPUWorker:
 
             # Step 6: Download result from ComfyUI
             output_files = await client.get_output_files(prompt_id)
+            # Fallback to images for non-video workflows (e.g. face swap)
+            if not output_files:
+                output_files = await client.get_output_images(prompt_id)
             if not output_files:
                 raise RuntimeError(
                     f"No output files generated for task {task_id}"
@@ -370,7 +378,9 @@ class GPUWorker:
         for file_info in input_files:
             cos_key = file_info["cos_key"]
             placeholder = file_info["placeholder"]
-            basename = os.path.basename(cos_key)
+            # Prefix with task_id to ensure unique filenames per task,
+            # preventing ComfyUI from caching LoadImage node outputs.
+            basename = f"{task_id[:8]}_{os.path.basename(cos_key)}"
 
             # Download from COS to temp file
             file_data = self._download_from_cos(cos_key)
