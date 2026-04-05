@@ -73,6 +73,19 @@ async def _list_history(
             # Fetch real-time data from Redis
             try:
                 redis_data = await gw.get_task(task_id)
+
+                # Workflow tasks (wf_*) are stored under workflow:{id}, not task:{id}
+                if not redis_data and task_id.startswith("wf_"):
+                    wf_raw = await redis.hgetall(f"workflow:{task_id}")
+                    if wf_raw:
+                        redis_data = {
+                            "status": wf_raw.get("status", ""),
+                            "video_url": wf_raw.get("final_video_url") or wf_raw.get("video_url"),
+                            "error": wf_raw.get("error"),
+                            "first_frame_url": wf_raw.get("first_frame_url"),
+                            "edited_frame_url": wf_raw.get("edited_frame_url"),
+                        }
+
                 if redis_data:
                     redis_status = redis_data.get("status", "")
                     # Merge real-time fields
@@ -86,6 +99,12 @@ async def _list_history(
                     video_url = redis_data.get("video_url")
                     if video_url:
                         item["final_video_url"] = video_url
+
+                    # Merge frame URLs from workflow Redis data
+                    if redis_data.get("first_frame_url"):
+                        item["first_frame_url"] = redis_data["first_frame_url"]
+                    if redis_data.get("edited_frame_url"):
+                        item["edited_frame_url"] = redis_data["edited_frame_url"]
 
                     error = redis_data.get("error")
                     if error:

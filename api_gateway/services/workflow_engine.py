@@ -20,8 +20,8 @@ logger = logging.getLogger(__name__)
 
 # Stage names and weights for progress calculation
 STAGE_NAMES = ["prompt_analysis", "first_frame_acquisition", "seedream_edit", "video_generation"]
-STAGE_WEIGHTS = {"prompt_analysis": 0.02, "first_frame_acquisition": 0.08,
-                 "seedream_edit": 0.05, "video_generation": 0.85}
+STAGE_WEIGHTS = {"prompt_analysis": 0.05, "first_frame_acquisition": 0.10,
+                 "seedream_edit": 0.10, "video_generation": 0.75}
 
 
 def _deep_merge(base: dict, override: dict) -> dict:
@@ -205,6 +205,8 @@ class WorkflowEngine:
             params={"mode": mode, "turbo": turbo, "internal_config": internal_config},
             parent_task_id=parent_wf_id if parent_wf_id else None,
         )
+        # Immediately mark as running in MySQL to match Redis status
+        await self.task_store.update_status(workflow_id, "running")
 
         # Launch background execution
         task = asyncio.create_task(self._execute_workflow(workflow_id, req, internal_config, mode))
