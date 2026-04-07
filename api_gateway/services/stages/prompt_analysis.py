@@ -617,25 +617,22 @@ def _analyze_prompt_sync(
         skip_llm = True  # noqa: F841 — reserved for future LLM integration
 
     # ── Step 1: Pose matching ──────────────────────────────────────────
+    # Pose matching itself is now done by the async PoseRecommender called
+    # in analyze_prompt() before this sync function runs. If pose_keys is
+    # still empty here, it means the recommender deliberately declined to
+    # pick anything (no synonym anchor + low embedding confidence). The
+    # legacy substring matcher (_recommend_poses_sync) is intentionally
+    # NOT invoked as a fallback — its naive substring containment was the
+    # source of the original 'oral sex' → cowgirl bug, and turning it on
+    # here re-introduces things like 'beautiful sunset on a beach' →
+    # strap_on (because 'on' is a substring of the prompt).
     effective_pose_keys: list[str] = list(pose_keys) if pose_keys else []
-    if not effective_pose_keys and auto_completion >= 2:
-        try:
-            pose_min_score = 0.5 if mode in (None, "t2v", "first_frame") else 0.3
-            recommendations = _recommend_poses_sync(
-                config, user_prompt, top_k=5, min_score=pose_min_score
-            )
-            if recommendations:
-                best = recommendations[0]
-                effective_pose_keys = [best["pose_key"]]
-                logger.info(
-                    "Auto-selected pose: %s (score: %s)",
-                    best["pose_key"],
-                    best.get("score"),
-                )
-        except Exception as exc:
-            logger.warning("Auto pose recommendation failed: %s", exc)
-    elif not effective_pose_keys:
-        logger.info("Pose matching skipped (auto_completion=%d < 2)", auto_completion)
+    if not effective_pose_keys:
+        logger.info(
+            "No pose selected by recommender for prompt %r — proceeding "
+            "without a pose-derived LoRA",
+            user_prompt[:80],
+        )
 
     # ── Step 2: LoRA selection ─────────────────────────────────────────
     image_loras: list[dict] = []
@@ -687,37 +684,22 @@ def _analyze_prompt_sync(
             "yes" if reference_image else "no",
         )
 
-    # ── Step 2b: Keyword search fallback when pose yields no video LoRAs
+    # ── Step 2b: Keyword search fallback (DISABLED) ────────────────────
+    # Previously, when no pose was matched the gateway ran a SQL LIKE query
+    # against lora_metadata, scoring LoRAs by keyword hits. This was the
+    # second source of the original 'oral sex 4k' → reverse_cowgirl bug:
+    # the description "Reverse cowgirl sex position" matched 'sex' and the
+    # cowgirl LoRA was selected for completely unrelated prompts.
+    #
+    # Now that the PoseRecommender owns intent detection (synonym + BGE +
+    # LLM rerank), we trust its empty result. If it returned nothing, the
+    # user prompt simply doesn't map to any pose we know about and we
+    # should NOT inject a random NSFW LoRA via keyword soup.
     if not video_loras and auto_completion >= 2:
-        try:
-            results = _keyword_search_video_loras_sync(
-                config, user_prompt, mode, top_k=5
-            )
-            if results:
-                best = results[0]
-                tw = best.get("trigger_words")
-                if isinstance(tw, str):
-                    try:
-                        tw = json.loads(tw)
-                    except Exception:
-                        tw = []
-                video_loras.append({
-                    "lora_id": best["id"],
-                    "name": best.get("name", ""),
-                    "weight": 0.8,
-                    "trigger_words": tw or [],
-                    "trigger_prompt": best.get("trigger_prompt") or None,
-                    "noise_stage": best.get("noise_stage"),
-                })
-                logger.info(
-                    "Keyword LoRA fallback: selected '%s' (id=%s)",
-                    best.get("name"),
-                    best["id"],
-                )
-            else:
-                logger.info("Keyword LoRA fallback: no match found")
-        except Exception as exc:
-            logger.warning("Keyword LoRA fallback failed: %s", exc)
+        logger.info(
+            "No video LoRA from pose; keyword fallback intentionally skipped "
+            "(see prompt_analysis.py comment)"
+        )
 
     # Enrich all loras with preview_url / trigger data
     _enrich_loras_from_db(config, image_loras, video_loras)
