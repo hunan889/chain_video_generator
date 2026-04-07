@@ -191,45 +191,92 @@ class ChainOrchestrator:
                     chain_update["last_frame_url"] = result["last_frame_url"]
                 await self.redis.hset(chain_key(chain_id), mapping=chain_update)
 
-                # For non-final segments with auto_continue: use VLM/LLM via Redis
-                # (gpu/inference_worker on 148, NOT direct HTTP — vLLM on 148 is
-                # bound to 127.0.0.1 only and unreachable from the gateway box).
+                # For non-final segments with auto_continue: generate the next
+                # segment's prompt via VLM (frame description) + LLM (continuation
+                # writer). All GPU work goes through Redis → gpu/inference_worker;
+                # the gateway never talks to vLLM directly.
+                #
+                # Two-tier strategy:
+                #   Tier 1 (rich): story-arc aware via PromptOptimizer.generate_continuation_prompt
+                #   Tier 2 (simple): plain VLM describe + 1-2 sentence LLM follow-on
+                #
+                # Tier 1 uses match_story_arcs (config/story_arcs.yaml) to tell
+                # the LLM where in the narrative the chain currently is, so the
+                # next segment progresses naturally (foreplay → intercourse →
+                # climax → aftermath etc). Tier 2 just looks at the previous
+                # frame and writes a short cinematic follow-on with no narrative
+                # awareness.
                 if i < len(segments) - 1 and auto_continue:
                     last_frame_url = result.get("last_frame_url")
                     if last_frame_url:
                         from api_gateway.services.continuation import (
                             describe_frame,
                             generate_continuation_prompt,
+                            rich_continuation_prompt,
                         )
-                        description = await describe_frame(
-                            image_url=last_frame_url,
-                            redis=self.redis,
-                            model=self._vision_model,
-                        )
-                        if description:
-                            next_prompt = await generate_continuation_prompt(
-                                frame_description=description,
+
+                        next_prompt: Optional[str] = None
+                        # ── Tier 1: rich, story-arc-aware ────────────────
+                        try:
+                            next_prompt = await rich_continuation_prompt(
+                                frame_url=last_frame_url,
                                 previous_prompt=segment.get("prompt", ""),
+                                user_intent=segments[i + 1].get("prompt", ""),
+                                duration=float(segments[i + 1].get("duration", 5.0)),
+                                continuation_index=i + 1,
                                 redis=self.redis,
-                                model=self._llm_model,
+                                llm_api_key=self._llm_api_key,
+                                llm_base_url=self._llm_base_url,
+                                llm_model=self._llm_model,
+                                vision_api_key=self._vision_api_key,
+                                vision_base_url=self._vision_base_url,
+                                vision_model=self._vision_model,
                             )
                             if next_prompt:
-                                segments[i + 1]["prompt"] = next_prompt
                                 logger.info(
-                                    "Chain %s segment %d: auto-continue prompt set: %s",
-                                    chain_id, i + 1, next_prompt
+                                    "Chain %s segment %d: rich continuation prompt set: %s",
+                                    chain_id, i + 1, next_prompt[:200],
                                 )
+                        except Exception as exc:
+                            logger.warning(
+                                "Chain %s segment %d: rich continuation crashed (%s); "
+                                "falling back to simple",
+                                chain_id, i + 1, exc,
+                            )
+
+                        # ── Tier 2: simple fallback ──────────────────────
+                        if not next_prompt:
+                            description = await describe_frame(
+                                image_url=last_frame_url,
+                                redis=self.redis,
+                                model=self._vision_model,
+                            )
+                            if description:
+                                next_prompt = await generate_continuation_prompt(
+                                    frame_description=description,
+                                    previous_prompt=segment.get("prompt", ""),
+                                    redis=self.redis,
+                                    model=self._llm_model,
+                                )
+                                if next_prompt:
+                                    logger.info(
+                                        "Chain %s segment %d: simple continuation prompt set: %s",
+                                        chain_id, i + 1, next_prompt,
+                                    )
+                                else:
+                                    logger.warning(
+                                        "Chain %s segment %d: simple LLM continuation returned empty",
+                                        chain_id, i + 1,
+                                    )
                             else:
                                 logger.warning(
-                                    "Chain %s segment %d: LLM continuation returned empty",
+                                    "Chain %s segment %d: VLM frame description failed; "
+                                    "next segment will use its pre-set prompt",
                                     chain_id, i + 1,
                                 )
-                        else:
-                            logger.warning(
-                                "Chain %s segment %d: VLM frame description failed; "
-                                "next segment will use its pre-set prompt",
-                                chain_id, i + 1,
-                            )
+
+                        if next_prompt:
+                            segments[i + 1]["prompt"] = next_prompt
 
             # All segments completed successfully
             final_video_url = video_urls[-1] if video_urls else ""
