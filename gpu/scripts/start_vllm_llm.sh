@@ -33,6 +33,7 @@ fi
 
 CUDA_VISIBLE_DEVICES="$GPU_IDS" nohup "$VLLM_PYTHON" -m vllm.entrypoints.openai.api_server \
     --model "$MODEL_PATH" \
+    --served-model-name Qwen3-14B-v2-Abliterated \
     --tensor-parallel-size "$TENSOR_PARALLEL_SIZE" \
     --max-model-len "$MAX_MODEL_LEN" \
     --trust-remote-code \

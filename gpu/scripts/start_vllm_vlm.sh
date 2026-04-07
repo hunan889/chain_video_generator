@@ -31,6 +31,7 @@ fi
 
 CUDA_VISIBLE_DEVICES="$GPU_IDS" nohup "$VLLM_PYTHON" -m vllm.entrypoints.openai.api_server \
     --model "$MODEL_PATH" \
+    --served-model-name Qwen2.5-VL-7B-Instruct-Unredacted-MAX \
     --tensor-parallel-size 1 \
     --max-model-len "$MAX_MODEL_LEN" \
     --trust-remote-code \
