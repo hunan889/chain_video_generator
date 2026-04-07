@@ -871,12 +871,20 @@ async def generate_video(
 
         if last_status == "completed":
             final_video_url = task_data.get("video_url")
-            # Also update chain status
-            await redis.hset(chain_key(chain_id), mapping={
+            # Also update chain status, including last frame for continuation
+            chain_update = {
                 "status": "completed",
                 "final_video_url": final_video_url or "",
-            })
-            logger.info("[%s] Task completed, video URL: %s", workflow_id, final_video_url)
+            }
+            task_last_frame = task_data.get("last_frame_url", "")
+            task_lossless_frame = task_data.get("lossless_last_frame_url", "")
+            if task_last_frame:
+                chain_update["last_frame_url"] = task_last_frame
+            if task_lossless_frame:
+                chain_update["lossless_last_frame_url"] = task_lossless_frame
+            await redis.hset(chain_key(chain_id), mapping=chain_update)
+            logger.info("[%s] Task completed, video URL: %s, last_frame: %s",
+                        workflow_id, final_video_url, task_lossless_frame or task_last_frame or "none")
             break
         elif last_status == "failed":
             error = task_data.get("error", "Unknown error")
