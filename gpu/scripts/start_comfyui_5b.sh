@@ -3,7 +3,8 @@
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
+# Script lives at <repo>/gpu/scripts/, so the repo root is two levels up.
+PROJECT_DIR="$(dirname "$(dirname "$SCRIPT_DIR")")"
 if [ -f "$PROJECT_DIR/.env" ]; then
     set -a; source "$PROJECT_DIR/.env"; set +a
 fi
