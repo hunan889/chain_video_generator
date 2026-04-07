@@ -22,6 +22,15 @@ def get_gateway(request: Request) -> TaskGateway:
     return request.app.state.gateway
 
 
+def get_redis(request: Request):
+    """Return the async Redis connection stored in app state.
+
+    Used by anything that needs to talk to gpu/inference_worker via the
+    Redis-backed InferenceClient (pose recommender, prompt optimizer, etc).
+    """
+    return request.app.state.redis
+
+
 def get_cos_client(request: Request) -> COSClient:
     """Return the COSClient singleton stored in app state."""
     return request.app.state.cos_client

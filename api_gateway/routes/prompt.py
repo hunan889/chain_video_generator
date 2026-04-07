@@ -12,7 +12,7 @@ from fastapi import APIRouter, Depends, HTTPException, Body
 from pydantic import BaseModel, Field
 
 from api_gateway.config import GatewayConfig
-from api_gateway.dependencies import get_config
+from api_gateway.dependencies import get_config, get_redis
 from api_gateway.services.prompt_optimizer import make_prompt_optimizer
 
 logger = logging.getLogger(__name__)
@@ -86,6 +86,7 @@ def _load_lora_context(lora_names: list[str], loras_yaml_path: str) -> tuple[lis
 async def optimize_prompt(
     req: PromptOptimizeRequest,
     config: GatewayConfig = Depends(get_config),
+    redis=Depends(get_redis),
 ):
     """Optimize a video generation prompt using LLM."""
     if not config.llm_api_key:
@@ -101,6 +102,7 @@ async def optimize_prompt(
             vision_api_key=config.vision_api_key,
             vision_base_url=config.vision_base_url,
             vision_model=config.vision_model,
+            redis=redis,
         )
         result = await optimizer.optimize(
             req.prompt, trigger_words, req.mode,
@@ -131,6 +133,7 @@ async def optimize_prompt(
 async def describe_image(
     image_base64: str = Body(..., embed=True),
     config: GatewayConfig = Depends(get_config),
+    redis=Depends(get_redis),
 ):
     """Describe an image using the vision model."""
     if not config.vision_api_key:
@@ -144,6 +147,7 @@ async def describe_image(
             vision_api_key=config.vision_api_key,
             vision_base_url=config.vision_base_url,
             vision_model=config.vision_model,
+            redis=redis,
         )
         description = await optimizer._describe_image(image_base64)
         return {"description": description}
@@ -156,6 +160,7 @@ async def describe_image(
 async def generate_continuation(
     req: ContinuationRequest,
     config: GatewayConfig = Depends(get_config),
+    redis=Depends(get_redis),
 ):
     """Generate a continuation prompt for the next chain segment."""
     if not config.llm_api_key:
@@ -169,6 +174,7 @@ async def generate_continuation(
             vision_api_key=config.vision_api_key,
             vision_base_url=config.vision_base_url,
             vision_model=config.vision_model,
+            redis=redis,
         )
         result = await optimizer.generate_continuation_prompt(
             user_intent=req.user_intent,

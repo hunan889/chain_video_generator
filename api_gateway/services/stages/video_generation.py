@@ -221,11 +221,14 @@ async def _optimize_video_prompt(
     internal_config: dict,
     video_loras: list[dict],
     config: GatewayConfig,
+    redis,
 ) -> str:
     """Run unified prompt generation via PromptOptimizer.
 
     Single LLM call that analyzes + optimizes + adapts to the first frame.
-    Falls back to raw user prompt on failure.
+    Falls back to raw user prompt on failure. All vLLM traffic goes through
+    Redis → ``gpu/inference_worker`` (the ``redis`` arg is the gateway's
+    async Redis connection used to push tasks onto ``queue:inference``).
     """
     auto_prompt = internal_config.get("stage1_prompt_analysis", {}).get("auto_prompt", True)
     if not auto_prompt:
@@ -241,6 +244,7 @@ async def _optimize_video_prompt(
             vision_api_key=config.vision_api_key,
             vision_base_url=config.vision_base_url,
             vision_model=config.vision_model,
+            redis=redis,
         )
 
         # Determine optimizer mode
@@ -514,6 +518,7 @@ async def generate_video(
         internal_config=internal_config,
         video_loras=video_loras,
         config=config,
+        redis=redis,
     )
 
     # Use analysis video_prompt if available and auto_prompt

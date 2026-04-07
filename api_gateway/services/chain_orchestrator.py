@@ -191,26 +191,26 @@ class ChainOrchestrator:
                     chain_update["last_frame_url"] = result["last_frame_url"]
                 await self.redis.hset(chain_key(chain_id), mapping=chain_update)
 
-                # For non-final segments with auto_continue: use VLM/LLM
+                # For non-final segments with auto_continue: use VLM/LLM via Redis
+                # (gpu/inference_worker on 148, NOT direct HTTP — vLLM on 148 is
+                # bound to 127.0.0.1 only and unreachable from the gateway box).
                 if i < len(segments) - 1 and auto_continue:
                     last_frame_url = result.get("last_frame_url")
-                    if last_frame_url and self._vision_api_key:
+                    if last_frame_url:
                         from api_gateway.services.continuation import (
                             describe_frame,
                             generate_continuation_prompt,
                         )
                         description = await describe_frame(
                             image_url=last_frame_url,
-                            api_key=self._vision_api_key,
-                            base_url=self._vision_base_url,
+                            redis=self.redis,
                             model=self._vision_model,
                         )
-                        if description and self._llm_api_key:
+                        if description:
                             next_prompt = await generate_continuation_prompt(
                                 frame_description=description,
                                 previous_prompt=segment.get("prompt", ""),
-                                api_key=self._llm_api_key,
-                                base_url=self._llm_base_url,
+                                redis=self.redis,
                                 model=self._llm_model,
                             )
                             if next_prompt:
@@ -219,6 +219,17 @@ class ChainOrchestrator:
                                     "Chain %s segment %d: auto-continue prompt set: %s",
                                     chain_id, i + 1, next_prompt
                                 )
+                            else:
+                                logger.warning(
+                                    "Chain %s segment %d: LLM continuation returned empty",
+                                    chain_id, i + 1,
+                                )
+                        else:
+                            logger.warning(
+                                "Chain %s segment %d: VLM frame description failed; "
+                                "next segment will use its pre-set prompt",
+                                chain_id, i + 1,
+                            )
 
             # All segments completed successfully
             final_video_url = video_urls[-1] if video_urls else ""
