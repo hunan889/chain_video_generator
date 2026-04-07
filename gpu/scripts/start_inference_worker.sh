@@ -18,8 +18,7 @@
 set -e
 
 INFERENCE_GPU_ID="${INFERENCE_GPU_ID:-7}"
-CONDA_ENV="${VLLM_CONDA_ENV:-llm}"
-CONDA_BIN="${CONDA_BIN:-/home/gime/soft/miniconda3/bin}"
+INFERENCE_PYTHON="${INFERENCE_PYTHON:-/home/gime/soft/conda_env/llm/bin/python}"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="${PROJECT_DIR:-$(dirname "$(dirname "$SCRIPT_DIR")")}"
@@ -32,9 +31,6 @@ if [ -f "$PID_FILE" ] && kill -0 "$(cat "$PID_FILE")" 2>/dev/null; then
     exit 1
 fi
 
-# shellcheck disable=SC1091
-source "$CONDA_BIN/activate" "$CONDA_ENV"
-
 cd "$PROJECT_DIR"
 export PYTHONPATH="$PROJECT_DIR:${PYTHONPATH:-}"
 
@@ -42,7 +38,7 @@ export PYTHONPATH="$PROJECT_DIR:${PYTHONPATH:-}"
 # torch sees that card as cuda:0, so EMBEDDING_DEVICE should be "cuda".
 CUDA_VISIBLE_DEVICES="$INFERENCE_GPU_ID" \
 EMBEDDING_DEVICE="${EMBEDDING_DEVICE:-cuda}" \
-nohup python -m gpu.inference_worker.main \
+nohup "$INFERENCE_PYTHON" -m gpu.inference_worker.main \
     > "$LOG_FILE" 2>&1 &
 
 echo $! > "$PID_FILE"

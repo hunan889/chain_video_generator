@@ -19,8 +19,9 @@ TENSOR_PARALLEL_SIZE="${LLM_TP_SIZE:-2}"
 MAX_MODEL_LEN="${LLM_MAX_LEN:-32768}"
 GPU_MEM_UTIL="${LLM_GPU_MEM_UTIL:-0.85}"
 
-CONDA_ENV="${VLLM_CONDA_ENV:-llm}"
-CONDA_BIN="${CONDA_BIN:-/home/gime/soft/miniconda3/bin}"
+# Use the absolute path to the conda env's python directly to avoid having
+# to know whether the env is at miniconda3/envs/llm or conda_env/llm.
+VLLM_PYTHON="${VLLM_PYTHON:-/home/gime/soft/conda_env/llm/bin/python}"
 
 LOG_FILE="/tmp/vllm_llm.log"
 PID_FILE="/tmp/vllm_llm.pid"
@@ -30,10 +31,7 @@ if [ -f "$PID_FILE" ] && kill -0 "$(cat "$PID_FILE")" 2>/dev/null; then
     exit 1
 fi
 
-# shellcheck disable=SC1091
-source "$CONDA_BIN/activate" "$CONDA_ENV"
-
-CUDA_VISIBLE_DEVICES="$GPU_IDS" nohup python -m vllm.entrypoints.openai.api_server \
+CUDA_VISIBLE_DEVICES="$GPU_IDS" nohup "$VLLM_PYTHON" -m vllm.entrypoints.openai.api_server \
     --model "$MODEL_PATH" \
     --tensor-parallel-size "$TENSOR_PARALLEL_SIZE" \
     --max-model-len "$MAX_MODEL_LEN" \
