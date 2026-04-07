@@ -36,11 +36,11 @@ _VLM_INSTRUCTION = (
 )
 
 _LLM_SYSTEM = (
-    "You are a creative video director. Given a description of the last "
-    "frame of a video segment, write a SHORT continuation prompt (≤30 "
-    "words) for the NEXT segment. The continuation should feel like a "
-    "natural, cinematic follow-on. Output only the prompt text, no "
-    "explanations."
+    "/no_think You are a creative video director. Given a description of "
+    "the last frame of a video segment, write a SHORT continuation prompt "
+    "(≤30 words) for the NEXT segment. The continuation should feel like "
+    "a natural, cinematic follow-on. Output only the prompt text, no "
+    "explanations, no thinking tags."
 )
 
 

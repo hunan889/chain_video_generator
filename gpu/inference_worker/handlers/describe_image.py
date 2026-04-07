@@ -84,8 +84,11 @@ async def handle(
     data = resp.json()
 
     text = data["choices"][0]["message"]["content"].strip()
-    # Strip <think>...</think> tags if the model emits reasoning
+    # Strip closed <think>...</think> blocks
     text = re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL).strip()
+    # Drop responses that ran out of tokens mid-think
+    if text.lstrip().startswith("<think>") and "</think>" not in text:
+        text = ""
 
     return {"text": text, "model": model}
 

@@ -66,8 +66,13 @@ async def handle(
     data = resp.json()
 
     text = data["choices"][0]["message"]["content"].strip()
-    # Strip <think>...</think> tags if the model emits reasoning
+    # Strip closed <think>...</think> blocks first
     text = re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL).strip()
+    # If the response starts with an *unclosed* <think> (because Qwen3 ran out
+    # of max_tokens before closing the tag), drop the entire response — we
+    # have no usable answer to return.
+    if text.lstrip().startswith("<think>") and "</think>" not in text:
+        text = ""
 
     return {
         "text": text,
