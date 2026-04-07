@@ -49,6 +49,10 @@ logger = logging.getLogger(__name__)
 DEFAULT_MIN_SCORE = 0.5
 LLM_TRUST_THRESHOLD = 0.85   # if top embedding score >= this, skip LLM rerank
 EMBEDDING_TOP_K = 10
+# When the user prompt has NO synonym anchor, demand a much higher embedding
+# score before declaring a match. BGE's noise floor for unrelated content sits
+# around 0.5-0.65, so 0.7 leaves a comfortable margin.
+EMBEDDING_ONLY_MIN_SCORE = 0.70
 
 
 @dataclass
@@ -190,6 +194,19 @@ class PoseRecommender:
         embedding_scores = dict(cosine_top_k(
             query_vec, self._embedding_set, top_k=EMBEDDING_TOP_K,
         ))
+        top_embedding_score = max(embedding_scores.values()) if embedding_scores else 0.0
+
+        # Reject embedding-only weak matches: BGE always returns *some* nearest
+        # neighbour, so unrelated prompts ("high quality 4k video") score around
+        # 0.5-0.65 against random poses. Without a synonym anchor, demand a
+        # significantly higher score before recommending anything.
+        if not synonym_matches and top_embedding_score < EMBEDDING_ONLY_MIN_SCORE:
+            logger.info(
+                "Embedding-only top score %.3f below floor %.2f and no synonym "
+                "anchor — declining to recommend a pose for prompt %r",
+                top_embedding_score, EMBEDDING_ONLY_MIN_SCORE, prompt[:80],
+            )
+            return []
 
         # Combine: a direct synonym match dominates by adding +0.5 to embedding
         # score, scaled by phrase length (multi-word synonyms outrank single words).
@@ -305,11 +322,14 @@ class PoseRecommender:
             if cand.pose_key not in seen:
                 reranked.append(cand)
 
-        # Reassign scores so the new top dominates filtering
-        n = max(len(reranked), 1)
-        for i, cand in enumerate(reranked):
-            new_score = max(0.0, 1.0 - (i * (1.0 / n) * 0.5))
-            cand.score = max(cand.score * 0.5, new_score)
+        # Preserve the *original* embedding-derived scores so downstream
+        # min_score filtering still has meaning. The LLM only changes the
+        # *order*, not the magnitude. We do nudge the new top up by a small
+        # amount to express LLM agreement, but cap so we never inflate a
+        # noisy match into a confident one.
+        if reranked:
+            top_original = max(c.score for c in reranked)
+            reranked[0].score = min(top_original + 0.05, 1.0)
         return reranked
 
     # ------------------------------------------------------------------
