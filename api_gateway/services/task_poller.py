@@ -339,6 +339,8 @@ class TaskPoller:
                         await self._poll_wan26(external_id, task_id)
                     elif provider == "seedance":
                         await self._poll_seedance(external_id, task_id)
+                    elif provider == "seedance2":
+                        await self._poll_seedance2(external_id, task_id)
                 except Exception:
                     logger.debug("Failed to poll thirdparty task %s", task.get("task_id"), exc_info=True)
         except Exception:
@@ -402,3 +404,32 @@ class TaskPoller:
                     error = f"{err.get('code', 'Error')}: {err.get('message', 'Unknown')}"
                     await self.task_store.update_status(task_id, "failed", error=error)
                     logger.info("Seedance task %s failed: %s", task_id, error)
+
+    async def _poll_seedance2(self, external_id: str, task_id: str) -> None:
+        """Poll Seedance 2.0 / Romance 2.0 (OpenGW) API for task status."""
+        import aiohttp
+        url = f"{self.config.seedance2_api_url}/v1/videos/{external_id}"
+        headers = {"Authorization": f"Bearer {self.config.seedance2_api_key}"}
+        timeout = aiohttp.ClientTimeout(total=10)
+
+        async with aiohttp.ClientSession(timeout=timeout) as session:
+            async with session.get(url, headers=headers) as resp:
+                if resp.status != 200:
+                    return
+                body = await resp.json()
+                raw_status = body.get("status", "").lower()
+
+                if raw_status in ("succeeded", "completed"):
+                    video_url = body.get("metadata", {}).get("url")
+                    await self.task_store.update_status(task_id, "completed")
+                    if video_url:
+                        await self.task_store.set_result(task_id, result_url=video_url)
+                    logger.info("Seedance2/OpenGW task %s completed: %s", task_id, video_url)
+                elif raw_status == "failed":
+                    err = body.get("error", {})
+                    if isinstance(err, dict):
+                        error = f"{err.get('code', 'Error')}: {err.get('message', 'Unknown')}"
+                    else:
+                        error = str(err) or "Unknown error"
+                    await self.task_store.update_status(task_id, "failed", error=error)
+                    logger.info("Seedance2/OpenGW task %s failed: %s", task_id, error)

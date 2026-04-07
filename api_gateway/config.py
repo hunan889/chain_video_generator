@@ -65,6 +65,10 @@ class GatewayConfig:
     byteplus_endpoint: str
     byteplus_seedream_model: str
 
+    # Seedance 2.0 (OpenGW)
+    seedance2_api_key: str
+    seedance2_api_url: str
+
     # Reverse proxy to old monolith
     monolith_url: str
 
@@ -127,6 +131,14 @@ def load_config(env_file: str = ".env") -> GatewayConfig:
         ),
         byteplus_seedream_model=os.getenv(
             "BYTEPLUS_SEEDREAM_MODEL", "ep-20260302170919-cggr8"
+        ),
+        # Seedance 2.0 (OpenGW)
+        seedance2_api_key=os.getenv(
+            "SEEDANCE2_API_KEY",
+            "sk-pXqPcMUyJJ0cThnANLBmQ4h5Ucv3fmpp7db8gaN9sMsElBVP",
+        ),
+        seedance2_api_url=os.getenv(
+            "SEEDANCE2_API_URL", "https://opengw.com"
         ),
         # Reverse proxy
         monolith_url=os.getenv("MONOLITH_URL", "http://148.153.121.44:8000"),

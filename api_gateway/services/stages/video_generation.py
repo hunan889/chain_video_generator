@@ -895,8 +895,9 @@ async def generate_video(
                 error=f"Chain generation failed: {error}",
             )
         elif last_status == "partial":
-            final_video_url = chain_data.get("final_video_url")
-            error = chain_data.get("error", "")
+            chain_data_partial = await redis.hgetall(chain_key(chain_id))
+            final_video_url = chain_data_partial.get("final_video_url")
+            error = chain_data_partial.get("error", "")
             logger.warning("[%s] Chain partial: %s, video: %s", workflow_id, error, final_video_url)
             break
 

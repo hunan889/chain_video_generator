@@ -8,6 +8,8 @@ import subprocess
 import tempfile
 from typing import TYPE_CHECKING
 
+import aiohttp
+
 from shared.enums import TaskStatus
 from shared.redis_keys import queue_key, task_key
 
@@ -17,6 +19,7 @@ if TYPE_CHECKING:
     from gpu_worker.comfyui_client import ComfyUIClient
     from gpu_worker.config import WorkerConfig
     from gpu_worker.heartbeat import HeartbeatReporter
+    from gpu_worker.instance_pool import InstancePool
     from shared.cos import COSClient
     from shared.task_gateway import TaskGateway
 
@@ -24,6 +27,26 @@ logger = logging.getLogger(__name__)
 
 MAX_OOM_RETRIES = 2
 OOM_COOLDOWN = 5
+
+
+def _is_connection_error(error: Exception) -> bool:
+    """Check if error is a transient connection failure (not OOM, not logic)."""
+    if _is_oom_error(error):
+        return False
+    conn_types = (
+        ConnectionError, ConnectionRefusedError, ConnectionResetError,
+        TimeoutError, OSError,
+    )
+    if isinstance(error, conn_types):
+        return True
+    if isinstance(error, aiohttp.ClientError):
+        return True
+    msg = str(error).lower()
+    return any(s in msg for s in (
+        "connect call failed", "cannot connect", "connection refused",
+        "server disconnected", "ssl:", "timed out",
+        "not reachable", "unreachable",
+    ))
 
 
 def _is_oom_error(error: Exception) -> bool:
@@ -50,13 +73,31 @@ class GPUWorker:
         self._heartbeat = heartbeat
         self._running: bool = False
         self._comfyui_clients: dict[str, "ComfyUIClient"] = {}
+        self._pool: "InstancePool | None" = None
+        self._health_checker = None
 
     @property
     def model_keys(self) -> list[str]:
         return self._config.model_keys
 
     def _get_client(self, model_key: str) -> "ComfyUIClient":
-        """Get or create a ComfyUI client for the given model key."""
+        """Get or create a ComfyUI client for the given model key.
+
+        Uses InstancePool for dynamic instance selection if available,
+        otherwise falls back to static config (backward compat).
+        """
+        from gpu_worker.comfyui_client import ComfyUIClient
+
+        # Dynamic pool: pick a healthy instance
+        if self._pool is not None:
+            url = self._pool.get_instance(model_key)
+            if url:
+                # Cache client per URL (not per model_key — URLs can change)
+                if url not in self._comfyui_clients:
+                    self._comfyui_clients[url] = ComfyUIClient(url)
+                return self._comfyui_clients[url]
+
+        # Static fallback
         if model_key in self._comfyui_clients:
             return self._comfyui_clients[model_key]
 
@@ -65,9 +106,6 @@ class GPUWorker:
             raise RuntimeError(
                 f"No ComfyUI URL configured for model key '{model_key}'"
             )
-
-        from gpu_worker.comfyui_client import ComfyUIClient
-
         client = ComfyUIClient(url)
         self._comfyui_clients[model_key] = client
         return client
@@ -79,33 +117,100 @@ class GPUWorker:
             logger.warning("No model keys configured -- worker has nothing to poll")
             return
 
+        # Initialize instance pool and health checker
+        from gpu_worker.instance_pool import InstancePool
+        from gpu_worker.health_checker import HealthChecker
+
+        self._pool = InstancePool(
+            static_urls=self._config.comfyui_urls,
+            redis=self._redis,
+            failure_threshold=self._config.instance_failure_threshold,
+            cooldown_base=self._config.instance_cooldown_base,
+            cooldown_max=self._config.instance_cooldown_max,
+        )
+        # Seed from Redis registry at startup
+        await self._pool.refresh_from_registry()
+
+        self._health_checker = HealthChecker(
+            pool=self._pool,
+            interval=self._config.health_check_interval,
+        )
+        self._health_checker.start()
+
+        # Attach pool to heartbeat for health reporting
+        if self._heartbeat is not None:
+            self._heartbeat.set_instance_pool(self._pool)
+
         logger.info(
             "Worker %s started, polling queues: %s",
             self._config.worker_id,
             queue_names,
         )
 
-        while self._running:
-            result = await self._redis.blpop(queue_names, timeout=1)
-            if result is None:
-                continue
+        try:
+            while self._running:
+                result = await self._redis.blpop(queue_names, timeout=1)
+                if result is None:
+                    continue
 
-            _queue_name, task_id = result
-            logger.info("Dequeued task %s", task_id)
+                _queue_name, task_id = result
+                logger.info("Dequeued task %s", task_id)
 
-            if self._heartbeat is not None:
-                self._heartbeat.set_status("busy")
-
-            try:
-                await self._process_task(task_id)
-            except Exception as exc:
-                logger.exception("Task %s failed: %s", task_id, exc)
-                await self._gateway.mark_task_failed(task_id, error=str(exc))
-            finally:
                 if self._heartbeat is not None:
-                    self._heartbeat.set_status("idle")
+                    self._heartbeat.set_status("busy")
+
+                try:
+                    await self._process_task(task_id)
+                except Exception as exc:
+                    # Connection errors: retry on a different instance
+                    if _is_connection_error(exc) and self._pool is not None:
+                        await self._handle_connection_retry(task_id, exc)
+                    else:
+                        logger.exception("Task %s failed: %s", task_id, exc)
+                        await self._gateway.mark_task_failed(task_id, error=str(exc))
+                finally:
+                    if self._heartbeat is not None:
+                        self._heartbeat.set_status("idle")
+        finally:
+            if self._health_checker:
+                await self._health_checker.close()
 
         logger.info("Worker %s stopped", self._config.worker_id)
+
+    async def _handle_connection_retry(self, task_id: str, exc: Exception) -> None:
+        """Re-enqueue a task that failed due to connection error."""
+        raw = await self._redis.hgetall(task_key(task_id))
+        retry_count = int(raw.get("_retry_count", 0))
+        model = raw.get("model", "a14b")
+        max_retries = self._config.task_connection_retries
+
+        # Report failure to pool so the instance gets cooldown
+        comfyui_url = raw.get("comfyui_url", "")
+        if comfyui_url and self._pool:
+            self._pool.report_failure(model, comfyui_url)
+
+        if retry_count < max_retries:
+            retry_count += 1
+            await self._redis.hset(task_key(task_id), mapping={
+                "_retry_count": str(retry_count),
+                "status": TaskStatus.QUEUED.value,
+                "error": "",
+            })
+            # LPUSH to front of queue — task already waited its turn
+            await self._redis.lpush(queue_key(model), task_id)
+            logger.warning(
+                "Task %s connection error, re-enqueued (retry %d/%d): %s",
+                task_id, retry_count, max_retries, exc,
+            )
+        else:
+            logger.error(
+                "Task %s connection error, retries exhausted (%d/%d): %s",
+                task_id, retry_count, max_retries, exc,
+            )
+            await self._gateway.mark_task_failed(
+                task_id,
+                error=f"All ComfyUI instances unreachable after {max_retries} retries: {exc}",
+            )
 
     async def _process_task(self, task_id: str) -> None:
         """Dispatch to the appropriate handler based on task mode."""
@@ -163,6 +268,13 @@ class GPUWorker:
         workflow = json.loads(raw_data["workflow"])
         model_key = raw_data.get("model", "a14b")
         client = self._get_client(model_key)
+
+        # Pre-flight: verify ComfyUI is reachable before accepting the task
+        if not await client.is_alive():
+            raise RuntimeError(
+                f"ComfyUI at {client.base_url} is not reachable for model '{model_key}'. "
+                f"The instance may be down or still starting up."
+            )
 
         # Step 2: Mark as running
         await self._gateway.mark_task_running(
@@ -257,6 +369,9 @@ class GPUWorker:
                 video_url=video_url,
                 last_frame_url=last_frame_url,
             )
+            # Report success to instance pool
+            if self._pool is not None:
+                self._pool.report_success(model_key, client.base_url)
             logger.info("Task %s completed with video_url=%s", task_id, video_url)
 
         except Exception as exc:
@@ -547,6 +662,12 @@ class GPUWorker:
         model_key = raw_data.get("model", "a14b")
         client = self._get_client(model_key)
 
+        if not await client.is_alive():
+            raise RuntimeError(
+                f"ComfyUI at {client.base_url} is not reachable for model '{model_key}'. "
+                f"The instance may be down or still starting up."
+            )
+
         await self._gateway.mark_task_running(task_id, comfyui_url=client.base_url)
         logger.info("Task %s (%s) started", task_id, mode)
 
@@ -654,6 +775,8 @@ class GPUWorker:
             video_url = await self._upload_to_cos(output_data, "videos", output_filename)
 
             await self._gateway.mark_task_completed(task_id, video_url=video_url)
+            if self._pool is not None:
+                self._pool.report_success(model_key, client.base_url)
             logger.info("Task %s (%s) completed: %s", task_id, mode, video_url)
 
         except Exception as exc:

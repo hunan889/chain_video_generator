@@ -622,6 +622,7 @@
 <div style="display:flex;gap:8px;margin-top:4px">
 <button id="tp-provider-wan26" class="btn btn-sm tp-provider-btn active" onclick="tpSelectProvider('wan26')" style="flex:1">Wan2.6 (阿里)</button>
 <button id="tp-provider-seedance" class="btn btn-sm tp-provider-btn" onclick="tpSelectProvider('seedance')" style="flex:1">Seedance (字节)</button>
+<button id="tp-provider-seedance2" class="btn btn-sm tp-provider-btn" onclick="tpSelectProvider('seedance2')" style="flex:1">Seedance/Romance</button>
 </div>
 </div>
 <div class="field">
@@ -682,6 +683,25 @@
 <option value="1080P">1080P</option>
 </select>
 </div>
+<div class="field" id="tp-ratio-field" style="display:none">
+<label>宽高比</label>
+<select id="tp-ratio">
+<option value="16:9">16:9 横屏</option>
+<option value="9:16">9:16 竖屏</option>
+<option value="1:1">1:1 方形</option>
+<option value="4:3">4:3</option>
+<option value="3:4">3:4</option>
+<option value="21:9">21:9 超宽</option>
+<option value="adaptive">自适应</option>
+</select>
+</div>
+<div class="field" id="tp-s2-resolution-field" style="display:none">
+<label>分辨率</label>
+<select id="tp-s2-resolution">
+<option value="480p">480p</option>
+<option value="720p" selected>720p</option>
+</select>
+</div>
 <div class="field" id="tp-model-field">
 <label>模型</label>
 <select id="tp-model">
@@ -699,6 +719,12 @@
 <div class="field" id="tp-audio-field">
 <label>音频 URL <span style="font-size:11px;color:#666;font-weight:normal">（可选，仅 Wan2.6）</span></label>
 <input type="text" id="tp-audio-url" placeholder="输入音频文件 URL，为视频配音">
+</div>
+</div>
+<div class="row" id="tp-seedance2-options" style="display:none">
+<div class="field" style="min-width:auto;flex:none">
+<label><input type="checkbox" id="tp-generate-audio" checked style="accent-color:#7c83ff;width:16px;height:16px;vertical-align:middle;margin-right:6px">生成同步音频</label>
+<div style="font-size:11px;color:#666;margin-top:2px">自动生成人声、音效和背景音乐</div>
 </div>
 </div>
 <div class="row">
@@ -800,6 +826,10 @@
       } else {
         sel.innerHTML = '<option value="wan2.6-i2v">wan2.6-i2v</option>';
       }
+    } else if (_tpProvider === 'seedance2') {
+      sel.innerHTML = '<option value="doubao-seedance-2-0-fast-260128">Seedance 2.0 Fast</option>'
+        + '<option value="doubao-seedance-2-0-260128">Seedance 2.0</option>'
+        + '<option value="Romance2-0">Romance 2.0</option>';
     } else {
       if (_tpMode === 't2v') {
         sel.innerHTML = '<option value="seedance-1-5-pronew">seedance-1-5-pronew</option>';
@@ -812,13 +842,41 @@
   function _updateResolutionFields() {
     const sizeField = document.getElementById('tp-size-field');
     const resField = document.getElementById('tp-resolution-field');
-    // Wan2.6 T2V uses size (e.g. 1280*720), everything else uses resolution (720P)
-    if (_tpProvider === 'wan26' && _tpMode === 't2v') {
+    const ratioField = document.getElementById('tp-ratio-field');
+    const s2ResField = document.getElementById('tp-s2-resolution-field');
+    const s2Options = document.getElementById('tp-seedance2-options');
+    const promptExtendRow = document.getElementById('tp-prompt-extend').closest('.field');
+    const audioField = document.getElementById('tp-audio-field');
+
+    // Hide all first
+    sizeField.style.display = 'none';
+    resField.style.display = 'none';
+    ratioField.style.display = 'none';
+    s2ResField.style.display = 'none';
+    s2Options.style.display = 'none';
+
+    if (_tpProvider === 'seedance2') {
+      ratioField.style.display = '';
+      s2ResField.style.display = '';
+      s2Options.style.display = '';
+      if (promptExtendRow) promptExtendRow.style.display = 'none';
+      if (audioField) audioField.style.display = 'none';
+    } else if (_tpProvider === 'wan26' && _tpMode === 't2v') {
       sizeField.style.display = '';
-      resField.style.display = 'none';
+      if (promptExtendRow) promptExtendRow.style.display = '';
+      if (audioField) audioField.style.display = '';
     } else {
-      sizeField.style.display = 'none';
       resField.style.display = '';
+      if (promptExtendRow) promptExtendRow.style.display = _tpProvider === 'wan26' ? '' : 'none';
+      if (audioField) audioField.style.display = _tpProvider === 'wan26' ? '' : 'none';
+    }
+
+    // Update duration options
+    const durSel = document.getElementById('tp-duration');
+    if (_tpProvider === 'seedance2') {
+      durSel.innerHTML = '<option value="5">5 秒</option><option value="8">8 秒</option><option value="10">10 秒</option><option value="15">15 秒</option>';
+    } else {
+      durSel.innerHTML = '<option value="5">5 秒</option><option value="10">10 秒</option>';
     }
   }
 
@@ -885,6 +943,17 @@
       if (negPrompt) body.negative_prompt = negPrompt;
       if (audioUrl) body.audio_url = audioUrl;
       if (seed !== undefined) body.seed = seed;
+    } else if (_tpProvider === 'seedance2') {
+      const ratio = document.getElementById('tp-ratio').value;
+      const s2Resolution = document.getElementById('tp-s2-resolution').value;
+      const generateAudio = document.getElementById('tp-generate-audio').checked;
+      if (_tpMode === 't2v') {
+        endpoint = '/api/v1/thirdparty/seedance2/text-to-video';
+        body = { model, prompt, duration, ratio, resolution: s2Resolution, generate_audio: generateAudio };
+      } else {
+        endpoint = '/api/v1/thirdparty/seedance2/image-to-video';
+        body = { model, image: _tpImageBase64, prompt: prompt || undefined, duration, ratio, resolution: s2Resolution, generate_audio: generateAudio };
+      }
     } else {
       if (_tpMode === 't2v') {
         endpoint = '/api/v1/thirdparty/seedance/text-to-video';
@@ -941,9 +1010,12 @@
 
   async function _pollTask(taskId) {
     const provider = _tpProvider;
-    const queryEndpoint = provider === 'seedance'
-      ? '/api/v1/thirdparty/seedance/tasks/'
-      : '/api/v1/thirdparty/wan26/tasks/';
+    const queryEndpoints = {
+      seedance: '/api/v1/thirdparty/seedance/tasks/',
+      seedance2: '/api/v1/thirdparty/seedance2/tasks/',
+      wan26: '/api/v1/thirdparty/wan26/tasks/',
+    };
+    const queryEndpoint = queryEndpoints[provider] || queryEndpoints.wan26;
 
     let errors = 0;
     while (true) {
@@ -1010,7 +1082,7 @@
       return;
     }
     container.innerHTML = list.map((item, i) => {
-      const providerLabel = item.provider === 'seedance' ? 'Seedance' : 'Wan2.6';
+      const providerLabel = item.provider === 'seedance2' ? 'Seedance/Romance' : item.provider === 'seedance' ? 'Seedance' : 'Wan2.6';
       const modeLabel = item.mode === 'i2v' ? 'I2V' : 'T2V';
       const statusClass = item.status === 'SUCCEEDED' ? 'completed' : item.status === 'FAILED' ? 'failed' : item.status === 'RUNNING' ? 'running' : 'pending';
       const promptText = (item.prompt || '(无提示词)').substring(0, 60);
@@ -1048,9 +1120,12 @@
     }
 
     // Otherwise re-query
-    const queryEndpoint = item.provider === 'seedance'
-      ? '/api/v1/thirdparty/seedance/tasks/'
-      : '/api/v1/thirdparty/wan26/tasks/';
+    const qEndpoints = {
+      seedance: '/api/v1/thirdparty/seedance/tasks/',
+      seedance2: '/api/v1/thirdparty/seedance2/tasks/',
+      wan26: '/api/v1/thirdparty/wan26/tasks/',
+    };
+    const queryEndpoint = qEndpoints[item.provider] || qEndpoints.wan26;
 
     try {
       const resp = await fetch(BASE + queryEndpoint + item.taskId, {

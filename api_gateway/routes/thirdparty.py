@@ -1,7 +1,7 @@
 """Third-party video generation API proxy.
 
-Routes requests to external providers (Alibaba Wan2.6, BytePlus Seedance)
-and normalises responses for the frontend.
+Routes requests to external providers (Alibaba Wan2.6, BytePlus Seedance,
+Seedance 2.0 via OpenGW) and normalises responses for the frontend.
 """
 
 import logging
@@ -387,4 +387,269 @@ async def seedance_query_task(
         return ThirdPartyQueryResponse(
             success=False, task_id=task_id, task_status="UNKNOWN",
             error_message=str(exc), provider="seedance",
+        )
+
+
+# =========================================================================
+# Seedance 2.0 / Romance 2.0 (OpenGW — unified multi-modal interface)
+# =========================================================================
+
+class Seedance2T2VRequest(BaseModel):
+    prompt: str
+    model: str = "doubao-seedance-2-0-fast-260128"
+    duration: Optional[int] = 5
+    ratio: str = "16:9"
+    resolution: str = "720p"
+    generate_audio: bool = True
+
+
+class Seedance2I2VRequest(BaseModel):
+    image: str  # URL or base64
+    prompt: Optional[str] = None
+    model: str = "doubao-seedance-2-0-fast-260128"
+    duration: Optional[int] = 5
+    ratio: str = "adaptive"
+    resolution: str = "720p"
+    generate_audio: bool = True
+
+
+class Seedance2MultiModalRequest(BaseModel):
+    """Multi-modal request: text + images + videos + audio references."""
+    prompt: Optional[str] = None
+    model: str = "doubao-seedance-2-0-fast-260128"
+    duration: Optional[int] = 5
+    ratio: str = "16:9"
+    resolution: str = "720p"
+    generate_audio: bool = True
+    image_urls: Optional[list] = None       # [{"url": "...", "role": "first_frame|reference_image"}]
+    video_urls: Optional[list] = None       # [{"url": "...", "role": "reference_video"}]
+    audio_urls: Optional[list] = None       # [{"url": "...", "role": "reference_audio"}]
+
+
+@router.post("/thirdparty/seedance2/text-to-video", response_model=ThirdPartySubmitResponse)
+async def seedance2_text_to_video(
+    req: Seedance2T2VRequest,
+    request: Request,
+    config: GatewayConfig = Depends(get_config),
+):
+    """Seedance 2.0 / Romance 2.0 text-to-video via OpenGW."""
+    payload = {
+        "model": req.model,
+        "content": [{"type": "text", "text": req.prompt}],
+        "metadata": {
+            "duration": req.duration,
+            "ratio": req.ratio,
+            "resolution": req.resolution,
+            "watermark": False,
+            "generate_audio": req.generate_audio,
+        },
+    }
+    result = await _seedance2_submit(payload, config)
+    if result.success:
+        task_store: TaskStore = request.app.state.task_store
+        await task_store.create(
+            task_id=result.task_id or uuid.uuid4().hex,
+            task_type="seedance2_t2v",
+            category="thirdparty",
+            provider="seedance2",
+            prompt=req.prompt,
+            model=req.model,
+            external_task_id=result.task_id,
+        )
+    return result
+
+
+@router.post("/thirdparty/seedance2/image-to-video", response_model=ThirdPartySubmitResponse)
+async def seedance2_image_to_video(
+    req: Seedance2I2VRequest,
+    request: Request,
+    config: GatewayConfig = Depends(get_config),
+):
+    """Seedance 2.0 / Romance 2.0 image-to-video via OpenGW."""
+    is_romance = req.model.lower().startswith("romance")
+    if is_romance:
+        # Romance uses flat request body
+        payload = {
+            "model": req.model,
+            "image": req.image,
+            "prompt": req.prompt or "",
+            "duration": req.duration,
+            "size": req.resolution,
+        }
+    else:
+        # Seedance uses content array + metadata
+        content = [
+            {
+                "type": "image_url",
+                "image_url": {"url": req.image},
+                "role": "first_frame",
+            },
+        ]
+        if req.prompt:
+            content.insert(0, {"type": "text", "text": req.prompt})
+        payload = {
+            "model": req.model,
+            "content": content,
+            "metadata": {
+                "duration": req.duration,
+                "ratio": req.ratio,
+                "resolution": req.resolution,
+                "watermark": False,
+                "generate_audio": req.generate_audio,
+            },
+        }
+    result = await _seedance2_submit(payload, config)
+    if result.success:
+        task_store: TaskStore = request.app.state.task_store
+        await task_store.create(
+            task_id=result.task_id or uuid.uuid4().hex,
+            task_type="seedance2_i2v",
+            category="thirdparty",
+            provider="seedance2",
+            prompt=req.prompt,
+            model=req.model,
+            external_task_id=result.task_id,
+        )
+    return result
+
+
+@router.post("/thirdparty/seedance2/multi-modal", response_model=ThirdPartySubmitResponse)
+async def seedance2_multi_modal(
+    req: Seedance2MultiModalRequest,
+    request: Request,
+    config: GatewayConfig = Depends(get_config),
+):
+    """Seedance 2.0 / Romance 2.0 multi-modal video generation via OpenGW."""
+    content = []
+    if req.prompt:
+        content.append({"type": "text", "text": req.prompt})
+    for img in (req.image_urls or []):
+        content.append({
+            "type": "image_url",
+            "image_url": {"url": img["url"]},
+            "role": img.get("role", "reference_image"),
+        })
+    for vid in (req.video_urls or []):
+        content.append({
+            "type": "video_url",
+            "video_url": {"url": vid["url"]},
+            "role": vid.get("role", "reference_video"),
+        })
+    for aud in (req.audio_urls or []):
+        content.append({
+            "type": "audio_url",
+            "audio_url": {"url": aud["url"]},
+            "role": aud.get("role", "reference_audio"),
+        })
+    payload = {
+        "model": req.model,
+        "content": content,
+        "metadata": {
+            "duration": req.duration,
+            "ratio": req.ratio,
+            "resolution": req.resolution,
+            "watermark": False,
+            "generate_audio": req.generate_audio,
+        },
+    }
+    result = await _seedance2_submit(payload, config)
+    if result.success:
+        task_store: TaskStore = request.app.state.task_store
+        await task_store.create(
+            task_id=result.task_id or uuid.uuid4().hex,
+            task_type="seedance2_mm",
+            category="thirdparty",
+            provider="seedance2",
+            prompt=req.prompt,
+            model=req.model,
+            external_task_id=result.task_id,
+        )
+    return result
+
+
+async def _seedance2_submit(payload: dict, config: GatewayConfig) -> ThirdPartySubmitResponse:
+    headers = {
+        "Authorization": f"Bearer {config.seedance2_api_key}",
+        "Content-Type": "application/json",
+    }
+    url = f"{config.seedance2_api_url}/v1/video/generations"
+    try:
+        async with aiohttp.ClientSession(timeout=TIMEOUT) as session:
+            async with session.post(url, json=payload, headers=headers) as resp:
+                body = await resp.json()
+                logger.info("[Seedance2/OpenGW] status=%s body=%s", resp.status, str(body)[:300])
+                if resp.status == 200:
+                    return ThirdPartySubmitResponse(
+                        success=True,
+                        task_id=body.get("id"),
+                        task_status=body.get("status", "PENDING").upper(),
+                        provider="seedance2",
+                    )
+                else:
+                    detail = body.get("error", {}).get("message", "") or body.get("message", "") or str(body)[:200]
+                    return ThirdPartySubmitResponse(
+                        success=False,
+                        error=f"OpenGW API error ({resp.status}): {detail}",
+                        provider="seedance2",
+                    )
+    except Exception as exc:
+        logger.exception("[Seedance2/OpenGW Submit] error")
+        return ThirdPartySubmitResponse(success=False, error=str(exc), provider="seedance2")
+
+
+@router.get("/thirdparty/seedance2/tasks/{task_id}", response_model=ThirdPartyQueryResponse)
+async def seedance2_query_task(
+    task_id: str,
+    config: GatewayConfig = Depends(get_config),
+):
+    """Query a Seedance 2.0 / Romance 2.0 task status."""
+    url = f"{config.seedance2_api_url}/v1/videos/{task_id}"
+    headers = {"Authorization": f"Bearer {config.seedance2_api_key}"}
+    try:
+        async with aiohttp.ClientSession(timeout=TIMEOUT) as session:
+            async with session.get(url, headers=headers) as resp:
+                body = await resp.json()
+                if resp.status == 200:
+                    raw_status = body.get("status", "").lower()
+                    status_map = {
+                        "queued": "PENDING",
+                        "pending": "PENDING",
+                        "running": "RUNNING",
+                        "in_progress": "RUNNING",
+                        "succeeded": "SUCCEEDED",
+                        "completed": "SUCCEEDED",
+                        "failed": "FAILED",
+                    }
+                    task_status = status_map.get(raw_status, "UNKNOWN")
+                    video_url = None
+                    if task_status == "SUCCEEDED":
+                        video_url = body.get("metadata", {}).get("url")
+                    error_msg = None
+                    if task_status == "FAILED":
+                        err = body.get("error", {})
+                        if isinstance(err, dict):
+                            error_msg = f"{err.get('code', 'Error')}: {err.get('message', 'Unknown')}"
+                        else:
+                            error_msg = str(err) or "Task failed"
+                    return ThirdPartyQueryResponse(
+                        success=True,
+                        task_id=task_id,
+                        task_status=task_status,
+                        video_url=video_url,
+                        error_message=error_msg,
+                        provider="seedance2",
+                    )
+                else:
+                    return ThirdPartyQueryResponse(
+                        success=False,
+                        task_id=task_id,
+                        task_status="UNKNOWN",
+                        error_message=f"Query failed: {resp.status}",
+                        provider="seedance2",
+                    )
+    except Exception as exc:
+        logger.exception("[Seedance2/OpenGW Query] error")
+        return ThirdPartyQueryResponse(
+            success=False, task_id=task_id, task_status="UNKNOWN",
+            error_message=str(exc), provider="seedance2",
         )

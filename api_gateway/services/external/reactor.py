@@ -55,6 +55,7 @@ _FACESWAP_WORKFLOW = {
 
 _MAX_WAIT = 120  # seconds
 _POLL_INTERVAL = 1  # seconds
+_MAX_RETRIES = 2   # retry once on failure (total 2 attempts)
 
 
 class ReactorClient:
@@ -80,23 +81,41 @@ class ReactorClient:
     ) -> Optional[str]:
         """Submit a face swap task via ComfyUI and wait for result.
 
-        Accepts either base64 images (legacy compat) or COS URLs (preferred).
+        Retries automatically on failure (e.g. ComfyUI instance down).
         Returns COS URL of result, or None on failure.
         """
         if not self.redis:
             logger.warning("ReactorClient: no Redis connection, cannot submit face swap")
             return None
 
-        # For COS URL mode (preferred in Gateway architecture)
         if not target_cos_url or not face_cos_url:
             logger.warning("ReactorClient: COS URLs required for ComfyUI-based face swap")
             return None
 
+        last_error = None
+        for attempt in range(1, _MAX_RETRIES + 1):
+            result = await self._submit_and_wait(
+                target_cos_url, face_cos_url, strength, attempt,
+            )
+            if result is not None:
+                return result
+            if attempt < _MAX_RETRIES:
+                logger.warning("Face swap attempt %d failed, retrying...", attempt)
+                await asyncio.sleep(2)  # brief pause before retry
+
+        logger.error("Face swap failed after %d attempts", _MAX_RETRIES)
+        return None
+
+    async def _submit_and_wait(
+        self,
+        target_cos_url: str,
+        face_cos_url: str,
+        strength: float,
+        attempt: int,
+    ) -> Optional[str]:
+        """Submit one face swap task and poll until completion."""
         task_id = uuid.uuid4().hex
 
-        # Build workflow from template. Vary console_log_level per task to
-        # prevent ComfyUI from caching ReActor node outputs (cached executions
-        # return empty outputs dict, causing "No output files" errors).
         workflow = json.loads(json.dumps(_FACESWAP_WORKFLOW))
         workflow["3"]["inputs"]["console_log_level"] = hash(task_id) % 2
         workflow["4"]["inputs"]["filename_prefix"] = f"faceswap_{task_id[:8]}"
@@ -124,7 +143,6 @@ class ReactorClient:
             },
         ]
 
-        # Create task in Redis
         task_data = {
             "status": "queued",
             "mode": GenerateMode.FACESWAP.value,
@@ -142,10 +160,9 @@ class ReactorClient:
         await self.redis.expire(tk, 3600)
         await self.redis.rpush(queue_key("faceswap"), task_id)
 
-        logger.info("Submitted face swap task %s (target=%s face=%s)",
-                     task_id, target_cos_url[:50], face_cos_url[:50])
+        logger.info("Submitted face swap task %s attempt %d (target=%s face=%s)",
+                     task_id, attempt, target_cos_url[:50], face_cos_url[:50])
 
-        # Poll for completion
         deadline = time.time() + _MAX_WAIT
         while time.time() < deadline:
             await asyncio.sleep(_POLL_INTERVAL)
@@ -161,7 +178,7 @@ class ReactorClient:
             elif status == "failed":
                 error = raw.get("error", "Unknown")
                 logger.error("Face swap %s failed: %s", task_id, error)
-                return None
+                return None  # will trigger retry in caller
 
         logger.error("Face swap %s timed out after %ds", task_id, _MAX_WAIT)
         return None

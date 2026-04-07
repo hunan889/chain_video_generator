@@ -25,6 +25,7 @@ class HeartbeatReporter:
     - last_seen:  unix timestamp of the last heartbeat
     - model_keys: JSON list of model keys this worker handles
     - status:     "idle" | "busy"
+    - instances:  JSON dict of instance health per model (if pool attached)
     """
 
     def __init__(self, redis: "Redis", config: "WorkerConfig") -> None:
@@ -33,6 +34,11 @@ class HeartbeatReporter:
         self._status: str = "idle"
         self._task: asyncio.Task | None = None
         self._beat_count: int = 0
+        self._instance_pool = None  # set by worker after pool init
+
+    def set_instance_pool(self, pool) -> None:
+        """Attach the InstancePool for health reporting."""
+        self._instance_pool = pool
 
     def set_status(self, status: str) -> None:
         """Update the reported status (idle / busy)."""
@@ -115,6 +121,15 @@ class HeartbeatReporter:
                                     mapping["comfyui_pending"] = str(len(pending))
             except Exception:
                 pass  # GPU stats are best-effort
+
+            # Include instance pool health summary
+            if self._instance_pool is not None:
+                try:
+                    mapping["instances"] = json.dumps(
+                        self._instance_pool.get_health_summary()
+                    )
+                except Exception:
+                    pass
 
             await self._redis.hset(hb_key, mapping=mapping)
         except Exception:

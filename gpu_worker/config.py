@@ -45,6 +45,13 @@ class WorkerConfig:
     # CivitAI API token for LoRA downloads
     civitai_api_token: str = ""
 
+    # ── Instance pool health check ──
+    health_check_interval: float = 15       # seconds between probes
+    instance_failure_threshold: int = 3     # consecutive failures → cooldown
+    instance_cooldown_base: float = 30      # initial cooldown seconds
+    instance_cooldown_max: float = 300      # max cooldown (5 min)
+    task_connection_retries: int = 2        # max retries on connection failure
+
     @property
     def model_keys(self) -> list[str]:
         """Return the list of model keys this worker handles."""
