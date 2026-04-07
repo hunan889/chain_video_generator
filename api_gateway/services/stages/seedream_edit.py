@@ -24,7 +24,7 @@ import aiohttp
 
 from api_gateway.config import GatewayConfig
 from api_gateway.services.external.byteplus import BytePlusClient
-from api_gateway.services.external.reactor import ReactorClient
+from api_gateway.services.gpu_clients.faceswap import ReactorClient
 from shared.cos.client import COSClient
 
 logger = logging.getLogger(__name__)

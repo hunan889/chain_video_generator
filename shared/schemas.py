@@ -1,7 +1,7 @@
 """Shared lightweight schemas used by workflow_builder.
 
 These are plain dataclasses (no pydantic dependency) so they can be used
-by both api_gateway and gpu_worker without pulling in heavy web framework deps.
+by both api_gateway and gpu/comfyui_worker without pulling in heavy web framework deps.
 """
 
 from dataclasses import dataclass, field

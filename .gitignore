@@ -56,8 +56,10 @@ test_*.py
 !shared/tests/*_test.py
 !api_gateway/tests/test_*.py
 !api_gateway/tests/*_test.py
-!gpu_worker/tests/test_*.py
-!gpu_worker/tests/*_test.py
+!gpu/comfyui_worker/tests/test_*.py
+!gpu/comfyui_worker/tests/*_test.py
+!gpu/inference_worker/tests/test_*.py
+!gpu/inference_worker/tests/*_test.py
 
 # Workflows (keep only templates)
 workflows/__MACOSX/

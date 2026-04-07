@@ -775,18 +775,50 @@ async def analyze_prompt(
         pose_keys: Optional list of pose keys to use (skips auto-recommend).
         internal_config: Optional per-stage configuration overrides.
         config: GatewayConfig with MySQL and other settings.
-        redis: Redis connection (reserved for future use, e.g. caching).
+        redis: Redis connection (used by the 3-stage pose recommender).
         is_continuation: True if this is a cross-workflow continuation.
 
     Returns:
         AnalysisResult with all prompts, loras, and references.
     """
+    # ── Stage 1 (new): pose recommendation via gpu/inference_worker ───
+    # If the caller didn't supply pose_keys and auto_completion >= 2, run
+    # the 3-stage recommender (synonym + embedding + LLM rerank) to pick the
+    # best pose. The result is fed into _analyze_prompt_sync as if the user
+    # had supplied it. This replaces the broken naive substring matcher
+    # in _recommend_poses_sync.
+    auto_completion = int(
+        _get_config_value(internal_config, "stage1_prompt_analysis", "auto_completion", 2)
+    )
+    effective_pose_keys = list(pose_keys) if pose_keys else []
+    if not effective_pose_keys and auto_completion >= 2 and redis is not None:
+        try:
+            from api_gateway.services.pose_recommender import get_pose_recommender
+
+            pose_min_score = 0.5 if mode in (None, "t2v", "first_frame") else 0.3
+            recommender = get_pose_recommender(config, redis)
+            recs = await recommender.recommend(
+                user_prompt, top_k=5, min_score=pose_min_score,
+            )
+            if recs:
+                effective_pose_keys = [recs[0].pose_key]
+                logger.info(
+                    "PoseRecommender picked %s (score=%.3f, reason=%s)",
+                    recs[0].pose_key, recs[0].score, recs[0].match_reason,
+                )
+        except Exception as exc:
+            logger.warning(
+                "PoseRecommender failed (%s); _analyze_prompt_sync will fall "
+                "back to its legacy substring matcher",
+                exc,
+            )
+
     try:
         return await asyncio.to_thread(
             _analyze_prompt_sync,
             user_prompt,
             mode,
-            pose_keys,
+            effective_pose_keys,
             internal_config,
             config,
             is_continuation,

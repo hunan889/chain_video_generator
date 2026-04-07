@@ -74,10 +74,12 @@ def load_config() -> WorkerConfig:
         TASK_EXPIRY          -- task TTL in seconds (default 86400)
         HEARTBEAT_INTERVAL   -- heartbeat period in seconds (default 10)
     """
-    # Load service-local .env first, then fall back to project root .env
+    # Load service-local .env first, then fall back to project root .env.
+    # service_dir = <project_root>/gpu/comfyui_worker
+    # project_root is two levels up after the gpu_worker → gpu/comfyui_worker move.
     service_dir = Path(__file__).resolve().parent
-    project_root = service_dir.parent
-    load_dotenv(service_dir / ".env")       # gpu_worker/.env (service-specific)
+    project_root = service_dir.parent.parent
+    load_dotenv(service_dir / ".env")       # gpu/comfyui_worker/.env (service-specific)
     load_dotenv(project_root / ".env")      # project root .env (shared fallback)
 
     # Parse COMFYUI_URLS as JSON dict

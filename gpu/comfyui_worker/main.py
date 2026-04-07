@@ -1,7 +1,7 @@
-"""Entry point for the GPU worker process.
+"""Entry point for the ComfyUI GPU worker process.
 
 Usage:
-    python -m gpu_worker.main
+    python -m gpu.comfyui_worker.main
 """
 
 import asyncio
@@ -10,9 +10,9 @@ import signal
 
 import redis.asyncio as aioredis
 
-from gpu_worker.config import load_config
-from gpu_worker.heartbeat import HeartbeatReporter
-from gpu_worker.worker import GPUWorker
+from gpu.comfyui_worker.config import load_config
+from gpu.comfyui_worker.heartbeat import HeartbeatReporter
+from gpu.comfyui_worker.worker import GPUWorker
 from shared.cos import COSClient, COSConfig
 from shared.task_gateway import TaskGateway
 

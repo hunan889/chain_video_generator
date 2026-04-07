@@ -28,7 +28,7 @@ def configure(
     """Configure module-level paths. Call before using any build functions.
 
     This replaces the old ``api.config`` import with explicit configuration,
-    allowing both api_gateway and gpu_worker to use this module with their
+    allowing both api_gateway and gpu/comfyui_worker to use this module with their
     own paths.
     """
     global WORKFLOWS_DIR, COMFYUI_PATH, LORAS_PATH, LORAS_DIR

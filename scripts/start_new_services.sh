@@ -8,7 +8,7 @@
 # First-time setup:
 #   1. Copy and fill in env files:
 #        cp api_gateway/.env.example api_gateway/.env && nano api_gateway/.env
-#        cp gpu_worker/.env.example  gpu_worker/.env  && nano gpu_worker/.env
+#        cp gpu/comfyui_worker/.env.example gpu/comfyui_worker/.env && nano gpu/comfyui_worker/.env
 #   2. Run this script.
 
 set -euo pipefail
@@ -39,9 +39,9 @@ if [ ! -f api_gateway/.env ]; then
     exit 1
 fi
 
-if [ ! -f gpu_worker/.env ]; then
-    error "gpu_worker/.env not found."
-    echo "  Run: cp gpu_worker/.env.example gpu_worker/.env && nano gpu_worker/.env"
+if [ ! -f gpu/comfyui_worker/.env ]; then
+    error "gpu/comfyui_worker/.env not found."
+    echo "  Run: cp gpu/comfyui_worker/.env.example gpu/comfyui_worker/.env && nano gpu/comfyui_worker/.env"
     exit 1
 fi
 
@@ -82,13 +82,13 @@ echo $! > api_gateway.pid
 info "API Gateway PID: $(cat api_gateway.pid) — logs: api_gateway.log"
 
 # ---------------------------------------------------------------------------
-# Start GPU Worker (background, log to gpu_worker.log)
+# Start ComfyUI Worker (background, log to comfyui_worker.log)
 # ---------------------------------------------------------------------------
-info "Starting GPU Worker..."
-nohup $PYTHON -m gpu_worker.main \
-    >> gpu_worker.log 2>&1 &
-echo $! > gpu_worker.pid
-info "GPU Worker PID: $(cat gpu_worker.pid) — logs: gpu_worker.log"
+info "Starting ComfyUI Worker..."
+nohup $PYTHON -m gpu.comfyui_worker.main \
+    >> comfyui_worker.log 2>&1 &
+echo $! > comfyui_worker.pid
+info "ComfyUI Worker PID: $(cat comfyui_worker.pid) — logs: comfyui_worker.log"
 
 # ---------------------------------------------------------------------------
 # Quick health check (wait up to 10 s)
@@ -110,5 +110,5 @@ info "Done. New services running alongside existing service (port 8000)."
 echo
 echo "  API Gateway:  http://localhost:9000"
 echo "  Health check: curl http://localhost:9000/health"
-echo "  Logs:         tail -f api_gateway.log gpu_worker.log"
+echo "  Logs:         tail -f api_gateway.log comfyui_worker.log"
 echo "  Stop:         bash scripts/stop_new_services.sh"

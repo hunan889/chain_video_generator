@@ -12,9 +12,11 @@ WORKFLOW_PREFIX = "workflow"
 COMFYUI_INSTANCES_PREFIX = "comfyui_instances"
 WORKER_HEARTBEAT_PREFIX = "worker:heartbeat"
 WORKER_LORAS_PREFIX = "worker:loras"
+POSE_EMBEDDINGS_PREFIX = "pose_embeddings"
 
-# --- Fixed keys ---
+# --- Fixed key names (queue names used by gpu/inference_worker) ---
 SYSTEM_SETTINGS_KEY = "system:settings"
+INFERENCE_QUEUE_NAME = "inference"  # use with queue_key()
 
 
 def task_key(task_id: str) -> str:
@@ -50,3 +52,22 @@ def worker_heartbeat_key(worker_id: str) -> str:
 def worker_loras_key(worker_id: str) -> str:
     """Redis key (string/JSON) storing the LoRA list published by a worker."""
     return f"{WORKER_LORAS_PREFIX}:{worker_id}"
+
+
+def inference_queue_key() -> str:
+    """Redis LIST key for the inference task queue (consumed by gpu/inference_worker)."""
+    return f"{QUEUE_PREFIX}:{INFERENCE_QUEUE_NAME}"
+
+
+def pose_embeddings_key(model_name: str, content_hash: str) -> str:
+    """Redis STRING key for cached pose embeddings.
+
+    The key includes both the embedding model name and a content hash so that
+    changing the pose set or the model invalidates the cache automatically.
+    """
+    return f"{POSE_EMBEDDINGS_PREFIX}:{model_name}:{content_hash}"
+
+
+def pose_embeddings_current_key(model_name: str) -> str:
+    """Redis STRING key holding the current content hash for a given model."""
+    return f"{POSE_EMBEDDINGS_PREFIX}:{model_name}:current"

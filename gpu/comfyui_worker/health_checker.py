@@ -7,8 +7,8 @@ Probes all known instances periodically and updates the InstancePool.
 import asyncio
 import logging
 
-from gpu_worker.comfyui_client import ComfyUIClient
-from gpu_worker.instance_pool import InstancePool
+from gpu.comfyui_worker.comfyui_client import ComfyUIClient
+from gpu.comfyui_worker.instance_pool import InstancePool
 
 logger = logging.getLogger(__name__)
 

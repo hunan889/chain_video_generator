@@ -1,5 +1,5 @@
 [Unit]
-Description=GPU Worker %i (ComfyUI video generation)
+Description=ComfyUI GPU Worker %i (video generation)
 After=network.target redis.service
 
 [Service]
@@ -19,7 +19,7 @@ Environment=WORKER_ID=gpu-worker-%i
 # Default: 8188. Override per instance with systemctl edit gpu-worker@1
 Environment=COMFYUI_PORT=8188
 
-ExecStart=/home/gime/soft/miniconda3/bin/python gpu_worker/main.py
+ExecStart=/home/gime/soft/miniconda3/bin/python -m gpu.comfyui_worker.main
 
 # Auto-restart on failure
 Restart=always
@@ -28,8 +28,8 @@ StartLimitIntervalSec=300
 StartLimitBurst=5
 
 # Logging
-StandardOutput=append:/tmp/gpu_worker_%i.log
-StandardError=append:/tmp/gpu_worker_%i.log
+StandardOutput=append:/tmp/comfyui_worker_%i.log
+StandardError=append:/tmp/comfyui_worker_%i.log
 
 [Install]
 WantedBy=multi-user.target

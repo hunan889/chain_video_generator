@@ -13,7 +13,7 @@ from shared.redis_keys import worker_heartbeat_key, worker_loras_key
 if TYPE_CHECKING:
     from redis.asyncio import Redis
 
-    from gpu_worker.config import WorkerConfig
+    from gpu.comfyui_worker.config import WorkerConfig
 
 logger = logging.getLogger(__name__)
 

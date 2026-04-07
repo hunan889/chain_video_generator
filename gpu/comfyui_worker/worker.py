@@ -16,10 +16,10 @@ from shared.redis_keys import queue_key, task_key
 if TYPE_CHECKING:
     from redis.asyncio import Redis
 
-    from gpu_worker.comfyui_client import ComfyUIClient
-    from gpu_worker.config import WorkerConfig
-    from gpu_worker.heartbeat import HeartbeatReporter
-    from gpu_worker.instance_pool import InstancePool
+    from gpu.comfyui_worker.comfyui_client import ComfyUIClient
+    from gpu.comfyui_worker.config import WorkerConfig
+    from gpu.comfyui_worker.heartbeat import HeartbeatReporter
+    from gpu.comfyui_worker.instance_pool import InstancePool
     from shared.cos import COSClient
     from shared.task_gateway import TaskGateway
 
@@ -86,7 +86,7 @@ class GPUWorker:
         Uses InstancePool for dynamic instance selection if available,
         otherwise falls back to static config (backward compat).
         """
-        from gpu_worker.comfyui_client import ComfyUIClient
+        from gpu.comfyui_worker.comfyui_client import ComfyUIClient
 
         # Dynamic pool: pick a healthy instance
         if self._pool is not None:
@@ -118,8 +118,8 @@ class GPUWorker:
             return
 
         # Initialize instance pool and health checker
-        from gpu_worker.instance_pool import InstancePool
-        from gpu_worker.health_checker import HealthChecker
+        from gpu.comfyui_worker.instance_pool import InstancePool
+        from gpu.comfyui_worker.health_checker import HealthChecker
 
         self._pool = InstancePool(
             static_urls=self._config.comfyui_urls,

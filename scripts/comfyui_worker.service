@@ -1,5 +1,5 @@
 [Unit]
-Description=Chain Video Generator — GPU Worker
+Description=Chain Video Generator — ComfyUI GPU Worker
 After=network.target redis.service
 Wants=redis.service
 
@@ -8,12 +8,12 @@ Type=exec
 User=gime
 WorkingDirectory=/home/gime/soft/wan22-service
 
-# Load service-local env file (gpu_worker/.env overrides project root .env)
-EnvironmentFile=-/home/gime/soft/wan22-service/gpu_worker/.env
+# Load service-local env file (gpu/comfyui_worker/.env overrides project root .env)
+EnvironmentFile=-/home/gime/soft/wan22-service/gpu/comfyui_worker/.env
 EnvironmentFile=-/home/gime/soft/wan22-service/.env
 
 # Use the project's conda/venv Python
-ExecStart=/home/gime/miniconda3/envs/wan22/bin/python -m gpu_worker.main
+ExecStart=/home/gime/miniconda3/envs/wan22/bin/python -m gpu.comfyui_worker.main
 
 Restart=on-failure
 RestartSec=10

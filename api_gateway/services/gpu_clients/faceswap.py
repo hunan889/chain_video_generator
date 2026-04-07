@@ -1,8 +1,12 @@
-"""Reactor face swap — via ComfyUI task queue (Redis).
+"""Face swap client — submits ReActor face swap jobs via Redis.
 
-Instead of calling Forge HTTP directly (which requires network access to GPU server),
-we submit a face swap workflow to the GPU Worker via Redis, wait for completion,
-and return the result image URL from COS.
+The actual face swap runs as a ComfyUI workflow on the GPU box (148),
+consumed by ``gpu/comfyui_worker``. From the gateway's perspective this is
+just another Redis-queued job: write a ``task:<id>`` HASH, RPUSH onto
+``queue:faceswap``, poll until completion.
+
+Previously located at ``api_gateway/services/external/reactor.py``;
+moved here as part of the ``api_gateway/services/gpu_clients/`` consolidation.
 """
 
 import asyncio

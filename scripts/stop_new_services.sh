@@ -37,7 +37,8 @@ stop_pid_file() {
     fi
 }
 
-stop_pid_file api_gateway.pid "API Gateway"
-stop_pid_file gpu_worker.pid  "GPU Worker"
+stop_pid_file api_gateway.pid     "API Gateway"
+stop_pid_file comfyui_worker.pid  "ComfyUI Worker"
+stop_pid_file inference_worker.pid "Inference Worker"
 
 info "Done."

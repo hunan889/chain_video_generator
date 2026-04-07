@@ -22,7 +22,7 @@ from typing import Optional
 import aiohttp
 
 from api_gateway.config import GatewayConfig
-from api_gateway.services.external.reactor import ReactorClient
+from api_gateway.services.gpu_clients.faceswap import ReactorClient
 from shared.cos.client import COSClient
 from shared.enums import GenerateMode, TaskStatus
 from shared.redis_keys import task_key, workflow_key

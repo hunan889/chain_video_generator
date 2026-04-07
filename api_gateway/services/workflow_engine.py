@@ -326,7 +326,7 @@ class WorkflowEngine:
             # ---- Stage 2: First Frame Acquisition ----
             await self._update_stage(wf_key, "first_frame_acquisition", "running")
             from api_gateway.services.stages.first_frame import acquire_first_frame
-            from api_gateway.services.external.reactor import ReactorClient
+            from api_gateway.services.gpu_clients.faceswap import ReactorClient
             from dataclasses import asdict
             reactor_client = ReactorClient(gateway=self.gateway, redis=self.redis, cos_prefix=self.config.cos_prefix)
             analysis_dict = asdict(analysis) if hasattr(analysis, '__dataclass_fields__') else (analysis or {})
@@ -354,7 +354,7 @@ class WorkflowEngine:
                 try:
                     from api_gateway.services.stages.seedream_edit import edit_first_frame
                     from api_gateway.services.external.byteplus import BytePlusClient
-                    from api_gateway.services.external.reactor import ReactorClient
+                    from api_gateway.services.gpu_clients.faceswap import ReactorClient
                     bp = BytePlusClient(self.config.byteplus_api_key, self.config.byteplus_endpoint,
                                        self.config.byteplus_seedream_model)
                     rc = ReactorClient(gateway=self.gateway, redis=self.redis, cos_prefix=self.config.cos_prefix)

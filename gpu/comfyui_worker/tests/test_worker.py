@@ -34,7 +34,7 @@ def gateway(redis):
 @pytest.fixture
 def worker_config():
     """Build a minimal WorkerConfig for testing."""
-    from gpu_worker.config import WorkerConfig
+    from gpu.comfyui_worker.config import WorkerConfig
 
     return WorkerConfig(
         worker_id="test-worker-1",
@@ -62,7 +62,7 @@ def cos_client():
 @pytest.fixture
 def worker(worker_config, redis, gateway, cos_client):
     """Create a GPUWorker instance."""
-    from gpu_worker.worker import GPUWorker
+    from gpu.comfyui_worker.worker import GPUWorker
 
     return GPUWorker(
         config=worker_config,
@@ -75,7 +75,7 @@ def worker(worker_config, redis, gateway, cos_client):
 @pytest.fixture
 def heartbeat(redis, worker_config):
     """Create a HeartbeatReporter instance."""
-    from gpu_worker.heartbeat import HeartbeatReporter
+    from gpu.comfyui_worker.heartbeat import HeartbeatReporter
 
     return HeartbeatReporter(redis=redis, config=worker_config)
 
@@ -633,7 +633,7 @@ class TestProcessTaskExtractLastFrame:
                 f.write(b"fake-png-frame-data")
             return MagicMock(returncode=0)
 
-        with patch("gpu_worker.worker.subprocess.run", side_effect=fake_ffmpeg):
+        with patch("gpu.comfyui_worker.worker.subprocess.run", side_effect=fake_ffmpeg):
             await worker._process_task(task_id)
 
         task = await gateway.get_task(task_id)

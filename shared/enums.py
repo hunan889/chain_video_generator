@@ -35,6 +35,10 @@ class GenerateMode(str, Enum):
     SEEDANCE_T2V = "seedance_t2v"
     SEEDANCE_I2V = "seedance_i2v"
     CLOTHOFF = "clothoff"
+    # Inference modes (handled by gpu/inference_worker, not gpu/comfyui_worker)
+    INFERENCE_EMBED = "inference_embed"          # BGE text embedding
+    INFERENCE_DESCRIBE = "inference_describe"    # VLM image description
+    INFERENCE_CHAT = "inference_chat"            # LLM chat completion / rerank
 
 
 class TaskCategory(str, Enum):
@@ -43,6 +47,7 @@ class TaskCategory(str, Enum):
     THIRDPARTY = "thirdparty" # Delegated to third-party APIs
     POSTPROCESS = "postprocess"  # Post-processing (concat, interpolate, upscale, audio)
     UTILITY = "utility"       # Utility tasks (lora_download, etc.)
+    INFERENCE = "inference"   # LLM/VLM/embedding via gpu/inference_worker
 
 
 # Mapping from GenerateMode to TaskCategory
@@ -69,6 +74,10 @@ _MODE_CATEGORY_MAP: dict[GenerateMode, TaskCategory] = {
     GenerateMode.AUDIO: TaskCategory.POSTPROCESS,
     # Utility modes
     GenerateMode.LORA_DOWNLOAD: TaskCategory.UTILITY,
+    # Inference modes
+    GenerateMode.INFERENCE_EMBED: TaskCategory.INFERENCE,
+    GenerateMode.INFERENCE_DESCRIBE: TaskCategory.INFERENCE,
+    GenerateMode.INFERENCE_CHAT: TaskCategory.INFERENCE,
 }
 
 
