@@ -906,10 +906,53 @@ def build_workflow(
     face_swap_config = None,
     face_image_path: Optional[str] = None,
     standin_face_image: Optional[str] = None,
+    # ── Continuation / story-mode params (Fix 1) ──────────────────────────
+    is_continuation: bool = False,
+    initial_ref_filename: Optional[str] = None,
+    previous_video_filename: Optional[str] = None,
 ) -> dict:
     # Normalize loras: accept both LoraInput objects and dicts
     if loras:
         loras = [l if hasattr(l, "name") else LoraInput(**l) for l in loras]
+
+    # ── Story-mode continuation branch (Fix 1) ────────────────────────────
+    # When the caller signals this is a continuation AND provides an
+    # ``initial_ref_filename`` (the chain's first-segment first frame, used
+    # as a CLIPVision identity anchor), route to ``build_story_workflow``
+    # which uses the PainterLongVideo + WanMoeKSamplerAdvanced stack with a
+    # CLIPVisionEncode node automatically wired to the reference image.
+    #
+    # This produces visually consistent multi-segment chains (faces /
+    # outfits don't drift between segments). For non-continuation workflows
+    # the existing basic templates are used unchanged.
+    if is_continuation and initial_ref_filename and model == ModelType.A14B:
+        logger.info(
+            "build_workflow: continuation detected, switching to story_continue stack "
+            "(initial_ref=%s, previous_video=%s)",
+            initial_ref_filename,
+            previous_video_filename or "<none>",
+        )
+        return build_story_workflow(
+            is_first_segment=False,
+            prompt=prompt,
+            negative_prompt=negative_prompt,
+            width=width,
+            height=height,
+            num_frames=num_frames,
+            seed=seed,
+            shift=shift,
+            cfg=cfg,
+            steps=steps,
+            motion_amplitude=motion_amplitude or 1.15,
+            image_filename=image_filename or "",
+            initial_ref_filename=initial_ref_filename,
+            video_filename=previous_video_filename or "",
+            model_preset=model_preset or "nsfw_v2",
+            clip_preset="nsfw",
+            fps=fps,
+            upscale=upscale,
+            loras=loras,
+        )
 
     # Stand-In mode: use dedicated T2V template with face processing pipeline
     if standin_face_image and mode == GenerateMode.T2V and model == ModelType.A14B:

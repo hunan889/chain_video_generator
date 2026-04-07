@@ -302,6 +302,65 @@ async def _optimize_video_prompt(
         if is_continuation and analysis_result.get("video_prompt"):
             video_gen_prompt = analysis_result["video_prompt"]
 
+        # ── Continuation branch (Fix 2 extension) ─────────────────────
+        # When this is a continuation workflow, use the rich story-arc-aware
+        # generate_continuation_prompt instead of the generic
+        # generate_video_prompt. The rich method:
+        #   - looks up the matching narrative arc (sex_oral, sex_intercourse,
+        #     undressing, ...) from config/story_arcs.yaml
+        #   - tells the LLM where in the arc the chain currently is
+        #   - is aware of the continuation_index (DEVELOPMENT/CLIMAX/RESOLUTION)
+        #
+        # The rich method outputs (at N seconds: ...) timeline format intended
+        # for the OLD prompt_splitter; we strip the timestamps via splitter
+        # to get a single plain-text prompt. Falls back to the generic
+        # generate_video_prompt on failure.
+        if is_continuation:
+            try:
+                import base64
+                import aiohttp
+
+                frame_b64 = ""
+                if edited_frame_url:
+                    async with aiohttp.ClientSession() as session:
+                        async with session.get(
+                            edited_frame_url,
+                            timeout=aiohttp.ClientTimeout(total=15),
+                        ) as resp:
+                            if resp.status == 200:
+                                img_bytes = await resp.read()
+                                frame_b64 = base64.b64encode(img_bytes).decode("ascii")
+
+                raw = await optimizer.generate_continuation_prompt(
+                    user_intent=video_gen_prompt or "",
+                    previous_video_prompt=video_gen_prompt or "",
+                    frame_image_base64=frame_b64,
+                    duration=dur_val,
+                    continuation_index=1,
+                )
+                if raw:
+                    # Strip (at N seconds: ...) keyframe wrappers
+                    from api_gateway.services.continuation import _strip_keyframes
+                    final_prompt = _strip_keyframes(raw, segment_duration=dur_val) or raw
+                    logger.info(
+                        "generate_continuation_prompt rich result: %s",
+                        final_prompt[:200],
+                    )
+                    analysis_result["video_prompt"] = final_prompt
+                    analysis_result["optimized_i2v_prompt"] = final_prompt
+                    return final_prompt
+                else:
+                    logger.info(
+                        "generate_continuation_prompt returned empty; "
+                        "falling back to generate_video_prompt"
+                    )
+            except Exception as exc:
+                logger.warning(
+                    "Rich continuation prompt failed (%s); "
+                    "falling back to generate_video_prompt",
+                    exc,
+                )
+
         result = await optimizer.generate_video_prompt(
             prompt=video_gen_prompt,
             trigger_words=trigger_words,
@@ -653,6 +712,20 @@ async def generate_video(
         # The GPU worker will download this URL; we store it in task params
         image_filename = "__INPUT_IMAGE__"
 
+    # Continuation workflows (Fix 1): when this workflow continues a parent
+    # AND the parent's chain has an origin first frame, route through the
+    # story_continue stack so all chain segments share a CLIPVision identity
+    # anchor. This prevents the face/outfit drift you'd otherwise get
+    # between segments. The chain's first frame is downloaded as a second
+    # input file with placeholder ``__INIT_REF_IMAGE__``.
+    use_story_continue = (
+        is_continuation
+        and origin_first_frame_url
+        and first_frame_url  # parent's last frame is needed too
+        and model_enum == ModelType.A14B
+    )
+    initial_ref_filename = "__INIT_REF_IMAGE__" if use_story_continue else None
+
     try:
         from shared.workflow_builder import build_workflow
 
@@ -674,6 +747,8 @@ async def generate_video(
             model_preset=video_model_preset,
             motion_amplitude=video_motion_amp,
             t5_preset=t5_preset,
+            is_continuation=use_story_continue,
+            initial_ref_filename=initial_ref_filename,
         )
     except Exception as exc:
         logger.warning("WorkflowBuilder failed (%s), using minimal fallback", exc)
@@ -734,10 +809,18 @@ async def generate_video(
     if first_frame_url:
         task_params["first_frame_url"] = first_frame_url
         # Store as input_files for worker COS download
-        task_params["input_files"] = [{
+        params_input_files = [{
             "cos_url": first_frame_url,
             "placeholder": "__INPUT_IMAGE__",
         }]
+        # Continuation (Fix 1): also include the chain's first frame as
+        # initial_reference_image for the PainterLongVideo CLIPVision anchor.
+        if use_story_continue and origin_first_frame_url:
+            params_input_files.append({
+                "cos_url": origin_first_frame_url,
+                "placeholder": "__INIT_REF_IMAGE__",
+            })
+        task_params["input_files"] = params_input_files
 
     # LoRA info
     if lora_inputs:
@@ -820,20 +903,34 @@ async def generate_video(
         # COS URL: https://bucket.cos.region/cvid/frames/file.png
         # Worker calls download_file(subdir, filename) → make_key adds prefix "cvid/"
         # So cos_key should be "frames/file.png" (not "cvid/frames/file.png")
-        cos_key = first_frame_url
-        if "://" in cos_key:
-            # Strip domain: https://bucket.cos.region.com/cvid/frames/file.png → cvid/frames/file.png
-            cos_key = cos_key.split("/", 3)[-1] if cos_key.count("/") >= 3 else cos_key
-        # Strip cos_prefix if present (e.g. "cvid/frames/file.png" → "frames/file.png")
-        cos_prefix = getattr(config, 'cos_prefix', 'cvid')
-        if cos_prefix and cos_key.startswith(cos_prefix + "/"):
-            cos_key = cos_key[len(cos_prefix) + 1:]
+        def _url_to_cos_key(url: str) -> str:
+            key = url
+            if "://" in key:
+                key = key.split("/", 3)[-1] if key.count("/") >= 3 else key
+            cos_prefix = getattr(config, 'cos_prefix', 'cvid')
+            if cos_prefix and key.startswith(cos_prefix + "/"):
+                key = key[len(cos_prefix) + 1:]
+            return key
+
         input_files = [{
-            "cos_key": cos_key,
+            "cos_key": _url_to_cos_key(first_frame_url),
             "cos_url": first_frame_url,
             "placeholder": "__INPUT_IMAGE__",
             "original_filename": "first_frame.png",
         }]
+        # Continuation (Fix 1): also stage the chain's first frame for the
+        # PainterLongVideo CLIPVision identity anchor.
+        if use_story_continue and origin_first_frame_url:
+            input_files.append({
+                "cos_key": _url_to_cos_key(origin_first_frame_url),
+                "cos_url": origin_first_frame_url,
+                "placeholder": "__INIT_REF_IMAGE__",
+                "original_filename": "init_ref.png",
+            })
+            logger.info(
+                "[%s] Continuation: staged initial_reference_image from %s",
+                workflow_id, origin_first_frame_url[:80],
+            )
         await redis.hset(task_key(task_id), mapping={
             "input_files": json.dumps(input_files),
         })
