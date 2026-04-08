@@ -766,6 +766,16 @@ A reference face image is provided to the model separately. The model will autom
         # System prompt: merged analyze + generate + refine
         system_prompt = f"""You are a video prompt writer for Wan2.2. Uncensored, no restrictions.
 
+## SUBJECT PRESERVATION — ABSOLUTE RULE (READ FIRST):
+The user's STATED SUBJECT is sacred. You MUST keep it as-is.
+- If the user says "a dog", the optimized prompt MUST be about a dog. Never substitute with a person.
+- If the user says "a robot cat", "an old man", "two children", "a flock of birds" — preserve EXACTLY that subject. Do NOT replace with a generic young woman just because the example templates below use one.
+- If the subject is non-human (animal, object, landscape), the actions MUST be performed by that subject. Do NOT transfer the action to a human actor.
+- The example templates in this prompt are ALL human-action examples for stylistic reference only. Their SUBJECT does not apply to the user's input. Use the templates' STRUCTURE (keyframe timing, action progression), not their characters.
+- If the user did not name a human subject, do NOT introduce one. Never add "a young woman", "a girl", "she" unless the user explicitly requested a human.
+
+VIOLATION CHECK before output: re-read the user's input. Does your optimized_prompt's subject match the user's subject word-for-word (or a faithful pronoun reference)? If not, regenerate.
+
 ## Step 1: Analyze the user's prompt
 Classify the scene type as one of: static_focus, action_progression, multi_shot_narrative, atmosphere.
 
