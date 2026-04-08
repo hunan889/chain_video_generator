@@ -192,6 +192,7 @@ class TaskGateway:
         self, task_id: str,
         video_url: str = "",
         last_frame_url: str = "",
+        lossless_last_frame_url: str = "",
     ) -> None:
         mapping = {
             "status": TaskStatus.COMPLETED.value,
@@ -202,6 +203,11 @@ class TaskGateway:
             mapping["video_url"] = video_url
         if last_frame_url:
             mapping["last_frame_url"] = last_frame_url
+        if lossless_last_frame_url:
+            # Lossless PNG saved by the in-workflow SaveImage node before
+            # h264 encoding. Used as the higher-quality identity anchor for
+            # downstream continuations (parent_video_extractor reads it).
+            mapping["lossless_last_frame_url"] = lossless_last_frame_url
         await self.redis.hset(task_key(task_id), mapping=mapping)
 
         if self.task_store is not None:

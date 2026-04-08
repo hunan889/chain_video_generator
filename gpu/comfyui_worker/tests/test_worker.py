@@ -612,6 +612,8 @@ class TestProcessTaskExtractLastFrame:
         await redis.hset(task_key(task_id), "extract_last_frame", "1")
 
         mock_client = _make_mock_comfyui_client()
+        # No lossless SaveImage in this test workflow → empty list
+        mock_client.get_output_images = AsyncMock(return_value=[])
         mock_cos = MagicMock()
 
         # upload_file called twice: once for video, once for last frame
@@ -640,6 +642,94 @@ class TestProcessTaskExtractLastFrame:
         assert task["status"] == TaskStatus.COMPLETED.value
         assert task["video_url"] == "https://cdn.example.com/videos/result.mp4"
         assert task["last_frame_url"] == "https://cdn.example.com/frames/last_frame.png"
+
+    @pytest.mark.asyncio
+    async def test_extract_lossless_last_frame_when_present(self, worker, redis, gateway):
+        """When the workflow contains the lossless SaveImage node, the GPU
+        worker should download the resulting wan22_story_lastframe_*.png from
+        ComfyUI history, upload to COS, and set lossless_last_frame_url."""
+        task_id = await gateway.create_task(
+            mode=GenerateMode.T2V,
+            model=ModelType.A14B,
+            workflow={"nodes": []},
+        )
+        await redis.hset(task_key(task_id), "extract_last_frame", "1")
+
+        mock_client = _make_mock_comfyui_client()
+        # Simulate ComfyUI returning the lossless SaveImage output
+        mock_client.get_output_images = AsyncMock(return_value=[
+            {"filename": "wan22_story_lastframe_00001_.png", "subfolder": "", "type": "output"},
+        ])
+        # download_file is called once for the video and once for the lossless
+        # PNG; both can return arbitrary bytes for the test.
+        mock_client.download_file = AsyncMock(return_value=b"fake-png-bytes")
+
+        mock_cos = MagicMock()
+        mock_cos.upload_file = MagicMock(side_effect=[
+            "https://cdn.example.com/videos/result.mp4",      # video
+            "https://cdn.example.com/frames/last_frame.png",  # ffmpeg-extracted
+            "https://cdn.example.com/frames/lossless.png",    # in-workflow SaveImage
+        ])
+
+        worker._cos_client = mock_cos
+        worker._comfyui_clients = {"a14b": mock_client}
+
+        def fake_ffmpeg(args, **kwargs):
+            output_path = args[-1]
+            with open(output_path, "wb") as f:
+                f.write(b"fake-png-frame-data")
+            return MagicMock(returncode=0)
+
+        with patch("gpu.comfyui_worker.worker.subprocess.run", side_effect=fake_ffmpeg):
+            await worker._process_task(task_id)
+
+        task = await gateway.get_task(task_id)
+        assert task["status"] == TaskStatus.COMPLETED.value
+        # Both fields populated
+        assert task["last_frame_url"] == "https://cdn.example.com/frames/last_frame.png"
+        # The lossless field is on the raw hash (get_task may or may not surface it)
+        raw = await redis.hgetall(task_key(task_id))
+        assert raw.get("lossless_last_frame_url") == "https://cdn.example.com/frames/lossless.png"
+
+    @pytest.mark.asyncio
+    async def test_lossless_extraction_silently_skipped_when_no_savenode(self, worker, redis, gateway):
+        """If the workflow has no wan22_story_lastframe SaveImage output, the
+        worker should NOT crash and should leave lossless_last_frame_url unset."""
+        task_id = await gateway.create_task(
+            mode=GenerateMode.T2V,
+            model=ModelType.A14B,
+            workflow={"nodes": []},
+        )
+        await redis.hset(task_key(task_id), "extract_last_frame", "1")
+
+        mock_client = _make_mock_comfyui_client()
+        # No lossless output present
+        mock_client.get_output_images = AsyncMock(return_value=[
+            {"filename": "preview_00001_.png", "subfolder": "", "type": "output"},
+        ])
+        mock_cos = MagicMock()
+        mock_cos.upload_file = MagicMock(side_effect=[
+            "https://cdn.example.com/videos/result.mp4",
+            "https://cdn.example.com/frames/last_frame.png",
+        ])
+
+        worker._cos_client = mock_cos
+        worker._comfyui_clients = {"a14b": mock_client}
+
+        def fake_ffmpeg(args, **kwargs):
+            with open(args[-1], "wb") as f:
+                f.write(b"fake")
+            return MagicMock(returncode=0)
+
+        with patch("gpu.comfyui_worker.worker.subprocess.run", side_effect=fake_ffmpeg):
+            await worker._process_task(task_id)
+
+        raw = await redis.hgetall(task_key(task_id))
+        # Field should not be set (or be empty)
+        assert not raw.get("lossless_last_frame_url"), \
+            f"unexpected lossless URL: {raw.get('lossless_last_frame_url')!r}"
+        # The regular last_frame_url path is unaffected
+        assert raw["last_frame_url"] == "https://cdn.example.com/frames/last_frame.png"
 
 
 class TestConcatTask:

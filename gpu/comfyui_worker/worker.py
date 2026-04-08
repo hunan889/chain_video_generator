@@ -358,9 +358,16 @@ class GPUWorker:
 
             # Step 8: Optional last frame extraction
             last_frame_url = ""
+            lossless_last_frame_url = ""
             if raw_data.get("extract_last_frame") == "1":
                 last_frame_url = await self._extract_and_upload_last_frame(
                     task_id, video_data, ext
+                )
+                # Lossless variant: in-workflow SaveImage saved a raw VAE-decoded
+                # PNG (filename prefix ``wan22_story_lastframe``). Pull it from
+                # ComfyUI history and upload to COS for downstream continuations.
+                lossless_last_frame_url = await self._extract_and_upload_lossless_last_frame(
+                    task_id, prompt_id, client
                 )
 
             # Step 9: Mark as completed
@@ -368,6 +375,7 @@ class GPUWorker:
                 task_id,
                 video_url=video_url,
                 last_frame_url=last_frame_url,
+                lossless_last_frame_url=lossless_last_frame_url,
             )
             # Report success to instance pool
             if self._pool is not None:
@@ -501,8 +509,14 @@ class GPUWorker:
             # Download from COS to temp file
             file_data = self._download_from_cos(cos_key)
 
-            # Upload to ComfyUI
-            result = await client.upload_image(file_data, basename)
+            # Dispatch image vs video upload by extension. Both go to
+            # ComfyUI's /upload/image endpoint, but the video helper sets
+            # the correct Content-Type so VHS_LoadVideo can read it back.
+            ext = os.path.splitext(basename)[1].lower()
+            if ext in (".mp4", ".webm", ".mov", ".mkv"):
+                result = await client.upload_video(file_data, basename)
+            else:
+                result = await client.upload_image(file_data, basename)
             actual_name = result.get("name", basename)
 
             # Replace placeholder in workflow
@@ -610,6 +624,77 @@ class GPUWorker:
             for path in (video_tmp, frame_tmp):
                 if path and os.path.exists(path):
                     os.unlink(path)
+
+    async def _extract_and_upload_lossless_last_frame(
+        self,
+        task_id: str,
+        prompt_id: str,
+        client: "ComfyUIClient",
+    ) -> str:
+        """Pull the in-workflow lossless PNG from ComfyUI and upload to COS.
+
+        The shared workflow_builder injects a ``SaveImage`` node with
+        ``filename_prefix=wan22_story_lastframe`` that captures the raw
+        VAE-decoded last frame BEFORE VHS_VideoCombine re-encodes the
+        video. This bypasses h264 compression artifacts entirely, giving
+        downstream continuations a higher-quality identity anchor.
+
+        Returns an empty string on any failure (the field is optional —
+        callers fall back to the regular ``last_frame_url``).
+        """
+        try:
+            output_images = await client.get_output_images(prompt_id)
+        except Exception as exc:
+            logger.warning(
+                "Task %s: lossless frame query failed: %s", task_id, exc,
+            )
+            return ""
+
+        # Find the SaveImage output produced by _inject_lossless_frame_save.
+        lossless_files = [
+            f for f in output_images
+            if f.get("filename", "").startswith("wan22_story_lastframe")
+        ]
+        if not lossless_files:
+            logger.debug(
+                "Task %s: no wan22_story_lastframe output found "
+                "(workflow may not have the SaveImage injection)", task_id,
+            )
+            return ""
+
+        # If multiple matches (rare), pick the most recent one — ComfyUI
+        # numbers them sequentially, so the lex-max is correct.
+        chosen = max(lossless_files, key=lambda f: f.get("filename", ""))
+
+        try:
+            png_data = await client.download_file(
+                chosen["filename"],
+                chosen.get("subfolder", ""),
+                chosen.get("type", "output"),
+            )
+        except Exception as exc:
+            logger.warning(
+                "Task %s: lossless frame download failed: %s", task_id, exc,
+            )
+            return ""
+
+        if not png_data:
+            return ""
+
+        try:
+            url = await self._upload_to_cos(
+                png_data, "frames", f"{task_id}_lossless_last.png",
+            )
+            logger.info(
+                "Task %s lossless last frame uploaded: %s",
+                task_id, url,
+            )
+            return url
+        except Exception as exc:
+            logger.warning(
+                "Task %s: lossless frame COS upload failed: %s", task_id, exc,
+            )
+            return ""
 
     async def _handle_oom(
         self,

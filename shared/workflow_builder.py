@@ -1163,6 +1163,12 @@ def build_workflow(
     if face_swap_config and face_swap_config.enabled and face_image_path:
         workflow = _inject_reactor(workflow, face_image_path, face_swap_config.strength)
 
+    # Inject lossless last-frame SaveImage so the GPU worker can persist the
+    # raw VAE-decoded last frame (no h264 reencode) for downstream
+    # continuations. The GPU worker reads the resulting
+    # ``wan22_story_lastframe_*`` from ComfyUI history.
+    workflow = _inject_lossless_frame_save(workflow)
+
     return workflow
 
 
@@ -1530,6 +1536,12 @@ def build_story_workflow(
     # Inject upscale if enabled
     if upscale:
         workflow = _inject_upscale(workflow)
+
+    # Inject lossless last-frame SaveImage so the GPU worker can persist the
+    # raw VAE-decoded last frame (no h264 reencode) for downstream
+    # continuations. The GPU worker reads the resulting
+    # ``wan22_story_lastframe_*`` from ComfyUI history.
+    workflow = _inject_lossless_frame_save(workflow)
 
     return workflow
 
