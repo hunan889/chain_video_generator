@@ -255,6 +255,41 @@ class WorkflowEngine:
         await self.task_store.update_status(workflow_id, "cancelled", error="Cancelled by user")
         return True
 
+    async def _resolve_parent_workflow(self, parent_id: str) -> Optional[dict]:
+        """Resolve parent workflow metadata for a continuation request.
+
+        A parent id can come from two disjoint id spaces that never collide:
+
+        * GPU-native workflows, generated as ``wf_<12 hex>`` in
+          :meth:`start_workflow` and stored in the Redis hash ``workflow:{id}``.
+        * ClothOff (and any future thirdparty backend) tasks, generated as
+          bare 32-char uuid4 hex in ``api_gateway/routes/clothoff.py`` and
+          stored in the MySQL ``generation_tasks`` table.
+
+        We query Redis first (fast path for the original GPU→GPU chain) and
+        only fall back to the unified task store on a miss. ``TaskStore`` row
+        dicts are already shaped to look like Redis workflow hashes by
+        :func:`api_gateway.services.task_store._row_to_dict` — in particular
+        ``result_url`` is aliased to ``final_video_url`` and ``status`` uses
+        the same ``completed/failed`` vocabulary — so the downstream
+        continuation pipeline needs no changes.
+
+        Args:
+            parent_id: The parent reference sent by the client.
+
+        Returns:
+            A dict shaped like a Redis workflow hash, or ``None`` when the
+            id is unknown in both stores.
+        """
+        redis_row = await self.redis.hgetall(f"workflow:{parent_id}")
+        if redis_row:
+            return redis_row
+
+        if self.task_store is None:
+            return None
+
+        return await self.task_store.get(parent_id)
+
     async def regenerate(self, workflow_id: str) -> dict:
         """Regenerate a workflow with same params."""
         wf_key = f"workflow:{workflow_id}"
@@ -304,10 +339,14 @@ class WorkflowEngine:
             previous_video_url: Optional[str] = None
 
             if is_continuation:
-                parent_wf_key = f"workflow:{req['parent_workflow_id']}"
-                parent_workflow = await self.redis.hgetall(parent_wf_key)
+                # Two-tier lookup: native GPU workflow (Redis) first, then
+                # unified generation_tasks table (covers ClothOff animate /
+                # face_swap_video so users can continue those chains too).
+                parent_workflow = await self._resolve_parent_workflow(req["parent_workflow_id"])
                 if not parent_workflow or parent_workflow.get("status") != "completed":
-                    raise RuntimeError(f"Parent workflow {req['parent_workflow_id']} not found or not completed")
+                    raise RuntimeError(
+                        f"Parent workflow {req['parent_workflow_id']} not found or not completed"
+                    )
                 # Trace origin first frame for CLIP Vision anchoring
                 origin_first_frame_url = parent_workflow.get("origin_first_frame_url") or \
                                          parent_workflow.get("first_frame_url")

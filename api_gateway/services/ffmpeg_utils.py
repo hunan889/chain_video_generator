@@ -23,6 +23,57 @@ from pathlib import Path
 logger = logging.getLogger(__name__)
 
 
+async def probe_fps(video_path: Path) -> float | None:
+    """Return the average frame rate of *video_path* via ``ffprobe``.
+
+    Returns ``None`` when ffprobe is unavailable, the file is unreadable,
+    or the reported rate is non-positive. Callers should fall back to a
+    sensible default in that case.
+
+    The first video stream's ``avg_frame_rate`` is parsed; ffprobe formats
+    it as ``"num/den"`` (e.g. ``"16/1"``), so we evaluate the rational.
+    """
+    cmd = [
+        "ffprobe", "-v", "error",
+        "-select_streams", "v:0",
+        "-show_entries", "stream=avg_frame_rate",
+        "-of", "default=noprint_wrappers=1:nokey=1",
+        str(video_path),
+    ]
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            *cmd,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        stdout, _ = await proc.communicate()
+    except (FileNotFoundError, OSError) as exc:
+        logger.warning("probe_fps: ffprobe unavailable for %s: %s", video_path.name, exc)
+        return None
+
+    if proc.returncode != 0:
+        return None
+
+    raw = stdout.decode(errors="replace").strip()
+    if not raw or raw == "0/0":
+        return None
+
+    try:
+        if "/" in raw:
+            num_str, den_str = raw.split("/", 1)
+            num = float(num_str)
+            den = float(den_str)
+            if den == 0:
+                return None
+            value = num / den
+        else:
+            value = float(raw)
+    except ValueError:
+        return None
+
+    return value if value > 0 else None
+
+
 async def extract_first_frame(video_path: Path, output_dir: Path) -> Path:
     """Extract the first frame of *video_path* as a PNG.
 

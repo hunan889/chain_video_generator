@@ -36,6 +36,7 @@ import aiohttp
 from api_gateway.services.ffmpeg_utils import (
     extract_first_frame,
     extract_last_n_frames_video,
+    probe_fps,
 )
 
 if TYPE_CHECKING:
@@ -121,6 +122,17 @@ async def extract_parent_video_anchors(
     if not video_url:
         return ("", "")
 
+    # ClothOff image results (eraser/undress/face_swap_photo) flow into the
+    # "new video" path via uploaded_first_frame, not into continuation. This
+    # defensive guard keeps the extractor honest if the frontend ever passes
+    # an image url as parent — we'd otherwise blow up inside ffmpeg.
+    if _is_image_url(video_url):
+        logger.warning(
+            "parent_video_extractor: image url not supported for continuation: %s",
+            video_url[:120],
+        )
+        return ("", "")
+
     cache_key = _cache_key(video_url, motion_frames)
     cached = _CACHE.get(cache_key)
     if cached is not None:
@@ -167,9 +179,23 @@ async def extract_parent_video_anchors(
                 )
 
             # --- Motion reference mp4 ---
+            # Probe the real frame rate so non-16fps parents (e.g. ClothOff
+            # animate outputs) compute the right -sseof offset.
+            try:
+                detected_fps = await probe_fps(video_path)
+            except Exception as exc:
+                logger.warning("parent_video_extractor: probe_fps raised: %s", exc)
+                detected_fps = None
+            effective_fps = detected_fps if detected_fps and detected_fps > 0 else fps
+            if detected_fps:
+                logger.info(
+                    "parent_video_extractor: probed fps=%.3f (default was %d)",
+                    detected_fps, fps,
+                )
+
             try:
                 motion_mp4 = await extract_last_n_frames_video(
-                    video_path, tmpdir, n_frames=motion_frames, fps=fps,
+                    video_path, tmpdir, n_frames=motion_frames, fps=int(round(effective_fps)),
                 )
                 digest = hashlib.md5(video_url.encode("utf-8")).hexdigest()
                 prev_video_url = await asyncio.to_thread(
