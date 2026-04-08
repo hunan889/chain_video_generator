@@ -1,0 +1,482 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ClothOff 管理</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:#1a1a2e;color:#e0e0e0;min-height:100vh}
+.container{max-width:960px;margin:0 auto;padding:24px 16px}
+h1{color:#b39ddb;margin-bottom:6px;font-size:1.4em}
+.subtitle{color:#666;font-size:13px;margin-bottom:24px}
+.nav{display:flex;gap:8px;margin-bottom:24px;flex-wrap:wrap}
+.nav a{padding:7px 16px;border-radius:6px;font-size:13px;text-decoration:none;color:#aaa;border:1px solid #333;transition:all .2s}
+.nav a:hover,.nav a.active{background:#7c83ff;color:#fff;border-color:#7c83ff}
+.tabs{display:flex;gap:0;border-bottom:1px solid #333;margin-bottom:20px}
+.tab{padding:10px 20px;font-size:13px;color:#888;cursor:pointer;border-bottom:2px solid transparent;transition:all .2s}
+.tab.active{color:#b39ddb;border-bottom-color:#b39ddb}
+.panel{display:none}
+.panel.active{display:block}
+.card{background:#16213e;border:1px solid #333;border-radius:10px;padding:20px;margin-bottom:16px}
+.card h3{font-size:14px;color:#b39ddb;margin-bottom:14px;font-weight:600}
+.form-group{margin-bottom:14px}
+.form-group label{display:block;font-size:12px;color:#aaa;margin-bottom:5px}
+.form-group input,.form-group select,.form-group textarea{width:100%;padding:8px 12px;background:#0a0a23;border:1px solid #444;border-radius:6px;color:#e0e0e0;font-size:13px;transition:border-color .2s}
+.form-group input:focus,.form-group select:focus,.form-group textarea:focus{outline:none;border-color:#b39ddb}
+.form-group textarea{resize:vertical;min-height:60px}
+.form-row{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.btn{padding:9px 20px;border:none;border-radius:6px;font-size:13px;cursor:pointer;font-weight:600;transition:all .2s}
+.btn:active{transform:scale(0.97)}
+.btn-primary{background:#7c83ff;color:#fff}
+.btn-primary:hover{background:#5a62e0}
+.btn-purple{background:#9c27b0;color:#fff}
+.btn-purple:hover{background:#7b1fa2}
+.btn-sm{padding:5px 12px;font-size:12px}
+.btn-danger{background:#c62828;color:#fff}
+.btn-danger:hover{background:#a31515}
+.result-box{background:#0a0a23;border:1px solid #333;border-radius:6px;padding:12px;margin-top:14px;font-size:12px;font-family:monospace;white-space:pre-wrap;word-break:break-all;max-height:200px;overflow-y:auto;color:#aaa;display:none}
+.result-box.visible{display:block}
+.result-box.success{border-color:#2e7d32;color:#81c784}
+.result-box.error{border-color:#c62828;color:#ef9a9a}
+.status-badge{display:inline-block;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:700}
+.badge-ok{background:#1b5e20;color:#a5d6a7}
+.badge-err{background:#4a1a1a;color:#ef9a9a}
+.badge-wait{background:#2a2a1a;color:#ffcc02}
+.history-list{display:flex;flex-direction:column;gap:10px}
+.hist-item{background:#0d1b33;border:1px solid #2a2a4a;border-radius:8px;padding:12px;display:grid;grid-template-columns:64px 1fr auto;gap:10px;align-items:center}
+.hist-thumb{width:64px;height:64px;border-radius:6px;object-fit:cover;background:#0a0a23}
+.hist-thumb-placeholder{width:64px;height:64px;border-radius:6px;background:#0a0a23;display:flex;align-items:center;justify-content:center;color:#555;font-size:18px}
+.hist-info{min-width:0}
+.hist-type{font-size:11px;color:#b39ddb;margin-bottom:3px}
+.hist-id{font-size:10px;font-family:monospace;color:#555;margin-bottom:4px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.hist-time{font-size:10px;color:#555}
+.hist-actions{display:flex;flex-direction:column;gap:5px;flex-shrink:0}
+.balance-display{font-size:28px;font-weight:700;color:#b39ddb;margin:8px 0}
+.balance-label{font-size:12px;color:#666}
+.info-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:10px;margin-top:12px}
+.info-card{background:#0a0a23;border-radius:8px;padding:12px;text-align:center}
+.info-card .val{font-size:20px;font-weight:700;color:#7c83ff;margin-bottom:4px}
+.info-card .lbl{font-size:11px;color:#666}
+.spinner{display:inline-block;width:14px;height:14px;border:2px solid #444;border-top-color:#b39ddb;border-radius:50%;animation:spin .8s linear infinite;vertical-align:middle;margin-right:6px}
+@keyframes spin{to{transform:rotate(360deg)}}
+.preview-img{max-width:200px;max-height:200px;border-radius:6px;margin-top:8px;display:none;object-fit:contain;background:#0a0a23}
+.preview-img.visible{display:block}
+select option{background:#1a1a2e}
+</style>
+</head>
+<body>
+<div class="container">
+  <h1>ClothOff 管理</h1>
+  <p class="subtitle">提交和管理 ClothOff 任务，续写动画结果</p>
+
+  <div class="nav">
+    <a href="/static/workflow_history.html">← 生成历史</a>
+    <a href="/static/clothoff_admin.html" class="active">ClothOff 管理</a>
+  </div>
+
+  <div class="tabs">
+    <div class="tab active" onclick="switchTab('eraser')">擦衣 / Eraser</div>
+    <div class="tab" onclick="switchTab('animate')">动画 / Animate</div>
+    <div class="tab" onclick="switchTab('faceswap')">换脸 / Face Swap</div>
+    <div class="tab" onclick="switchTab('history')">历史记录</div>
+    <div class="tab" onclick="switchTab('balance')">账户状态</div>
+  </div>
+
+  <!-- ── Eraser ── -->
+  <div id="panel-eraser" class="panel active">
+    <div class="card">
+      <h3>擦衣（Eraser）</h3>
+      <div class="form-group">
+        <label>图片 URL（公开可访问）</label>
+        <input id="eraser-url" type="url" placeholder="https://..." oninput="previewImage('eraser-url','eraser-preview')">
+        <img id="eraser-preview" class="preview-img" alt="预览">
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label>质量 (quality)</label>
+          <select id="eraser-quality">
+            <option value="">默认</option>
+            <option value="1">1 - 标准</option>
+            <option value="2">2 - 高质量</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>风格 (type)</label>
+          <select id="eraser-type">
+            <option value="">默认</option>
+            <option value="nude">nude</option>
+            <option value="lingerie">lingerie</option>
+          </select>
+        </div>
+      </div>
+      <button class="btn btn-primary" onclick="submitEraser()">提交擦衣</button>
+      <div id="eraser-result" class="result-box"></div>
+    </div>
+  </div>
+
+  <!-- ── Animate ── -->
+  <div id="panel-animate" class="panel">
+    <div class="card">
+      <h3>动画（Animate）</h3>
+      <div class="form-group">
+        <label>图片 URL（公开可访问）</label>
+        <input id="animate-url" type="url" placeholder="https://..." oninput="previewImage('animate-url','animate-preview')">
+        <img id="animate-preview" class="preview-img" alt="预览">
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label>模型 ID</label>
+          <select id="animate-model">
+            <option value="">加载中...</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>姿势 ID（可选）</label>
+          <input id="animate-pose" type="text" placeholder="留空使用默认姿势">
+        </div>
+      </div>
+      <button class="btn btn-purple" onclick="submitAnimate()">提交动画</button>
+      <div id="animate-result" class="result-box"></div>
+    </div>
+
+    <div class="card">
+      <h3>续写动画（已有 Task ID）</h3>
+      <p style="font-size:12px;color:#888;margin-bottom:12px">输入 clothoff_animate 的任务 ID，将以该视频为起点续写下一段</p>
+      <div class="form-group">
+        <label>父任务 ID</label>
+        <input id="continue-parent-id" type="text" placeholder="clothoff_animate 的 task_id (32位hex)">
+      </div>
+      <div class="form-group">
+        <label>续写提示词（可选）</label>
+        <input id="continue-prompt" type="text" placeholder="留空自动续写">
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label>时长（秒）</label>
+          <select id="continue-duration">
+            <option value="3">3s</option>
+            <option value="5" selected>5s</option>
+            <option value="8">8s</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>分辨率</label>
+          <select id="continue-resolution">
+            <option value="720p" selected>720p</option>
+            <option value="480p">480p</option>
+          </select>
+        </div>
+      </div>
+      <button class="btn btn-purple" onclick="submitContinue()">发起续写</button>
+      <div id="continue-result" class="result-box"></div>
+    </div>
+  </div>
+
+  <!-- ── Face Swap ── -->
+  <div id="panel-faceswap" class="panel">
+    <div class="card">
+      <h3>照片换脸（Face Swap Photo）</h3>
+      <div class="form-group">
+        <label>源图片 URL（包含目标脸的图片）</label>
+        <input id="faceswap-source" type="url" placeholder="https://..." oninput="previewImage('faceswap-source','faceswap-preview')">
+        <img id="faceswap-preview" class="preview-img" alt="预览">
+      </div>
+      <div class="form-group">
+        <label>参考脸 URL（要换成的脸）</label>
+        <input id="faceswap-face" type="url" placeholder="https://...">
+      </div>
+      <button class="btn btn-primary" onclick="submitFaceSwapPhoto()">提交照片换脸</button>
+      <div id="faceswap-result" class="result-box"></div>
+    </div>
+
+    <div class="card">
+      <h3>视频换脸（Face Swap Video）</h3>
+      <div class="form-group">
+        <label>视频 URL</label>
+        <input id="faceswap-video-url" type="url" placeholder="https://...">
+      </div>
+      <div class="form-group">
+        <label>参考脸 URL（要换成的脸）</label>
+        <input id="faceswap-video-face" type="url" placeholder="https://...">
+      </div>
+      <button class="btn btn-primary" onclick="submitFaceSwapVideo()">提交视频换脸</button>
+      <div id="faceswap-video-result" class="result-box"></div>
+    </div>
+  </div>
+
+  <!-- ── History ── -->
+  <div id="panel-history" class="panel">
+    <div style="display:flex;gap:10px;align-items:center;margin-bottom:14px">
+      <select id="history-type" style="padding:7px 12px;background:#0a0a23;border:1px solid #444;border-radius:6px;color:#e0e0e0;font-size:13px">
+        <option value="">全部 ClothOff</option>
+        <option value="clothoff_eraser">擦衣</option>
+        <option value="clothoff_animate">动画</option>
+        <option value="clothoff_face_swap_photo">照片换脸</option>
+        <option value="clothoff_face_swap_video">视频换脸</option>
+        <option value="clothoff_short_video">短视频</option>
+      </select>
+      <button class="btn btn-sm btn-primary" onclick="loadClothoffHistory()">刷新</button>
+      <span id="history-count" style="color:#666;font-size:12px"></span>
+    </div>
+    <div id="history-list" class="history-list">
+      <div style="color:#555;padding:20px;text-align:center">点击刷新加载历史</div>
+    </div>
+    <div id="history-pagination" style="display:flex;gap:8px;justify-content:center;margin-top:16px;flex-wrap:wrap"></div>
+  </div>
+
+  <!-- ── Balance ── -->
+  <div id="panel-balance" class="panel">
+    <div class="card">
+      <h3>ClothOff 账户状态</h3>
+      <button class="btn btn-sm btn-primary" onclick="loadBalance()" style="margin-bottom:14px">查询余额</button>
+      <div id="balance-content" style="color:#555;font-size:13px">点击查询按钮获取余额信息</div>
+    </div>
+  </div>
+</div>
+
+<script>
+const API_KEY = localStorage.getItem('admin_api_key') || '';
+const BASE = '';
+let historyPage = 1;
+
+function switchTab(name) {
+  document.querySelectorAll('.tab').forEach((t,i) => {
+    const panels = ['eraser','animate','faceswap','history','balance'];
+    t.classList.toggle('active', panels[i] === name);
+  });
+  document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+  document.getElementById('panel-' + name).classList.add('active');
+  if (name === 'balance') loadBalance();
+  if (name === 'history') loadClothoffHistory();
+  if (name === 'animate') loadAnimateModels();
+}
+
+function headers(json = true) {
+  const h = {};
+  if (API_KEY) h['X-API-Key'] = API_KEY;
+  if (json) h['Content-Type'] = 'application/json';
+  return h;
+}
+
+function showResult(id, data, isErr = false) {
+  const el = document.getElementById(id);
+  el.className = 'result-box visible ' + (isErr ? 'error' : 'success');
+  el.textContent = typeof data === 'string' ? data : JSON.stringify(data, null, 2);
+}
+
+function previewImage(inputId, imgId) {
+  const url = document.getElementById(inputId).value.trim();
+  const img = document.getElementById(imgId);
+  if (url) {
+    img.src = url;
+    img.classList.add('visible');
+    img.onerror = () => img.classList.remove('visible');
+  } else {
+    img.classList.remove('visible');
+  }
+}
+
+// ── Eraser ──
+async function submitEraser() {
+  const url = document.getElementById('eraser-url').value.trim();
+  if (!url) return alert('请输入图片 URL');
+  const body = { image_url: url };
+  const q = document.getElementById('eraser-quality').value;
+  const t = document.getElementById('eraser-type').value;
+  if (q) body.quality = parseInt(q);
+  if (t) body.type = t;
+  try {
+    const res = await fetch(`${BASE}/api/v1/clothoff/eraser`, {method:'POST', headers: headers(), body: JSON.stringify(body)});
+    const data = await res.json();
+    showResult('eraser-result', data, !res.ok);
+  } catch(e) { showResult('eraser-result', e.message, true); }
+}
+
+// ── Animate ──
+async function loadAnimateModels() {
+  const sel = document.getElementById('animate-model');
+  if (sel.options.length > 1) return; // already loaded
+  try {
+    const res = await fetch(`${BASE}/api/v1/clothoff/animate-models`, {headers: headers(false)});
+    const data = await res.json();
+    const models = data.models || data.data || data || [];
+    sel.innerHTML = '<option value="">默认模型</option>';
+    for (const m of models) {
+      const id = m.id || m.model_id || m;
+      const name = m.name || m.title || id;
+      sel.innerHTML += `<option value="${id}">${name}</option>`;
+    }
+  } catch(e) {
+    sel.innerHTML = '<option value="">（加载失败，留空使用默认）</option>';
+  }
+}
+
+async function submitAnimate() {
+  const url = document.getElementById('animate-url').value.trim();
+  if (!url) return alert('请输入图片 URL');
+  const body = { image_url: url };
+  const model = document.getElementById('animate-model').value;
+  const pose = document.getElementById('animate-pose').value.trim();
+  if (model) body.model_id = model;
+  if (pose) body.pose_id = pose;
+  try {
+    const res = await fetch(`${BASE}/api/v1/clothoff/animate`, {method:'POST', headers: headers(), body: JSON.stringify(body)});
+    const data = await res.json();
+    showResult('animate-result', data, !res.ok);
+  } catch(e) { showResult('animate-result', e.message, true); }
+}
+
+// ── Continue ──
+async function submitContinue() {
+  const parentId = document.getElementById('continue-parent-id').value.trim();
+  if (!parentId) return alert('请输入父任务 ID');
+  const prompt = document.getElementById('continue-prompt').value.trim();
+  const duration = parseInt(document.getElementById('continue-duration').value);
+  const resolution = document.getElementById('continue-resolution').value;
+  const body = {
+    mode: 't2v',
+    parent_workflow_id: parentId,
+    user_prompt: prompt || '',
+    duration,
+    resolution,
+    turbo: true,
+    auto_analyze: true,
+    auto_lora: true,
+    auto_prompt: true,
+  };
+  try {
+    const res = await fetch(`${BASE}/api/v1/workflow/generate-advanced`, {method:'POST', headers: headers(), body: JSON.stringify(body)});
+    const data = await res.json();
+    showResult('continue-result', data, !res.ok);
+  } catch(e) { showResult('continue-result', e.message, true); }
+}
+
+// ── Face Swap ──
+async function submitFaceSwapPhoto() {
+  const src = document.getElementById('faceswap-source').value.trim();
+  const face = document.getElementById('faceswap-face').value.trim();
+  if (!src || !face) return alert('请填写源图片和参考脸 URL');
+  try {
+    const res = await fetch(`${BASE}/api/v1/clothoff/face-swap`, {
+      method:'POST', headers: headers(),
+      body: JSON.stringify({ image_url: src, face_url: face, type: 'photo' })
+    });
+    const data = await res.json();
+    showResult('faceswap-result', data, !res.ok);
+  } catch(e) { showResult('faceswap-result', e.message, true); }
+}
+
+async function submitFaceSwapVideo() {
+  const videoUrl = document.getElementById('faceswap-video-url').value.trim();
+  const face = document.getElementById('faceswap-video-face').value.trim();
+  if (!videoUrl || !face) return alert('请填写视频和参考脸 URL');
+  try {
+    const res = await fetch(`${BASE}/api/v1/clothoff/face-swap`, {
+      method:'POST', headers: headers(),
+      body: JSON.stringify({ video_url: videoUrl, face_url: face, type: 'video' })
+    });
+    const data = await res.json();
+    showResult('faceswap-video-result', data, !res.ok);
+  } catch(e) { showResult('faceswap-video-result', e.message, true); }
+}
+
+// ── History ──
+const TYPE_LABELS = {
+  clothoff_eraser:'擦衣', clothoff_clothes:'换衣', clothoff_animate:'动画',
+  clothoff_face_swap_photo:'照片换脸', clothoff_face_swap_video:'视频换脸', clothoff_short_video:'短视频',
+};
+
+function relTime(ts) {
+  if (!ts) return '-';
+  const d = Math.floor((Date.now()/1000) - ts);
+  if (d < 60) return d + '秒前';
+  if (d < 3600) return Math.floor(d/60) + '分钟前';
+  if (d < 86400) return Math.floor(d/3600) + '小时前';
+  return Math.floor(d/86400) + '天前';
+}
+
+async function loadClothoffHistory(page = 1) {
+  historyPage = page;
+  const taskType = document.getElementById('history-type').value;
+  const limit = 20;
+  const offset = (page - 1) * limit;
+  let url = `/api/v1/tasks?limit=${limit}&offset=${offset}&category=thirdparty`;
+  if (taskType) url += `&task_type=${taskType}`;
+  const listEl = document.getElementById('history-list');
+  listEl.innerHTML = '<div style="color:#555;text-align:center;padding:30px"><span class="spinner"></span>加载中...</div>';
+  try {
+    const res = await fetch(url, {headers: headers(false)});
+    const data = await res.json();
+    const items = data.workflows || data.items || [];
+    const total = data.total || 0;
+    document.getElementById('history-count').textContent = `共 ${total} 条`;
+    if (!items.length) {
+      listEl.innerHTML = '<div style="color:#555;text-align:center;padding:30px">暂无记录</div>';
+      document.getElementById('history-pagination').innerHTML = '';
+      return;
+    }
+    listEl.innerHTML = items.map(w => {
+      const type = w.mode || w.task_type || '';
+      const typeLabel = TYPE_LABELS[type] || type;
+      const hasVideo = !!w.final_video_url;
+      const thumb = w.thumbnail_url || w.first_frame_url || w.edited_frame_url || '';
+      const statusColor = {completed:'#4caf50', running:'#64b5f6', failed:'#ef5350', queued:'#ffb74d'}[w.status] || '#aaa';
+      const canContinue = type === 'clothoff_animate' && hasVideo;
+      return `<div class="hist-item">
+        ${thumb ? `<img class="hist-thumb" src="${thumb}" loading="lazy" onerror="this.style.display='none'">` : `<div class="hist-thumb-placeholder">${hasVideo ? '▶' : '🖼'}</div>`}
+        <div class="hist-info">
+          <div class="hist-type">${typeLabel} <span class="status-badge" style="background:${statusColor}22;color:${statusColor}">${w.status}</span></div>
+          <div class="hist-id" title="${w.workflow_id}">${w.workflow_id}</div>
+          <div class="hist-time">${relTime(w.created_at)}</div>
+        </div>
+        <div class="hist-actions">
+          ${hasVideo ? `<a href="${w.final_video_url}" target="_blank"><button class="btn btn-sm" style="background:#2a4a2e">查看</button></a>` : ''}
+          ${canContinue ? `<button class="btn btn-sm" style="background:#3a1a5a" onclick="prefillContinue('${w.workflow_id}')">续写</button>` : ''}
+        </div>
+      </div>`;
+    }).join('');
+
+    // pagination
+    const totalPages = Math.ceil(total / limit);
+    let pgHtml = '';
+    if (page > 1) pgHtml += `<button class="btn btn-sm" onclick="loadClothoffHistory(${page-1})">‹ 上一页</button>`;
+    pgHtml += `<span style="color:#666;font-size:12px">第 ${page}/${totalPages} 页</span>`;
+    if (page < totalPages) pgHtml += `<button class="btn btn-sm" onclick="loadClothoffHistory(${page+1})">下一页 ›</button>`;
+    document.getElementById('history-pagination').innerHTML = pgHtml;
+  } catch(e) {
+    listEl.innerHTML = `<div style="color:#ef5350;text-align:center;padding:30px">加载失败: ${e.message}</div>`;
+  }
+}
+
+function prefillContinue(taskId) {
+  switchTab('animate');
+  document.getElementById('continue-parent-id').value = taskId;
+  document.getElementById('continue-parent-id').scrollIntoView({behavior:'smooth', block:'center'});
+}
+
+// ── Balance ──
+async function loadBalance() {
+  const el = document.getElementById('balance-content');
+  el.innerHTML = '<span class="spinner"></span>查询中...';
+  try {
+    const res = await fetch(`${BASE}/api/v1/clothoff/balance`, {headers: headers(false)});
+    const data = await res.json();
+    const bal = data.balance ?? data.credits ?? data.credit ?? data.balance_info ?? '-';
+    el.innerHTML = `
+      <div class="balance-label">当前余额</div>
+      <div class="balance-display">${typeof bal === 'object' ? JSON.stringify(bal) : bal}</div>
+      <div class="info-grid">
+        ${Object.entries(data).map(([k,v]) => `<div class="info-card"><div class="val">${typeof v === 'object' ? JSON.stringify(v) : v}</div><div class="lbl">${k}</div></div>`).join('')}
+      </div>
+    `;
+  } catch(e) {
+    el.innerHTML = `<span style="color:#ef5350">查询失败: ${e.message}</span>`;
+  }
+}
+
+// init
+loadAnimateModels();
+</script>
+</body>
+</html>

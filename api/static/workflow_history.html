@@ -118,6 +118,7 @@ h1{color:#7c83ff;margin-bottom:20px;font-size:1.4em}
   <input type="text" id="searchInput" placeholder="搜索 prompt 或 ID...">
   <button class="btn btn-sm" onclick="loadHistory()">刷新</button>
   <a href="/static/advanced_workflow_v2.html"><button class="btn btn-sm" style="background:#333">+ 新建</button></a>
+  <a href="/static/clothoff_admin.html"><button class="btn btn-sm" style="background:#4a1a6a">ClothOff 管理</button></a>
 </div>
 
 <div class="filter-bar" id="categoryBar">
@@ -445,6 +446,7 @@ function cardHtml(w) {
       <div class="card-actions">
         <button class="btn btn-sm" onclick="showDetail('${w.workflow_id}')">详情</button>
         ${hasVideo ? `<a href="${w.final_video_url}" download><button class="btn btn-sm" style="background:#2a4a2e">下载</button></a>` : ''}
+        ${(w.mode === 'clothoff_animate' && hasVideo) ? `<button class="btn btn-sm" style="background:#3a1a5a" onclick="continueClothoff('${w.workflow_id}', this)">续写</button>` : ''}
         <button class="btn btn-sm" style="background:#5a4a1a" onclick="regenerate('${w.workflow_id}', this)">重新生成</button>
       </div>
     </div>
@@ -708,6 +710,41 @@ async function regenerate(wfId, btn) {
     setTimeout(() => loadHistory(), 1000);
   } catch (e) {
     alert('重新生成失败: ' + e.message);
+    btn.disabled = false;
+    btn.textContent = origText;
+  }
+}
+
+async function continueClothoff(wfId, btn) {
+  const prompt = window.prompt('续写提示词（可选，留空自动续写）:', '');
+  if (prompt === null) return; // user cancelled
+  const origText = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = '提交中...';
+  try {
+    const headers = {'Content-Type': 'application/json'};
+    if (API_KEY) headers['X-API-Key'] = API_KEY;
+    const body = {
+      mode: 't2v',
+      parent_workflow_id: wfId,
+      user_prompt: prompt || '',
+      turbo: true,
+      auto_analyze: true,
+      auto_lora: true,
+      auto_prompt: true,
+    };
+    const res = await fetch('/api/v1/workflow/generate-advanced', {method: 'POST', headers, body: JSON.stringify(body)});
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.detail || `HTTP ${res.status}`);
+    }
+    const data = await res.json();
+    btn.textContent = '已提交';
+    btn.style.background = '#2a1a4a';
+    alert(`续写任务已提交！新任务 ID: ${data.workflow_id}`);
+    setTimeout(() => loadHistory(), 1500);
+  } catch (e) {
+    alert('续写失败: ' + e.message);
     btn.disabled = false;
     btn.textContent = origText;
   }
