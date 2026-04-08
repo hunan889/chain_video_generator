@@ -1245,6 +1245,23 @@ async def _execute_workflow(workflow_id: str, req, task_manager, resume: bool = 
         if chain_id:
             await task_manager.redis.hset(f"workflow:{workflow_id}", "chain_id", chain_id)
         if final_video_url:
+            # Apply H5-supplied watermark in place before persisting the URL.
+            # req.watermark arrives from the H5 proxy (see H5 docs/launch/
+            # WATERMARK_CONTRACT.md). None = no watermark — fail-open.
+            try:
+                watermark_cfg = getattr(req, "watermark", None)
+                if watermark_cfg:
+                    from api.services import watermark_service
+                    local_path = watermark_service.resolve_result_url_to_local_path(final_video_url)
+                    if local_path is not None and local_path.exists():
+                        await watermark_service.apply_to_video_path(local_path, watermark_cfg)
+                    else:
+                        logger.info(
+                            f"[{workflow_id}] watermark: skipping non-local final_video_url={final_video_url}"
+                        )
+            except Exception as _wm_err:
+                # Fail-open: never let a watermark failure kill the workflow.
+                logger.warning(f"[{workflow_id}] watermark apply failed: {_wm_err}")
             await task_manager.redis.hset(f"workflow:{workflow_id}", "final_video_url", final_video_url)
 
         # 完成时添加结果和 LoRA 信息

@@ -978,6 +978,17 @@ class WorkflowGenerateRequest(BaseModel):
                     "with the parent video's last frames as motion reference."
     )
 
+    # Per-user output watermark config (injected by the H5 backend on every
+    # generation request — see docs/launch/WATERMARK_CONTRACT.md in the H5
+    # repo). Applied to the final_video_url after the chain completes.
+    # None = no watermark (fail-open, matches the sync transform paths).
+    watermark: Optional[dict] = Field(
+        default=None,
+        description="Per-user watermark config: {enabled, text, position, "
+                    "opacity, font_size, apply_to_image, apply_to_video}. "
+                    "See docs/launch/WATERMARK_CONTRACT.md."
+    )
+
 
 class WorkflowStage(BaseModel):
     """Workflow stage status"""

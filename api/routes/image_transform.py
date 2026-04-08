@@ -32,6 +32,7 @@ from api.routes.image import (
     _parse_size,
     _save_result_image,
 )
+from api.services import watermark_service
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -129,6 +130,7 @@ class TransformResponse(BaseModel):
 
 @router.post("/image/transform", response_model=TransformResponse)
 async def image_transform(
+    request: Request,
     scene: str = Form(...),
     image: UploadFile = File(...),
     reference: Optional[UploadFile] = File(None),
@@ -144,6 +146,11 @@ async def image_transform(
     # --- Validate scene ---
     if scene not in VALID_SCENES:
         raise HTTPException(422, f"Unknown scene: {scene!r}. Valid: {sorted(VALID_SCENES)}")
+
+    # Parse watermark config from X-Watermark-* headers (H5 injects these
+    # per-user; see docs/launch/WATERMARK_CONTRACT.md). Applied to the
+    # returned URL below. None when absent = no watermark (fail-open).
+    watermark_cfg = watermark_service.parse_from_headers(request.headers)
 
     # --- Validate required params ---
     if scene in REFERENCE_REQUIRED and reference is None:
@@ -185,21 +192,44 @@ async def image_transform(
 
     # --- Route to engine ---
     if scene in ("face_swap", "pose"):
-        return await _engine_reactor(
+        response = await _engine_reactor(
             scene, image_data, reference_data, prompt, size, seed, advanced, opts
         )
     elif scene in ("clothes", "shoot", "puzzle"):
-        return await _engine_seedream_ref(
+        response = await _engine_seedream_ref(
             scene, image_data, reference_data, prompt, size, seed, opts
         )
     elif scene == "photo_edit":
-        return await _engine_seedream_edit(
+        response = await _engine_seedream_edit(
             scene, image_data, prompt, size, seed, opts
         )
     elif scene == "eraser":
-        return await _engine_clothoff(scene, image_data, opts)
+        response = await _engine_clothoff(scene, image_data, opts)
+    else:
+        raise HTTPException(422, f"Scene '{scene}' not implemented")
 
-    raise HTTPException(422, f"Scene '{scene}' not implemented")
+    # Post-process: apply watermark to the local result file. Fail-open —
+    # any error here is logged and the original response is returned.
+    _watermark_image_response_url(response, watermark_cfg)
+    return response
+
+
+def _watermark_image_response_url(response, watermark_cfg: Optional[dict]) -> None:
+    """Resolve a TransformResponse's url to a local file and watermark it.
+
+    Accepts TransformResponse, ImageResponse, or anything with a `.url`
+    attribute that points at /api/v1/results/<file>. No-op on anything
+    else or when watermark_cfg is None.
+    """
+    if watermark_cfg is None:
+        return
+    url = getattr(response, "url", None)
+    if not url:
+        return
+    local = watermark_service.resolve_result_url_to_local_path(url)
+    if local is None:
+        return
+    watermark_service.apply_to_image_path(local, watermark_cfg)
 
 
 # ---------------------------------------------------------------------------
@@ -211,6 +241,7 @@ VALID_VIDEO_SCENES = {"face_swap", "animate"}
 
 @router.post("/video/transform")
 async def video_transform(
+    request: Request,
     scene: str = Form(...),
     image: Optional[UploadFile] = File(None),
     video: Optional[UploadFile] = File(None),
@@ -228,10 +259,21 @@ async def video_transform(
     if scene not in VALID_VIDEO_SCENES:
         raise HTTPException(422, f"Video scene '{scene}' not supported. Valid: {sorted(VALID_VIDEO_SCENES)}")
 
+    # Same pattern as image_transform — parse the H5-injected watermark
+    # config from X-Watermark-* headers so we can apply it to any sync
+    # video output below.
+    watermark_cfg = watermark_service.parse_from_headers(request.headers)
+
     if scene == "face_swap":
+        # face_swap is an ASYNC task path (returns task_id immediately,
+        # result arrives via ComfyUI task polling). The watermark cannot
+        # be applied here because we don't yet have the output file.
+        # TODO: thread watermark_cfg into the task metadata so the task
+        # completion handler can apply it. For now, face-swap video
+        # outputs go out unwatermarked.
         return await _video_face_swap(video, reference, faces_index)
     elif scene == "animate":
-        return await _video_animate(image, model_id)
+        return await _video_animate(image, model_id, watermark_cfg)
 
 
 async def _video_face_swap(
@@ -283,6 +325,7 @@ async def _video_face_swap(
 async def _video_animate(
     image: Optional[UploadFile],
     model_id: Optional[str],
+    watermark_cfg: Optional[dict] = None,
 ):
     """Animate a photo via Clothoff Video Animate API."""
     if image is None:
@@ -350,6 +393,11 @@ async def _video_animate(
     with open(filepath, "wb") as f:
         f.write(result_data)
     url = f"/api/v1/results/{filename}"
+
+    # Apply watermark in place. Fail-open — a failed ffmpeg pass logs
+    # and returns the original file untouched so the user still gets
+    # their animation.
+    await watermark_service.apply_to_video_path(filepath, watermark_cfg)
 
     logger.info("[video/animate] completed: %s (%d bytes)", url, len(result_data))
     return {"url": url, "scene": "animate", "model_id": model_id}
