@@ -23,6 +23,13 @@ router = APIRouter(prefix="/api/v1", tags=["poses"])
 class PoseRecommendRequest(BaseModel):
     prompt: str
     top_k: int = 5
+    # The admin "推荐测试" page sends these knobs; the underlying
+    # PoseRecommender already supports use_llm, the others are accepted
+    # for forward-compat / debug parity even if currently unused.
+    selected_poses: Optional[list[str]] = None
+    use_embedding: bool = True
+    use_llm: bool = True
+    min_score: Optional[float] = None
 
 
 class BatchConfigRequest(BaseModel):
@@ -173,62 +180,62 @@ def get_pose_config(
 
 
 @router.post("/poses/recommend")
-def recommend_poses(
+async def recommend_poses(
     req: PoseRecommendRequest,
+    request: Request,
     config: GatewayConfig = Depends(get_config),
 ):
-    """Pose recommendation via simple keyword matching against pose_key/name_en/name_cn."""
-    prompt_lower = req.prompt.lower()
+    """Pose recommendation using the full 3-tier recommender.
+
+    The pipeline is:
+      1. Synonym expansion (rule-based, instant)
+      2. BGE embedding cosine top-k via the inference worker (Tier 1)
+      3. Optional LLM rerank for ambiguous results (Tier 1, when use_llm)
+      4. Keyword fallback if embeddings unavailable (Tier 2)
+      5. Legacy substring fallback as last resort (Tier 3)
+
+    The admin "推荐测试" page reads ``data.recommendations`` so the
+    response is shaped accordingly. Each item contains the fields the
+    PoseRecommender's ``PoseRecommendation`` dataclass produces:
+    ``pose_key``, ``name_cn``, ``name_en``, ``score`` (float 0-1),
+    ``match_reason``, ``category``.
+    """
+    if not req.prompt or not req.prompt.strip():
+        return {"recommendations": []}
+
+    redis_conn = getattr(request.app.state, "redis", None)
+    if redis_conn is None:
+        logger.error("recommend_poses: Redis not available on app.state")
+        raise HTTPException(status_code=503, detail="Recommender not initialised")
+
     try:
-        with get_mysql_connection(config) as conn:
-            with conn.cursor() as cur:
-                cur.execute("SELECT * FROM poses WHERE enabled = 1")
-                all_poses = cur.fetchall()
+        from api_gateway.services.pose_recommender import get_pose_recommender
+        recommender = get_pose_recommender(config, redis_conn)
+        # Use a slightly looser threshold for the admin test page so
+        # users can see fuzzy matches and tune from there. The
+        # workflow_engine path uses 0.3-0.5 depending on mode.
+        min_score = req.min_score if req.min_score is not None else 0.3
+        results = await recommender.recommend(
+            req.prompt,
+            top_k=req.top_k,
+            min_score=min_score,
+            use_llm=req.use_llm,
+        )
     except Exception:
-        logger.exception("Failed to query poses for recommendation")
-        raise HTTPException(status_code=500, detail="Failed to query poses")
+        logger.exception("Pose recommender failed for prompt=%r", req.prompt[:120])
+        raise HTTPException(status_code=500, detail="Pose recommender failed")
 
-    scored: list[tuple[int, dict]] = []
-    for pose in all_poses:
-        score = 0
-        pose_key = (pose.get("pose_key") or "").lower()
-        name_en = (pose.get("name_en") or "").lower()
-        name_cn = (pose.get("name_cn") or "").lower()
-
-        # Exact match on pose_key
-        if pose_key and pose_key in prompt_lower:
-            score += 10
-        # Partial match on name_en words
-        if name_en:
-            for word in name_en.split():
-                if word in prompt_lower:
-                    score += 3
-        # Match on name_cn
-        if name_cn and name_cn in prompt_lower:
-            score += 5
-        # Match pose_key tokens (e.g. "reverse_cowgirl" -> "reverse", "cowgirl")
-        if pose_key:
-            for token in pose_key.split("_"):
-                if token in prompt_lower:
-                    score += 2
-
-        if score > 0:
-            scored.append((score, pose))
-
-    # Sort by score descending, take top_k
-    scored.sort(key=lambda x: x[0], reverse=True)
-    top_poses = [_serialize_row(p) for _, p in scored[: req.top_k]]
-
-    return {"poses": top_poses}
+    return {"recommendations": [r.to_dict() for r in results]}
 
 
 @router.post("/poses/match")
-def match_poses(
+async def match_poses(
     req: PoseRecommendRequest,
+    request: Request,
     config: GatewayConfig = Depends(get_config),
 ):
     """Alias for recommend — same logic."""
-    return recommend_poses(req, config)
+    return await recommend_poses(req, request, config)
 
 
 @router.post("/poses/batch-config")
