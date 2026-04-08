@@ -46,7 +46,17 @@ class TaskGateway:
         workflow: dict,
         params: Optional[dict] = None,
         chain_id: Optional[str] = None,
+        category_override: Optional[str] = None,
     ) -> str:
+        """Create a GPU task and enqueue it.
+
+        Args:
+            category_override: When provided, overrides the MySQL ``category``
+                column (otherwise derived from ``mode`` via
+                ``category_for_mode``). Used by the warmup poller to tag
+                synthetic tasks with ``category="warmup"`` so they can be
+                hidden from the user-facing history page.
+        """
         task_id = uuid.uuid4().hex
         task_data = {
             "status": TaskStatus.QUEUED.value,
@@ -62,13 +72,16 @@ class TaskGateway:
             task_data["params"] = json.dumps(params)
         if chain_id:
             task_data["chain_id"] = chain_id
+        if category_override:
+            task_data["category"] = category_override
         await self.redis.hset(task_key(task_id), mapping=task_data)
         await self.redis.expire(task_key(task_id), self.task_expiry)
         await self.redis.rpush(queue_key(model.value), task_id)
         logger.info(
-            "Task %s created for %s/%s%s",
+            "Task %s created for %s/%s%s%s",
             task_id, mode.value, model.value,
             f" (chain {chain_id})" if chain_id else "",
+            f" [category={category_override}]" if category_override else "",
         )
 
         # Best-effort MySQL persistent write (skip sub-tasks with chain_id —
@@ -76,10 +89,11 @@ class TaskGateway:
         if self.task_store is not None and not chain_id:
             try:
                 from shared.enums import category_for_mode
+                category = category_override or category_for_mode(mode).value
                 await self.task_store.create(
                     task_id=task_id,
                     task_type=mode.value,
-                    category=category_for_mode(mode).value,
+                    category=category,
                     prompt=params.get("prompt") if params else None,
                     model=model.value,
                     params=params,

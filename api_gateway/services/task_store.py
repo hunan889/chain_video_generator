@@ -228,6 +228,12 @@ class TaskStore:
             if category:
                 where_parts.append("category = %s")
                 args.append(category)
+            else:
+                # Hide synthetic warmup tasks unless the caller explicitly
+                # asks for category="warmup". They're produced by the
+                # WarmupPoller to keep models hot during idle periods and
+                # would otherwise spam the user-facing history page.
+                where_parts.append("(category IS NULL OR category != 'warmup')")
 
             if status:
                 where_parts.append("status = %s")
@@ -245,8 +251,9 @@ class TaskStore:
             count_rows = await asyncio.to_thread(self._exec, count_sql, tuple(args) if args else None)
             total = count_rows[0]["cnt"] if count_rows else 0
 
-            # Category counts (always unfiltered by category for sidebar display)
-            cat_where_parts: list[str] = []
+            # Category counts (always unfiltered by category for sidebar display,
+            # but warmup is excluded so it doesn't appear as a category in the UI)
+            cat_where_parts: list[str] = ["(category IS NULL OR category != 'warmup')"]
             cat_args: list[Any] = []
             if status:
                 cat_where_parts.append("status = %s")

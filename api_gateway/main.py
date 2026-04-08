@@ -93,6 +93,13 @@ async def lifespan(app: FastAPI):
     )
     await task_poller.start()
 
+    # Warmup Poller — keeps GPU/ComfyUI models hot during idle periods
+    from api_gateway.services.warmup_poller import WarmupPoller
+    warmup_poller = WarmupPoller(
+        gateway=gateway, redis=redis_conn, config=config, task_store=task_store,
+    )
+    await warmup_poller.start()
+
     app.state.redis = redis_conn
     app.state.gateway = gateway
     app.state.cos_client = cos_client
@@ -100,10 +107,12 @@ async def lifespan(app: FastAPI):
     app.state.task_store = task_store
     app.state.workflow_engine = workflow_engine
     app.state.task_poller = task_poller
+    app.state.warmup_poller = warmup_poller
 
     logger.info("API Gateway started (redis=%s)", config.redis_url)
     yield
 
+    await warmup_poller.stop()
     await task_poller.stop()
     await redis_conn.aclose()
     logger.info("API Gateway shut down")

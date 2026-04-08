@@ -75,6 +75,11 @@ class GatewayConfig:
     # Continuation / story-mode params
     continuation_motion_frames: int  # number of trailing parent frames used by PainterLongVideo
 
+    # GPU warmup poller (idle-aware ComfyUI keep-alive)
+    warmup_enabled: bool             # master switch
+    warmup_interval_sec: int         # how often to consider warming
+    warmup_idle_threshold_sec: int   # only warm if last task is older than this
+
 
 def load_config(env_file: str = ".env") -> GatewayConfig:
     """Load configuration from environment variables (with .env fallback).
@@ -147,4 +152,8 @@ def load_config(env_file: str = ".env") -> GatewayConfig:
         monolith_url=os.getenv("MONOLITH_URL", "http://148.153.121.44:8000"),
         # Continuation params
         continuation_motion_frames=int(os.getenv("CONTINUATION_MOTION_FRAMES", "10")),
+        # Warmup poller params
+        warmup_enabled=os.getenv("WARMUP_ENABLED", "true").lower() not in ("0", "false", "no"),
+        warmup_interval_sec=int(os.getenv("WARMUP_INTERVAL_SEC", "480")),       # 8 min
+        warmup_idle_threshold_sec=int(os.getenv("WARMUP_IDLE_THRESHOLD_SEC", "480")),
     )
