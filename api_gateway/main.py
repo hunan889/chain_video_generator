@@ -136,6 +136,8 @@ def create_app(config: GatewayConfig | None = None) -> FastAPI:
     from api_gateway.routes.pose_synonyms import router as pose_synonyms_router
     from api_gateway.routes.generation_history import router as generation_history_router
     from api_gateway.routes.proxy import router as proxy_router
+    from api_gateway.routes.clothoff import router as clothoff_router
+    from api_gateway.routes.transform import router as transform_router
 
     app.include_router(generate_router)
     app.include_router(chain_router)
@@ -152,6 +154,10 @@ def create_app(config: GatewayConfig | None = None) -> FastAPI:
     app.include_router(pose_admin_router)
     app.include_router(pose_synonyms_router)
     app.include_router(generation_history_router)
+    # ClothOff client + h5 compat shim — must be registered BEFORE proxy_router
+    # (which has a catch-all /api/v1/{path:path} route).
+    app.include_router(clothoff_router)
+    app.include_router(transform_router, prefix="/api/v1")
 
     # ------------------------------------------------------------------
     # Inline routes as a router (must be registered BEFORE proxy catch-all)
@@ -161,7 +167,15 @@ def create_app(config: GatewayConfig | None = None) -> FastAPI:
 
     @_core.get("/api/v1/tasks/{task_id}")
     async def get_task(task_id: str, gw: TaskGateway = Depends(get_gateway)):
-        """Get a single task by ID."""
+        """Get a single task by ID.
+
+        Checks the ClothOff synchronous-webhook completed-task cache first,
+        then falls back to the TaskGateway (Redis) store.
+        """
+        from api_gateway.routes.clothoff import get_completed_task
+        cached = get_completed_task(task_id)
+        if cached is not None:
+            return {"task_id": task_id, **cached}
         task = await gw.get_task(task_id)
         if task is None:
             raise HTTPException(status_code=404, detail=f"Task {task_id} not found")
