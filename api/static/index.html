@@ -17,6 +17,7 @@
 <div class="main-tab" data-main="workflow">高级工作流</div>
 <div class="main-tab" data-main="wf-history">生成历史</div>
 <div class="main-tab" data-main="poses">姿势管理</div>
+<div class="main-tab" data-main="clothoff">ClothOff</div>
 <div class="main-tab" data-main="settings" style="margin-left:auto;color:#888">设置</div>
 </div>
 
@@ -30,6 +31,10 @@
 
 <div class="main-section" id="section-wf-history">
 <iframe id="iframe-wf-history" class="tab-iframe"></iframe>
+</div>
+
+<div class="main-section" id="section-clothoff">
+<iframe id="iframe-clothoff" class="tab-iframe"></iframe>
 </div>
 
 
@@ -135,6 +140,7 @@ const _v = Date.now();
 const IFRAME_SRCS = {
   'workflow': '/advanced_workflow_v2.html?v=' + _v,
   'wf-history': '/static/workflow_history.html?v=' + _v,
+  'clothoff': '/static/clothoff_admin.html?v=' + _v,
   'pose-manager': '/pose_manager.html?v=' + _v,
   'pose-recommend': '/pose_recommend_test.html?v=' + _v,
   'pose-synonyms': '/pose_synonyms_admin.html?v=' + _v
