@@ -17,14 +17,31 @@ import mimetypes
 import os
 import time
 import uuid
-from typing import Any, Optional
+from typing import TYPE_CHECKING, Any, Optional
 
 import httpx
 from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, JSONResponse, Response
 
+if TYPE_CHECKING:
+    from api_gateway.services.task_store import TaskStore
+
 router = APIRouter(prefix="/api/v1/clothoff", tags=["clothoff"])
 logger = logging.getLogger(__name__)
+
+# ---------------------------------------------------------------------------
+# Task store hook — set by main.py lifespan so submit_* helpers can persist
+# ClothOff calls into the unified MySQL generation history. Optional: when
+# unset (e.g. during isolated tests) the helpers silently skip recording.
+# ---------------------------------------------------------------------------
+
+_task_store: Optional["TaskStore"] = None
+
+
+def set_task_store(store: "TaskStore | None") -> None:
+    """Inject the singleton TaskStore. Called once from app lifespan."""
+    global _task_store
+    _task_store = store
 
 # ---------------------------------------------------------------------------
 # Config — env only, no hardcoded fallback for the key
@@ -225,6 +242,62 @@ def _persist_result(id_gen: str, data: bytes, kind: str) -> tuple[str, str]:
 
 
 # ---------------------------------------------------------------------------
+# MySQL recording helpers (best-effort, never raise)
+# ---------------------------------------------------------------------------
+
+
+async def _record_start(
+    task_id: str,
+    task_type: str,
+    *,
+    prompt: Optional[str] = None,
+    params: Optional[dict[str, Any]] = None,
+    external_task_id: Optional[str] = None,
+) -> None:
+    """Insert a 'running' row into generation_tasks for a ClothOff submission."""
+    store = _task_store
+    if store is None:
+        return
+    try:
+        await store.create(
+            task_id=task_id,
+            task_type=task_type,
+            category="thirdparty",
+            provider="clothoff",
+            prompt=prompt,
+            model=None,
+            params=params,
+            external_task_id=external_task_id or task_id,
+        )
+        # ClothOff is synchronous-webhook based — no queued phase, jump
+        # straight to running so the history shows it as in-progress.
+        await store.update_status(task_id, "running")
+    except Exception:
+        logger.warning("[clothoff] _record_start failed for %s", task_id, exc_info=True)
+
+
+async def _record_complete(task_id: str, result_url: str) -> None:
+    store = _task_store
+    if store is None:
+        return
+    try:
+        await store.update_status(task_id, "completed")
+        await store.set_result(task_id, result_url=result_url)
+    except Exception:
+        logger.warning("[clothoff] _record_complete failed for %s", task_id, exc_info=True)
+
+
+async def _record_failed(task_id: str, error: str) -> None:
+    store = _task_store
+    if store is None:
+        return
+    try:
+        await store.update_status(task_id, "failed", error=error)
+    except Exception:
+        logger.warning("[clothoff] _record_failed failed for %s", task_id, exc_info=True)
+
+
+# ---------------------------------------------------------------------------
 # Importable async helpers (used by transform.py shim)
 # ---------------------------------------------------------------------------
 
@@ -280,10 +353,18 @@ async def submit_eraser(
         id_gen, WEBHOOK_URL, {k: v for k, v in data.items() if k not in ("id_gen", "webhook")},
     )
 
+    task_type = "clothoff_clothes" if cloth else "clothoff_eraser"
+    await _record_start(
+        id_gen,
+        task_type,
+        params={k: v for k, v in data.items() if k not in ("id_gen", "webhook")},
+    )
+
     try:
         submit = await _co_post_multipart(CO_UNDRESS, files, data)
-    except Exception:
+    except Exception as exc:
         _clothoff_futures.pop(id_gen, None)
+        await _record_failed(id_gen, f"submit failed: {exc}")
         raise
 
     logger.info(
@@ -291,8 +372,17 @@ async def submit_eraser(
         id_gen, submit.get("apiBalance"), submit.get("queueTime"),
     )
 
-    result_bytes, kind = await _await_webhook(id_gen, CLOTHOFF_TIMEOUT)
+    try:
+        result_bytes, kind = await _await_webhook(id_gen, CLOTHOFF_TIMEOUT)
+    except Exception as exc:
+        err_msg = (
+            str(exc.detail) if isinstance(exc, HTTPException)
+            else f"{type(exc).__name__}: {exc}"
+        )
+        await _record_failed(id_gen, err_msg)
+        raise
     filename, url = _persist_result(id_gen, result_bytes, kind or "image")
+    await _record_complete(id_gen, url)
     return {"url": url, "id_gen": id_gen, "filename": filename}
 
 
@@ -320,10 +410,17 @@ async def submit_animate(
         id_gen, model_id, WEBHOOK_URL,
     )
 
+    await _record_start(
+        id_gen,
+        "clothoff_animate",
+        params={"model_id": model_id},
+    )
+
     try:
         submit = await _co_post_multipart(CO_ANIMATE, files, data)
-    except Exception:
+    except Exception as exc:
         _clothoff_futures.pop(id_gen, None)
+        await _record_failed(id_gen, f"submit failed: {exc}")
         raise
 
     logger.info(
@@ -331,8 +428,17 @@ async def submit_animate(
         id_gen, submit.get("apiBalance"), submit.get("queueTime"),
     )
 
-    result_bytes, kind = await _await_webhook(id_gen, CLOTHOFF_VIDEO_TIMEOUT)
+    try:
+        result_bytes, kind = await _await_webhook(id_gen, CLOTHOFF_VIDEO_TIMEOUT)
+    except Exception as exc:
+        err_msg = (
+            str(exc.detail) if isinstance(exc, HTTPException)
+            else f"{type(exc).__name__}: {exc}"
+        )
+        await _record_failed(id_gen, err_msg)
+        raise
     filename, url = _persist_result(id_gen, result_bytes, kind or "video")
+    await _record_complete(id_gen, url)
     return {"url": url, "id_gen": id_gen, "filename": filename}
 
 
@@ -370,10 +476,18 @@ async def submit_face_swap(
         id_gen, type_gen, timeout,
     )
 
+    task_type = (
+        "clothoff_face_swap_video"
+        if type_gen == "swapface_video"
+        else "clothoff_face_swap_photo"
+    )
+    await _record_start(id_gen, task_type, params={"type_gen": type_gen})
+
     try:
         submit = await _co_post_multipart(CO_FACE_SWAP, files, data)
-    except Exception:
+    except Exception as exc:
         _clothoff_futures.pop(id_gen, None)
+        await _record_failed(id_gen, f"submit failed: {exc}")
         raise
 
     logger.info(
@@ -381,10 +495,19 @@ async def submit_face_swap(
         id_gen, submit.get("apiBalance"), submit.get("queueTime"),
     )
 
-    result_bytes, kind = await _await_webhook(id_gen, timeout)
+    try:
+        result_bytes, kind = await _await_webhook(id_gen, timeout)
+    except Exception as exc:
+        err_msg = (
+            str(exc.detail) if isinstance(exc, HTTPException)
+            else f"{type(exc).__name__}: {exc}"
+        )
+        await _record_failed(id_gen, err_msg)
+        raise
     # Override kind by type_gen to guarantee correct file extension
     final_kind = "video" if type_gen == "swapface_video" else "image"
     filename, url = _persist_result(id_gen, result_bytes, final_kind)
+    await _record_complete(id_gen, url)
     return {"url": url, "id_gen": id_gen, "filename": filename, "kind": final_kind}
 
 
@@ -605,10 +728,24 @@ async def short_video_generate(
             status_code=exc.status_code, content=_envelope_err(str(exc.detail))
         )
 
+    batch_id = (submit.get("batchId") or "").strip()
+    batch_size = submit.get("batchSize")
     logger.info(
         "[clothoff/short-videos] submitted id_gen=%s batchId=%s size=%s",
-        id_gen, submit.get("batchId"), submit.get("batchSize"),
+        id_gen, batch_id, batch_size,
     )
+
+    # Persist a single 'running' row keyed by batch_id so the history page
+    # surfaces the short-video batch and the task_poller can later sync
+    # completion via /short-videos/status/{batch_id}.
+    if batch_id:
+        await _record_start(
+            batch_id,
+            "clothoff_short_video",
+            params={"id_gen": id_gen, "batchSize": batch_size},
+            external_task_id=batch_id,
+        )
+
     return JSONResponse(_envelope_ok(submit))
 
 

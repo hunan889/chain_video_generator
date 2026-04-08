@@ -74,6 +74,10 @@ async def lifespan(app: FastAPI):
     # TaskStore — MySQL-backed persistent task storage (best-effort)
     task_store = TaskStore(config)
     gateway.task_store = task_store  # hook for auto-write on create_task
+    # Inject into ClothOff helpers so submit_*/short-video calls land in the
+    # unified generation_tasks table alongside other third-party providers.
+    from api_gateway.routes import clothoff as _clothoff_module
+    _clothoff_module.set_task_store(task_store)
 
     # Workflow Engine — advanced 4-stage pipeline
     from api_gateway.services.workflow_engine import WorkflowEngine

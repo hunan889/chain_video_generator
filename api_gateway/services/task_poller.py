@@ -319,20 +319,41 @@ class TaskPoller:
     # 5. Third-party task sync — poll Wan2.6/Seedance for pending tasks
     # ------------------------------------------------------------------
     async def _sync_thirdparty_tasks(self) -> None:
-        """Query MySQL for queued/running thirdparty tasks and poll their APIs."""
+        """Query MySQL for thirdparty tasks needing polling and dispatch.
+
+        - All providers: poll their ``queued`` rows (legacy behavior).
+        - ClothOff short-video batches additionally need polling while
+          ``running`` because we record them as running on submission and
+          their per-clip results arrive asynchronously via webhook to disk.
+          We deliberately do NOT re-poll wan26/seedance/seedance2 ``running``
+          rows here — their per-tick poll calls were already covering them
+          via the queued bucket and double-polling them would waste API calls.
+        """
         try:
-            result = await self.task_store.list_history(
+            queued_result = await self.task_store.list_history(
                 category="thirdparty", status="queued", page=1, page_size=50,
             )
-            tasks = result.get("tasks", [])
+            tasks: list[dict] = list(queued_result.get("tasks", []))
+
+            # Pull running rows but only keep clothoff short-video batches.
+            running_result = await self.task_store.list_history(
+                category="thirdparty", status="running", page=1, page_size=50,
+            )
+            for t in running_result.get("tasks", []):
+                if (
+                    t.get("provider") == "clothoff"
+                    and t.get("task_type") == "clothoff_short_video"
+                ):
+                    tasks.append(t)
+
             if not tasks:
                 return
 
-            import aiohttp
             for task in tasks:
                 try:
                     task_id = task.get("task_id", "")
                     provider = task.get("provider", "")
+                    task_type = task.get("task_type", "")
                     external_id = task.get("external_task_id") or task_id
 
                     if provider == "wan26":
@@ -341,6 +362,10 @@ class TaskPoller:
                         await self._poll_seedance(external_id, task_id)
                     elif provider == "seedance2":
                         await self._poll_seedance2(external_id, task_id)
+                    elif provider == "clothoff" and task_type == "clothoff_short_video":
+                        await self._poll_clothoff_short_video(task)
+                    # Other clothoff_* task_types resolve synchronously
+                    # inside the original request — nothing to poll.
                 except Exception:
                     logger.debug("Failed to poll thirdparty task %s", task.get("task_id"), exc_info=True)
         except Exception:
@@ -433,3 +458,77 @@ class TaskPoller:
                         error = str(err) or "Unknown error"
                     await self.task_store.update_status(task_id, "failed", error=error)
                     logger.info("Seedance2/OpenGW task %s failed: %s", task_id, error)
+
+    async def _poll_clothoff_short_video(self, task: dict) -> None:
+        """Detect ClothOff short-video batch completion via on-disk file count.
+
+        ClothOff posts each finished video back to /clothoff/webhook, which
+        saves it under ``RESULTS_DIR/short_videos/{batch_id}/{undressingId}.mp4``.
+        We compare the file count in that directory against ``batchSize`` from
+        the original submit response to decide when to mark the task complete.
+
+        This avoids depending on the upstream status endpoint's exact JSON
+        shape and survives webhook delivery races. All filesystem calls are
+        offloaded to a thread to keep the event loop responsive even on slow
+        or remote storage backends.
+        """
+        import asyncio as _asyncio
+        import os
+
+        from api_gateway.routes.clothoff import RESULTS_DIR
+
+        task_id = task.get("task_id", "")
+        # _row_to_dict is expected to JSON-decode params_json into a dict.
+        # The isinstance guard below protects us if that contract changes.
+        params = task.get("params") or {}
+        if not isinstance(params, dict):
+            params = {}
+        batch_size_raw = params.get("batchSize")
+
+        batch_dir = os.path.join(RESULTS_DIR, "short_videos", task_id)
+        exists = await _asyncio.to_thread(os.path.isdir, batch_dir)
+        if not exists:
+            return
+
+        try:
+            names = await _asyncio.to_thread(os.listdir, batch_dir)
+        except OSError:
+            return
+        files = sorted(
+            f for f in names
+            if f.lower().endswith((".mp4", ".webm", ".mov", ".png", ".jpg", ".jpeg"))
+        )
+        if not files:
+            return
+
+        # If we know the expected count, only mark complete once we've
+        # received all (or more) files. Treat batchSize <= 0 the same as
+        # unknown so a buggy upstream value doesn't immediately complete.
+        expected: Optional[int] = None
+        if batch_size_raw is not None:
+            try:
+                expected = int(batch_size_raw)
+            except (TypeError, ValueError):
+                expected = None
+        if expected is not None and expected <= 0:
+            expected = None
+
+        if expected is not None and len(files) < expected:
+            return
+
+        urls = [f"/api/v1/clothoff/results/short_videos/{task_id}/{name}" for name in files]
+        try:
+            await self.task_store.update_status(task_id, "completed")
+            await self.task_store.set_result(
+                task_id,
+                result_url=urls[0],
+                extra_urls=urls,
+            )
+            logger.info(
+                "ClothOff short-video batch %s completed (%d/%s files)",
+                task_id, len(files), expected if expected is not None else "?",
+            )
+        except Exception:
+            logger.warning(
+                "Failed to mark ClothOff short-video %s complete", task_id, exc_info=True,
+            )
