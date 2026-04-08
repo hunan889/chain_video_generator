@@ -108,6 +108,46 @@ def _get_postprocess_config(internal_config: dict) -> dict:
     return internal_config.get("stage4_video", {}).get("postprocess", {})
 
 
+def _read_positive_prompt(workflow: dict) -> str:
+    """Return the positive text encode prompt from a built workflow.
+
+    Walks the workflow dict looking for the standard text-encode nodes
+    used by the a14b templates and returns whatever ended up in the
+    positive prompt slot. Used to surface the *real* prompt sent to
+    ComfyUI (after ``_inject_trigger_words``) in the stage details
+    payload, instead of the LLM-rewritten intermediate that loses
+    trigger words.
+
+    Returns an empty string if no positive prompt node is found (e.g.
+    fallback workflow used after a build error).
+    """
+    if not isinstance(workflow, dict):
+        return ""
+    # Prefer titled nodes ("CLIP Text Encode (Positive)") to avoid
+    # accidentally picking the negative encoder when both share a class.
+    candidates: list[tuple[int, str]] = []
+    for node in workflow.values():
+        if not isinstance(node, dict):
+            continue
+        cls = node.get("class_type", "")
+        if cls not in ("CLIPTextEncode", "WanVideoTextEncode"):
+            continue
+        inputs = node.get("inputs", {}) or {}
+        title = (node.get("_meta", {}) or {}).get("title", "").lower()
+        text = inputs.get("positive_prompt") or inputs.get("text") or ""
+        if not isinstance(text, str) or not text:
+            continue
+        if "negative" in title:
+            continue
+        # Higher priority for explicitly-titled positive nodes
+        priority = 2 if "positive" in title else 1
+        candidates.append((priority, text))
+    if not candidates:
+        return ""
+    candidates.sort(key=lambda x: -x[0])
+    return candidates[0][1]
+
+
 # ---------------------------------------------------------------------------
 # LoRA helpers
 # ---------------------------------------------------------------------------
@@ -778,6 +818,19 @@ async def generate_video(
             "cfg": video_cfg,
             "shift": video_shift,
         }
+
+    # ------------------------------------------------------------------
+    # 11a. Sync `prompt` with what was actually injected into the
+    # workflow's positive text encoder. ``build_workflow`` (via
+    # ``_inject_trigger_words``) prepends the LoRA trigger words to the
+    # prompt before writing it into ``CLIPTextEncode.positive_prompt``,
+    # so the optimised prompt the rest of this function reports must
+    # come from the workflow itself — otherwise the history detail
+    # panel shows the pre-injection version and users (rightly) think
+    # the trigger words were dropped.
+    final_positive = _read_positive_prompt(workflow)
+    if final_positive:
+        prompt = final_positive
 
     # ------------------------------------------------------------------
     # 11b. Inject MMAudio nodes if enabled
