@@ -72,6 +72,9 @@ class GatewayConfig:
     # Reverse proxy to old monolith
     monolith_url: str
 
+    # Continuation / story-mode params
+    continuation_motion_frames: int  # number of trailing parent frames used by PainterLongVideo
+
 
 def load_config(env_file: str = ".env") -> GatewayConfig:
     """Load configuration from environment variables (with .env fallback).
@@ -142,4 +145,6 @@ def load_config(env_file: str = ".env") -> GatewayConfig:
         ),
         # Reverse proxy
         monolith_url=os.getenv("MONOLITH_URL", "http://148.153.121.44:8000"),
+        # Continuation params
+        continuation_motion_frames=int(os.getenv("CONTINUATION_MOTION_FRAMES", "10")),
     )

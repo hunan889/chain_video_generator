@@ -419,6 +419,7 @@ async def generate_video(
     gateway: TaskGateway,
     cos_client: COSClient,
     redis,
+    previous_video_url: Optional[str] = None,
 ) -> VideoGenerationResult:
     """Submit a video generation task and poll until completion.
 
@@ -717,19 +718,25 @@ async def generate_video(
         # The GPU worker will download this URL; we store it in task params
         image_filename = "__INPUT_IMAGE__"
 
-    # Continuation workflows (Fix 1): when this workflow continues a parent
-    # AND the parent's chain has an origin first frame, route through the
-    # story_continue stack so all chain segments share a CLIPVision identity
-    # anchor. This prevents the face/outfit drift you'd otherwise get
-    # between segments. The chain's first frame is downloaded as a second
-    # input file with placeholder ``__INIT_REF_IMAGE__``.
+    # Continuation workflows (Fix 1): route through the story_continue stack
+    # whenever we have at least ONE PainterLongVideo input — either an
+    # initial reference image (origin_first_frame_url) for CLIPVision
+    # identity anchoring, or a multi-frame previous_video for motion
+    # reference. Both come from ``parent_video_extractor`` upstream when
+    # the parent has a ``final_video_url``. This prevents the face/outfit
+    # drift you'd otherwise get between segments AND reuses the parent's
+    # actual motion. The parent's last frame (first_frame_url) is still
+    # required as the start image. T2V parents now reach this branch too,
+    # because ``parent_video_extractor`` extracts an origin anchor from
+    # the parent's generated video.
     use_story_continue = (
         is_continuation
-        and origin_first_frame_url
-        and first_frame_url  # parent's last frame is needed too
+        and (origin_first_frame_url or previous_video_url)
+        and first_frame_url  # parent's last frame is needed as start image
         and model_enum == ModelType.A14B
     )
-    initial_ref_filename = "__INIT_REF_IMAGE__" if use_story_continue else None
+    initial_ref_filename = "__INIT_REF_IMAGE__" if use_story_continue and origin_first_frame_url else None
+    previous_video_filename = "__PREV_VIDEO__" if use_story_continue and previous_video_url else None
 
     try:
         from shared.workflow_builder import build_workflow
@@ -754,6 +761,7 @@ async def generate_video(
             t5_preset=t5_preset,
             is_continuation=use_story_continue,
             initial_ref_filename=initial_ref_filename,
+            previous_video_filename=previous_video_filename,
         )
     except Exception as exc:
         logger.warning("WorkflowBuilder failed (%s), using minimal fallback", exc)
@@ -935,6 +943,21 @@ async def generate_video(
             logger.info(
                 "[%s] Continuation: staged initial_reference_image from %s",
                 workflow_id, origin_first_frame_url[:80],
+            )
+        # Continuation (Fix 2): stage the parent's last-N-frames mp4 as the
+        # PainterLongVideo ``previous_video`` motion reference. The GPU
+        # worker downloads it via the same input_files mechanism and
+        # ComfyUI's VHS_LoadVideo node consumes it.
+        if use_story_continue and previous_video_url:
+            input_files.append({
+                "cos_key": _url_to_cos_key(previous_video_url),
+                "cos_url": previous_video_url,
+                "placeholder": "__PREV_VIDEO__",
+                "original_filename": "prev_video.mp4",
+            })
+            logger.info(
+                "[%s] Continuation: staged previous_video motion ref from %s",
+                workflow_id, previous_video_url[:80],
             )
         await redis.hset(task_key(task_id), mapping={
             "input_files": json.dumps(input_files),

@@ -301,6 +301,7 @@ class WorkflowEngine:
             parent_workflow = None
             is_continuation = bool(req.get("parent_workflow_id"))
             origin_first_frame_url = None
+            previous_video_url: Optional[str] = None
 
             if is_continuation:
                 parent_wf_key = f"workflow:{req['parent_workflow_id']}"
@@ -318,6 +319,45 @@ class WorkflowEngine:
                 if not req.get("reference_image") and parent_workflow.get("reference_image"):
                     req["reference_image"] = parent_workflow["reference_image"]
                     logger.info("[%s] Inherited reference_image from parent", workflow_id)
+
+                # Port of legacy-monolith ``api/routes/extend.py:167-232``:
+                # when the parent has a final video, download it and extract
+                # both a first-frame identity anchor and a multi-frame motion
+                # reference mp4. These feed PainterLongVideo's
+                # ``initial_reference_image`` and ``previous_video`` inputs.
+                # Falls back silently if extraction fails so basic I2V still
+                # works.
+                parent_video_url = parent_workflow.get("final_video_url")
+                if parent_video_url:
+                    try:
+                        from api_gateway.services.parent_video_extractor import (
+                            extract_parent_video_anchors,
+                        )
+                        extracted_origin, extracted_prev_video = await extract_parent_video_anchors(
+                            parent_video_url,
+                            cos_client=self.cos_client,
+                            motion_frames=self.config.continuation_motion_frames,
+                            fps=16,
+                        )
+                        if extracted_origin:
+                            origin_first_frame_url = extracted_origin
+                            logger.info(
+                                "[%s] Continuation origin anchor extracted: %s",
+                                workflow_id, extracted_origin[:100],
+                            )
+                        if extracted_prev_video:
+                            previous_video_url = extracted_prev_video
+                            logger.info(
+                                "[%s] Continuation motion ref extracted (%d frames): %s",
+                                workflow_id,
+                                self.config.continuation_motion_frames,
+                                extracted_prev_video[:100],
+                            )
+                    except Exception as exc:
+                        logger.warning(
+                            "[%s] parent_video_extractor failed, falling back: %s",
+                            workflow_id, exc,
+                        )
 
             # ---- Stage 1: Prompt Analysis ----
             await self._update_stage(wf_key, "prompt_analysis", "running")
@@ -439,6 +479,7 @@ class WorkflowEngine:
                 user_prompt=req.get("user_prompt", ""),
                 is_continuation=is_continuation, parent_workflow=parent_workflow,
                 origin_first_frame_url=origin_first_frame_url,
+                previous_video_url=previous_video_url,
                 config=self.config, gateway=self.gateway, cos_client=self.cos_client,
                 redis=self.redis,
             )
