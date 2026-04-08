@@ -1,0 +1,37 @@
+[Unit]
+Description=chain_video_generator API Gateway (uvicorn FastAPI on port 9000)
+After=network-online.target redis.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+Group=root
+WorkingDirectory=/usr/local/soft/chain_video_api
+EnvironmentFile=/usr/local/soft/chain_video_api/.env
+
+# Bind to localhost only — public access goes through nginx /wan/ proxy.
+# Worker count is pinned to 1 because the futures dict lives in-process.
+ExecStart=/usr/local/soft/chain_video_api/venv/bin/python -m uvicorn api_gateway.main:app --host 127.0.0.1 --port 9000 --workers 1 --no-access-log
+
+# Restart policy
+Restart=always
+RestartSec=3
+
+# Crash-loop guard (mirror h5-auth)
+StartLimitIntervalSec=60
+StartLimitBurst=5
+
+# Security hardening
+NoNewPrivileges=true
+ProtectSystem=strict
+ReadWritePaths=/usr/local/soft/chain_video_api
+ProtectHome=true
+PrivateTmp=true
+
+# Logging — append to the existing gateway.log for continuity
+StandardOutput=append:/usr/local/soft/chain_video_api/gateway.log
+StandardError=append:/usr/local/soft/chain_video_api/gateway.log
+
+[Install]
+WantedBy=multi-user.target
