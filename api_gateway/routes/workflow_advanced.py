@@ -32,12 +32,19 @@ class WorkflowGenerateRequest(BaseModel):
     first_frame_source: Optional[str] = None
     uploaded_first_frame: Optional[str] = None
     auto_analyze: bool = True
-    auto_lora: bool = True
-    auto_prompt: bool = True
+    # Prompt optimisation mode (replaces former auto_prompt + auto_lora toggles).
+    #   none         -- raw user_prompt, no LLM polish, no auto LoRA injection.
+    #                   Continuations still run Phase A (rich next-action) because
+    #                   without it the next segment has nothing to render.
+    #   prompt       -- LLM rewrites the prompt, no automatic LoRA selection.
+    #   prompt_lora  -- LLM rewrite + automatic pose-driven LoRA selection.
+    optimize_mode: Literal["none", "prompt", "prompt_lora"] = "prompt_lora"
     t2i_params: Optional[dict] = None
     seedream_params: Optional[dict] = None
     video_params: Optional[dict] = None
     internal_config: Optional[dict] = None
+    # Turbo only controls sampling speed (steps/cfg/scheduler/interpolation),
+    # NOT prompt optimisation -- use ``optimize_mode`` for that.
     turbo: Optional[bool] = True
     mmaudio: Optional[dict] = None
     parent_workflow_id: Optional[str] = None

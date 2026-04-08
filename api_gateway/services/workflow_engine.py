@@ -38,13 +38,19 @@ def _deep_merge(base: dict, override: dict) -> dict:
 def build_default_internal_config(mode: str, turbo: bool = False,
                                   resolution: str | None = None,
                                   prompt_settings: dict | None = None) -> dict:
-    """Build default internal_config based on mode and turbo flag."""
+    """Build default internal_config based on mode and turbo flag.
+
+    NOTE: ``turbo`` only controls video-sampling speed (steps/cfg/scheduler/
+    interpolation). Prompt optimisation is now governed by the request-level
+    ``optimize_mode`` field; this function defaults to the ``prompt_lora``
+    behaviour and ``start_workflow`` overrides ``stage1`` based on the
+    request before deep-merging.
+    """
     ps = prompt_settings or {}
-    non_turbo = ps.get("non_turbo", True)
 
     stage1 = {
         "auto_analyze": True, "auto_lora": True,
-        "auto_prompt": non_turbo if not turbo else False,
+        "auto_prompt": True,
         "auto_completion": 2,
         "inject_trigger_prompt": ps.get("inject_trigger_prompt", True),
         "inject_trigger_words": ps.get("inject_trigger_words", True),
@@ -149,6 +155,22 @@ class WorkflowEngine:
 
         # Build config
         default_config = build_default_internal_config(mode, turbo, req.get("resolution"), prompt_settings)
+
+        # Translate optimize_mode → stage1 flags BEFORE deep-merging the
+        # request's explicit internal_config (so an internal_config override
+        # still wins, but optimize_mode beats the defaults).
+        opt_mode = req.get("optimize_mode") or "prompt_lora"
+        _OPT_MODE_MAP = {
+            "none":        {"auto_prompt": False, "auto_lora": False},
+            "prompt":      {"auto_prompt": True,  "auto_lora": False},
+            "prompt_lora": {"auto_prompt": True,  "auto_lora": True},
+        }
+        if opt_mode not in _OPT_MODE_MAP:
+            logger.warning("Unknown optimize_mode=%r, falling back to prompt_lora", opt_mode)
+            opt_mode = "prompt_lora"
+        default_config.setdefault("stage1_prompt_analysis", {}).update(_OPT_MODE_MAP[opt_mode])
+        default_config["stage1_prompt_analysis"]["optimize_mode"] = opt_mode
+
         if req.get("internal_config"):
             internal_config = _deep_merge(default_config, req["internal_config"])
         else:
@@ -314,7 +336,10 @@ class WorkflowEngine:
                                               "video_loras": [{"name": l.get("name", ""), "weight": l.get("weight", 0.8)}
                                                               for l in analysis.video_loras],
                                               "image_loras": analysis.image_loras,
-                                              "pose_keys": analysis.pose_keys})
+                                              "pose_keys": analysis.pose_keys,
+                                              "optimize_mode": internal_config.get(
+                                                  "stage1_prompt_analysis", {}
+                                              ).get("optimize_mode", "prompt_lora")})
             await self.redis.hset(wf_key, "analysis_result", json.dumps({
                 "video_prompt": analysis.video_prompt,
                 "t2i_prompt": analysis.t2i_prompt,

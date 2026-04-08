@@ -230,8 +230,14 @@ async def _optimize_video_prompt(
     Redis → ``gpu/inference_worker`` (the ``redis`` arg is the gateway's
     async Redis connection used to push tasks onto ``queue:inference``).
     """
-    auto_prompt = internal_config.get("stage1_prompt_analysis", {}).get("auto_prompt", True)
-    if not auto_prompt:
+    stage1_cfg = internal_config.get("stage1_prompt_analysis", {})
+    auto_prompt = stage1_cfg.get("auto_prompt", True)
+    optimize_mode = stage1_cfg.get("optimize_mode", "prompt_lora")
+
+    # Non-continuation + auto_prompt off: nothing to do, return raw user prompt.
+    # Continuations always need Phase A (rich next-action) regardless of mode,
+    # so we fall through into the optimiser block even when auto_prompt is off.
+    if not auto_prompt and not is_continuation:
         return user_prompt
 
     try:
@@ -251,14 +257,10 @@ async def _optimize_video_prompt(
         optimizer_mode = "i2v" if is_continuation else ("t2v" if mode == "t2v" else "i2v")
         frame_desc = ""
 
-        # Build pose description
-        if optimizer_mode != "t2v":
+        # Build pose description (only relevant when Phase B will run)
+        if auto_prompt and optimizer_mode != "t2v":
             pose_keys = analysis_result.get("pose_keys", [])
             if pose_keys:
-                descs = []
-                for pk in pose_keys:
-                    # Pose descriptions are pre-computed in analysis_result
-                    pass
                 pose_desc = analysis_result.get("pose_description", "")
                 if pose_desc:
                     frame_desc = (
@@ -297,24 +299,22 @@ async def _optimize_video_prompt(
         duration_str = _get_video_param(internal_config, "duration", "5s")
         dur_val = float(str(duration_str).replace("s", "")) if duration_str else 5.0
 
-        # For continuations, use the already-generated continuation prompt
+        # For continuations, the previous video's prompt may already be on
+        # analysis_result. Use it as the "previous segment" reference.
         video_gen_prompt = user_prompt
         if is_continuation and analysis_result.get("video_prompt"):
             video_gen_prompt = analysis_result["video_prompt"]
 
-        # ── Continuation branch (Fix 2 extension) ─────────────────────
-        # When this is a continuation workflow, use the rich story-arc-aware
-        # generate_continuation_prompt instead of the generic
-        # generate_video_prompt. The rich method:
-        #   - looks up the matching narrative arc (sex_oral, sex_intercourse,
-        #     undressing, ...) from config/story_arcs.yaml
-        #   - tells the LLM where in the arc the chain currently is
-        #   - is aware of the continuation_index (DEVELOPMENT/CLIMAX/RESOLUTION)
-        #
-        # The rich method outputs (at N seconds: ...) timeline format intended
-        # for the OLD prompt_splitter; we strip the timestamps via splitter
-        # to get a single plain-text prompt. Falls back to the generic
-        # generate_video_prompt on failure.
+        # ============================================================
+        # Phase A: Continuation rich next-action prompt (mandatory for
+        # continuations regardless of optimize_mode).
+        # ============================================================
+        # The rich generator looks up the matching story arc from
+        # config/story_arcs.yaml and asks the LLM for the next beat with
+        # awareness of the continuation_index (DEVELOPMENT/CLIMAX/...).
+        # Output is in (at N seconds: ...) timeline format which we then
+        # collapse to a plain prompt via _strip_keyframes.
+        phase_a_result: Optional[str] = None
         if is_continuation:
             try:
                 import base64
@@ -332,37 +332,44 @@ async def _optimize_video_prompt(
                                 frame_b64 = base64.b64encode(img_bytes).decode("ascii")
 
                 raw = await optimizer.generate_continuation_prompt(
-                    user_intent=video_gen_prompt or "",
+                    user_intent=user_prompt or video_gen_prompt or "",
                     previous_video_prompt=video_gen_prompt or "",
                     frame_image_base64=frame_b64,
                     duration=dur_val,
                     continuation_index=1,
                 )
                 if raw:
-                    # Strip (at N seconds: ...) keyframe wrappers
                     from api_gateway.services.continuation import _strip_keyframes
-                    final_prompt = _strip_keyframes(raw, segment_duration=dur_val) or raw
+                    phase_a_result = _strip_keyframes(raw, segment_duration=dur_val) or raw
                     logger.info(
-                        "generate_continuation_prompt rich result: %s",
-                        final_prompt[:200],
+                        "Phase A (continuation next-action) result: %s",
+                        phase_a_result[:200],
                     )
-                    analysis_result["video_prompt"] = final_prompt
-                    analysis_result["optimized_i2v_prompt"] = final_prompt
-                    return final_prompt
                 else:
-                    logger.info(
-                        "generate_continuation_prompt returned empty; "
-                        "falling back to generate_video_prompt"
-                    )
+                    logger.info("Phase A returned empty raw output")
             except Exception as exc:
-                logger.warning(
-                    "Rich continuation prompt failed (%s); "
-                    "falling back to generate_video_prompt",
-                    exc,
-                )
+                logger.warning("Phase A (rich continuation) failed: %s", exc)
 
+        # ============================================================
+        # optimize_mode=none short-circuit:
+        #   - Continuation:   return Phase A (the next-action prompt) so the
+        #                     video at least has a meaningful direction.
+        #   - Non-continuation: return raw user_prompt unchanged.
+        # ============================================================
+        if not auto_prompt:
+            final = phase_a_result or user_prompt
+            analysis_result["video_prompt"] = final
+            analysis_result["optimized_i2v_prompt"] = final
+            return final
+
+        # ============================================================
+        # Phase B: generic prompt optimisation. Uses Phase A's output as
+        # the seed prompt when present, otherwise falls back to the user
+        # prompt / stage-1 video_prompt.
+        # ============================================================
+        prompt_for_phase_b = phase_a_result or video_gen_prompt
         result = await optimizer.generate_video_prompt(
-            prompt=video_gen_prompt,
+            prompt=prompt_for_phase_b,
             trigger_words=trigger_words,
             mode=optimizer_mode,
             duration=dur_val,
@@ -371,10 +378,10 @@ async def _optimize_video_prompt(
             standin_mode=bool(standin_enabled),
         )
 
-        final_prompt = result["optimized_prompt"]
+        final_prompt = result["optimized_prompt"] or prompt_for_phase_b or user_prompt
         has_prereq = result.get("has_prerequisite", False)
         logger.info(
-            "generate_video_prompt result (scene=%s, prerequisite=%s): %s",
+            "Phase B (generate_video_prompt) result (scene=%s, prerequisite=%s): %s",
             result.get("scene_type"), has_prereq, final_prompt[:150],
         )
 
@@ -385,7 +392,7 @@ async def _optimize_video_prompt(
         return final_prompt
 
     except Exception as exc:
-        logger.warning("generate_video_prompt failed, using raw prompt: %s", exc)
+        logger.warning("Prompt optimisation failed, falling back: %s", exc)
         return (
             analysis_result.get("optimized_i2v_prompt")
             or analysis_result.get("video_prompt")
@@ -580,12 +587,10 @@ async def generate_video(
         redis=redis,
     )
 
-    # Use analysis video_prompt if available and auto_prompt
-    auto_prompt = internal_config.get("stage1_prompt_analysis", {}).get("auto_prompt", True)
-    if auto_prompt and analysis:
-        video_prompt = analysis.get("video_prompt") or analysis.get("optimized_i2v_prompt")
-        if video_prompt:
-            prompt = video_prompt
+    # _optimize_video_prompt is the source of truth; it has already written
+    # the resolved value into analysis["video_prompt"]. Don't second-guess
+    # it here -- the previous re-read could overwrite Phase A's continuation
+    # result with stale data when optimize_mode == "none".
 
     # ------------------------------------------------------------------
     # 8. Convert model string to enum
