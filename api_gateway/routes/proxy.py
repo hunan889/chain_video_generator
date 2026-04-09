@@ -11,7 +11,6 @@ logger = logging.getLogger(__name__)
 router = APIRouter(tags=["proxy"])
 
 PROXY_PREFIXES = [
-    "admin/loras",
     "admin/embeddings",
     "pose-images",
     "upload",

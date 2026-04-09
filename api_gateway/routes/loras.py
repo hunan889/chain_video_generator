@@ -84,6 +84,67 @@ async def list_loras(
         return {"loras": []}
 
 
+@router.get("/admin/loras")
+async def admin_list_loras(
+    lora_type: str | None = None,
+    config: GatewayConfig = Depends(get_config),
+):
+    """List LoRAs for admin UI, optionally filtered by lora_type (video/image)."""
+    import asyncio
+    import pymysql
+    import pymysql.cursors
+
+    def _query():
+        conn = pymysql.connect(
+            host=config.mysql_host, port=config.mysql_port,
+            user=config.mysql_user, password=config.mysql_password,
+            database=config.mysql_db, charset="utf8mb4",
+            cursorclass=pymysql.cursors.DictCursor,
+        )
+        try:
+            with conn.cursor() as cur:
+                if lora_type == "video":
+                    where = "enabled = 1 AND mode IN ('I2V', 'T2V', 'both')"
+                elif lora_type == "image":
+                    where = "enabled = 1 AND mode IN ('image', 'both')"
+                else:
+                    where = "enabled = 1"
+                cur.execute(
+                    f"SELECT id, name, file, preview_url, civitai_id, "
+                    f"trigger_words, trigger_prompt, mode, noise_stage "
+                    f"FROM lora_metadata WHERE {where} ORDER BY name"
+                )
+                return cur.fetchall()
+        finally:
+            conn.close()
+
+    try:
+        rows = await asyncio.to_thread(_query)
+        loras = []
+        for r in rows:
+            tw = r.get("trigger_words") or "[]"
+            if isinstance(tw, str):
+                try:
+                    tw = json.loads(tw)
+                except (json.JSONDecodeError, TypeError):
+                    tw = []
+            loras.append({
+                "id": r["id"],
+                "name": r.get("name") or r.get("file", ""),
+                "filename": r.get("file", ""),
+                "preview_url": r.get("preview_url"),
+                "civitai_id": r.get("civitai_id"),
+                "trigger_words": tw,
+                "trigger_prompt": r.get("trigger_prompt"),
+                "mode": r.get("mode", "both"),
+                "noise_stage": r.get("noise_stage", "high"),
+            })
+        return loras
+    except Exception as e:
+        logger.exception("Failed to list LoRAs from MySQL")
+        return []
+
+
 @router.post("/loras/recommend")
 async def recommend_loras(
     req: LoraRecommendRequest,

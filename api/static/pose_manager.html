@@ -1121,6 +1121,12 @@
     </div>
   </div>
 
+  <div style="display:flex;gap:0;border-bottom:2px solid #333;margin-bottom:0;">
+    <button id="tab-btn-poses" onclick="switchTab('poses')" style="padding:10px 24px;background:none;border:none;border-bottom:3px solid #7c83ff;color:#7c83ff;font-size:14px;font-weight:600;cursor:pointer;margin-bottom:-2px;">姿势管理</button>
+    <button id="tab-btn-loras" onclick="switchTab('loras')" style="padding:10px 24px;background:none;border:none;border-bottom:3px solid transparent;color:#a0a0b0;font-size:14px;font-weight:600;cursor:pointer;margin-bottom:-2px;">LORA管理</button>
+  </div>
+
+  <div id="tab-poses">
   <div class="filters">
     <input type="text" id="search-input" placeholder="搜索姿势（支持自然语言，如：woman on top riding）..." style="flex: 1;">
     <button id="search-mode-btn" class="btn btn-secondary" style="min-width: 100px;" onclick="toggleSearchMode()">
@@ -1147,6 +1153,11 @@
 
   <div id="pose-container" class="pose-grid">
     <div class="loading">加载中...</div>
+  </div>
+  </div><!-- /tab-poses -->
+
+  <div id="tab-loras" style="display:none;">
+    <iframe src="/lora_manager.html" style="width:100%;height:calc(100vh - 130px);border:none;border-radius:8px;"></iframe>
   </div>
 
   <div id="config-modal" class="modal">
@@ -1270,6 +1281,15 @@
   </div>
 
   <script>
+    function switchTab(tab) {
+      document.getElementById('tab-poses').style.display = tab === 'poses' ? '' : 'none';
+      document.getElementById('tab-loras').style.display = tab === 'loras' ? '' : 'none';
+      const active = 'border-bottom:3px solid #7c83ff;color:#7c83ff;';
+      const inactive = 'border-bottom:3px solid transparent;color:#a0a0b0;';
+      document.getElementById('tab-btn-poses').style.cssText = `padding:10px 24px;background:none;border:none;font-size:14px;font-weight:600;cursor:pointer;margin-bottom:-2px;${tab==='poses'?active:inactive}`;
+      document.getElementById('tab-btn-loras').style.cssText = `padding:10px 24px;background:none;border:none;font-size:14px;font-weight:600;cursor:pointer;margin-bottom:-2px;${tab==='loras'?active:inactive}`;
+    }
+
     const API_KEY = 'wan22-default-key-change-me';
     let allPoses = [];
     let currentFilters = { search: '', category: '', difficulty: '' };
@@ -1546,6 +1566,7 @@
     }
 
     async function loadPoseDetails(poseId) {
+      if (!poseId) return;
       try {
         const response = await fetch(`/api/v1/poses/${poseId}/config`);
         const data = await response.json();

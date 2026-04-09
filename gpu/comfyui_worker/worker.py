@@ -318,10 +318,10 @@ class GPUWorker:
             # Step 5: Wait for completion with real-time progress
             async def _on_step_progress(value, max_val):
                 if max_val > 0:
-                    # Map ComfyUI step progress (0..max) to task progress (0.05..0.70)
-                    # Leave 0.70-1.0 for VAE decode + COS upload (no progress events)
+                    # Map ComfyUI step progress (0..max) to task progress (0.05..0.50)
+                    # Leave 0.50-1.0 for VAE decode + COS upload (smooth fill in frontend)
                     step_pct = value / max_val
-                    task_pct = 0.05 + 0.65 * step_pct
+                    task_pct = 0.05 + 0.45 * step_pct
                     await self._gateway.update_task_progress(task_id, round(task_pct, 3))
 
             await client.wait_for_completion(prompt_id, timeout=1800, on_progress=_on_step_progress)

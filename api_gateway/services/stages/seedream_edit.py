@@ -210,6 +210,15 @@ def _compute_seedream_size(
         width = round(p_val / 8) * 8
         height = round(p_val * ar_h / ar_w / 8) * 8
 
+    # BytePlus SeeDream requires output size >= 3,686,400 pixels (e.g. 2560x1440).
+    # Scale up proportionally if the computed size is too small.
+    _MIN_PIXELS = 3_686_400
+    if width * height < _MIN_PIXELS:
+        import math
+        scale = math.sqrt(_MIN_PIXELS / (width * height))
+        width = math.ceil(width * scale / 8) * 8
+        height = math.ceil(height * scale / 8) * 8
+
     return f"{width}x{height}"
 
 
@@ -359,7 +368,7 @@ async def edit_first_frame(
             size = _compute_seedream_size(resolution, aspect_ratio)
         except Exception as exc:
             logger.warning("[%s] Failed to compute SeeDream size: %s", workflow_id, exc)
-            size = "832x1216"
+            size = "1664x2216"  # ~3.69M px, meets BytePlus minimum
 
     # Resolve prompt
     prompt = _resolve_seedream_prompt(seedream_config, user_prompt)
